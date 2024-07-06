@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-toktrie = { path = "../../controllers/toktrie" }
-llguidance_parser = { path = "../../controllers/llguidance_parser" }
+llguidance_parser = { path = "../parser" }
 bytemuck = "1.16.0"
 pyo3 = "0.21.2"
 serde = { version = "1.0.192", features = ["derive"] }

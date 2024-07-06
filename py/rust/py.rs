@@ -7,7 +7,7 @@ use llguidance_parser::{
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
-use toktrie::{self, StepArg, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
+use llguidance_parser::toktrie::{self, StepArg, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
 
 #[derive(Clone)]
 #[pyclass]
