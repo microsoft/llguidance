@@ -1,0 +1,46 @@
+name: Build Python Wheels
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, 3.10, 3.11, 3.12]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install wheel build setuptools-rust setuptools==68
+
+    - name: Build wheel
+      run: python -m build --wheel
+
+    - name: Upload built wheels
+      uses: actions/upload-artifact@v3
+      with:
+        name: wheels
+        path: dist/*.whl

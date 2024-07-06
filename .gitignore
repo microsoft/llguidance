@@ -10,3 +10,7 @@ __pycache__/
 *.so
 *.dll
 *.dylib
+
+dist
+*.egg-info
+build
