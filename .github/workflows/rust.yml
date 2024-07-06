@@ -16,6 +16,25 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+  
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+
     - name: Build parser
       run: cargo build --verbose
       working-directory: parser
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install python test dependencies
+      run: ./scripts/install-deps.sh
+
+    - name: Run python guidance tests
+      run: ./scripts/test-guidance.sh
+
