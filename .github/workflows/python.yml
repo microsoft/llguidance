@@ -37,5 +37,5 @@ jobs:
     - name: Upload built wheels
       uses: actions/upload-artifact@v4
       with:
-        name: wheels
+        name: wheel-${{ matrix.os }}-py${{ matrix.python-version }}
         path: dist/*.whl
