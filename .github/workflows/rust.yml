@@ -17,12 +17,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
   
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-
     - name: Build parser
       run: cargo build --verbose
       working-directory: parser
