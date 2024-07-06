@@ -17,5 +17,6 @@ find = { where = ["python"] }
 target = "llguidance._lib"
 binding = "PyO3"
 debug = false
-# features = ["aici_llguidance_ctrl/logging"]
+path = "python/Cargo.toml"
+# features = ["llguidance_parser/logging"]
 # See reference for RustExtension in https://setuptools-rust.readthedocs.io/en/latest/reference.html
