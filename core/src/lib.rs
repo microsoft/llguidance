@@ -99,6 +99,15 @@ impl<S> Branch<S> {
         }
     }
 
+    pub fn has_backtrack(&self) -> bool {
+        let max_bt = if self.sample_mask.is_none() { 0 } else { 1 };
+        self.splices.iter().any(|s| s.backtrack > max_bt)
+    }
+
+    pub fn has_ff_tokens(&self) -> bool {
+        self.splices.len() > 0
+    }
+
     pub fn stop() -> Self {
         Branch {
             sample_mask: None,
