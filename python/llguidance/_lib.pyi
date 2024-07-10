@@ -92,13 +92,16 @@ class LLInterpreter:
         Returns the adjusted prompt.
         """
 
-    def mid_process(
-        self,
-        backtrack: int,
-        tokens: List[TokenId],
-        sampled: Optional[TokenId] = None,
-    ) -> Tuple[Optional[bytes], str]:
+    def mid_process(self) -> Tuple[Optional[bytes], str]:
         """
         Perform next parsing step.
         Returns: optional token mask and a JSON string.
+        """
+
+    def post_process(self, sampled_token: Optional[TokenId]) -> Tuple[int, List[TokenId]]:
+        """
+        Perform any adjustments to the sampled token.
+        Returns the number of tokens to remove from the prompt and the
+        list of tokens to append.
+        If mid_process() returned None, this should be called immedietly with None.
         """

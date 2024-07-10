@@ -1,6 +1,8 @@
 use std::{borrow::Cow, sync::Arc};
 
-use llguidance_parser::toktrie::{self, StepArg, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
+use llguidance_parser::toktrie::{
+    self, StepArg, StepResult, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
+};
 use llguidance_parser::{
     api::TopLevelGrammar,
     output::{ParserOutput, Reporter},
@@ -15,6 +17,8 @@ struct LLInterpreter {
     inner: TokenParser,
     temperature: f32,
     reporter: Reporter,
+    step_arg: StepArg,
+    last_result: StepResult,
     #[pyo3(get, set)]
     log_level: isize,
 }
@@ -48,6 +52,8 @@ impl LLInterpreter {
             reporter,
             temperature: 0.0,
             log_level,
+            step_arg: StepArg::empty(),
+            last_result: StepResult::noop(),
         })
     }
 
@@ -63,46 +69,57 @@ impl LLInterpreter {
         self.inner.process_prompt(prompt)
     }
 
-    fn mid_process(
-        &mut self,
-        backtrack: u32,
-        tokens: Vec<TokenId>,
-        sampled: Option<TokenId>,
-    ) -> (Option<Cow<[u8]>>, String) {
-        let r = self.inner.mid_process(StepArg {
-            backtrack,
-            tokens,
-            sampled,
-        });
+    fn mid_process(&mut self) -> (Option<Cow<[u8]>>, String) {
+        let arg = std::mem::replace(&mut self.step_arg, StepArg::empty());
+        self.last_result = self.inner.mid_process(arg);
+        let r = &self.last_result;
         let is_final = r.is_stop();
-        let mut res = PyMidProcessResult {
-            progress: self.reporter.get_progress(&mut self.inner, &r),
+        if let Some(t) = r.temperature {
+            self.temperature = t;
+        }
+        let res = PyMidProcessResult {
+            progress: self.reporter.get_progress(&mut self.inner, r),
             stop: is_final,
-            backtrack: 0,
             temperature: self.temperature,
-            ff_tokens: vec![],
         };
         if is_final {
             (None, serde_json::to_string(&res).unwrap())
         } else {
-            if r.temperature.is_some() {
-                self.temperature = r.temperature.unwrap();
-                res.temperature = self.temperature;
-            }
-            if r.splices.len() > 0 {
-                assert!(r.splices.len() == 1);
-                assert!(r.splices[0].when_sampled.is_empty());
-                res.backtrack = r.splices[0].backtrack;
-                res.ff_tokens = r.splices[0].ff_tokens.clone();
-            }
-            let mask = r.sample_mask.as_ref().map(|m| {
+            let mask = if r.unconditional_splice().is_some() {
+                None
+            } else {
+                let m = r
+                    .sample_mask
+                    .as_ref()
+                    .expect("expecting unconditional splice or mask");
                 let mut res = vec![0u8; m.len()];
                 m.iter_set_entries(|i| res[i] = 200);
                 res.pop();
-                Cow::Owned(res)
-            });
+                Some(Cow::Owned(res))
+            };
+
             (mask, serde_json::to_string(&res).unwrap())
         }
+    }
+
+    fn post_process(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
+        let splice = if let Some(t) = sampled_token {
+            self.last_result.spliced(t)
+        } else {
+            if let Some(s) = self.last_result.unconditional_splice() {
+                s.clone()
+            } else {
+                return Err(PyValueError::new_err("Expecting sampled token"));
+            }
+        };
+
+        self.step_arg = StepArg {
+            backtrack: splice.backtrack,
+            tokens: splice.ff_tokens.clone(),
+            sampled: sampled_token,
+        };
+
+        Ok((splice.backtrack, splice.ff_tokens))
     }
 }
 
@@ -110,8 +127,6 @@ impl LLInterpreter {
 struct PyMidProcessResult {
     progress: Vec<ParserOutput>,
     stop: bool,
-    backtrack: u32,
-    ff_tokens: Vec<TokenId>,
     temperature: f32,
 }
 
