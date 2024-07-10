@@ -9,7 +9,7 @@ mod toktree;
 pub use svob::{SimpleVob, SimpleVobIter};
 pub use toktree::{Recognizer, SpecialToken, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StepArg {
     /// Sampling result for the previous iteration.
     /// For simple sampled token 't', backtrack==0 and tokens==[t].
@@ -22,6 +22,14 @@ pub struct StepArg {
 }
 
 impl StepArg {
+    pub fn empty() -> Self {
+        StepArg {
+            backtrack: 0,
+            tokens: vec![],
+            sampled: None,
+        }
+    }
+
     pub fn save_tokens(&self, acc_tokens: &mut Vec<TokenId>) {
         let bt = self.backtrack as usize;
         assert!(
@@ -98,6 +106,30 @@ impl<S> Branch<S> {
             sample_mask: self.sample_mask.as_ref().map(f),
             temperature: self.temperature,
             splices: self.splices.clone(),
+        }
+    }
+
+    pub fn find_splice(&self, sampled: TokenId) -> Option<&Splice> {
+        self.splices
+            .iter()
+            .find(|s| s.when_sampled.is_empty() || s.when_sampled.contains(&sampled))
+    }
+
+    pub fn spliced(&self, sampled: TokenId) -> Splice {
+        self.find_splice(sampled).cloned().unwrap_or_else(|| {
+            Splice {
+                when_sampled: vec![],
+                backtrack: 0,
+                ff_tokens: vec![sampled],
+            }
+        })
+    }
+
+    pub fn unconditional_splice(&self) -> Option<&Splice> {
+        if self.splices.len() == 1 && self.splices[0].when_sampled.is_empty() {
+            Some(&self.splices[0])
+        } else {
+            None
         }
     }
 
