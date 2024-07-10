@@ -2,6 +2,7 @@ from typing import List, Tuple, Mapping, Optional, Sequence, Union
 from ._util import TokenId
 from ._tokenizer import TokenizerWrapper
 
+
 class LLTokenizer:
     vocab_size: int
     eos_token: TokenId
@@ -56,7 +57,9 @@ class LLTokenizer:
         Decode the tokens into a bytes object.
         """
 
+
 class LLInterpreter:
+
     def __new__(
         cls,
         tokenizer: LLTokenizer,
@@ -90,7 +93,10 @@ class LLInterpreter:
         """
 
     def mid_process(
-        self, backtrack: int, tokens: List[TokenId]
+        self,
+        backtrack: int,
+        tokens: List[TokenId],
+        sampled: Optional[TokenId] = None,
     ) -> Tuple[Optional[bytes], str]:
         """
         Perform next parsing step.

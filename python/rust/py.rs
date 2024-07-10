@@ -1,5 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
+use llguidance_parser::toktrie::{self, StepArg, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
 use llguidance_parser::{
     api::TopLevelGrammar,
     output::{ParserOutput, Reporter},
@@ -7,7 +8,6 @@ use llguidance_parser::{
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
-use llguidance_parser::toktrie::{self, StepArg, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
 
 #[derive(Clone)]
 #[pyclass]
@@ -63,8 +63,17 @@ impl LLInterpreter {
         self.inner.process_prompt(prompt)
     }
 
-    fn mid_process(&mut self, backtrack: u32, tokens: Vec<TokenId>) -> (Option<Cow<[u8]>>, String) {
-        let r = self.inner.mid_process(StepArg { backtrack, tokens });
+    fn mid_process(
+        &mut self,
+        backtrack: u32,
+        tokens: Vec<TokenId>,
+        sampled: Option<TokenId>,
+    ) -> (Option<Cow<[u8]>>, String) {
+        let r = self.inner.mid_process(StepArg {
+            backtrack,
+            tokens,
+            sampled,
+        });
         let is_final = r.is_stop();
         let mut res = PyMidProcessResult {
             progress: self.reporter.get_progress(&mut self.inner, &r),

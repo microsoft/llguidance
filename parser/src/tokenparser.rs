@@ -452,6 +452,7 @@ impl TokenParser {
                     StepArg {
                         backtrack: 0,
                         tokens: Vec::new(),
+                        sampled: None,
                     }
                 });
             }
