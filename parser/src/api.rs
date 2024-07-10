@@ -66,6 +66,9 @@ pub enum Node {
         /// Default value set in GrammarWithLexer.
         contextual: Option<bool>,
 
+        /// Override sampling temperature.
+        temperature: Option<f32>,
+
         #[serde(flatten)]
         props: NodeProps,
     },
@@ -116,6 +119,10 @@ pub struct GenOptions {
     /// When set, the string matching `stop_rx` will be output as a capture
     /// with the given name.
     pub stop_capture_name: Option<String>,
+
+    /// Lazy gen()s take the shortest match. Non-lazy take the longest.
+    /// If not specified, the gen() is lazy if stop_rx is non-empty.
+    pub lazy: Option<bool>,
 
     /// Override sampling temperature.
     pub temperature: Option<f32>,

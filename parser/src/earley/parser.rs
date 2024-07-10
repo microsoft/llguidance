@@ -1342,9 +1342,6 @@ impl Parser {
         lexeme_byte: Option<u8>,
         pre_lexeme: PreLexeme,
     ) {
-        // greedy lexers don't have stop tokens
-        assert!(!self.lexer_spec().greedy);
-
         let added_row_lexemes = &self.rows[self.num_rows()].allowed_lexemes;
 
         // make sure we have a real lexeme

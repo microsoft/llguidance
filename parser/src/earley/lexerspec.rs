@@ -1,13 +1,12 @@
-use toktrie::{bytes::limit_str, SimpleVob};
 use anyhow::Result;
 use derivre::{ExprRef, RegexAst, RegexBuilder};
 use std::{fmt::Debug, hash::Hash};
+use toktrie::{bytes::limit_str, SimpleVob};
 
 use super::regexvec::RegexVec;
 
 #[derive(Clone)]
 pub struct LexerSpec {
-    pub greedy: bool, // no longer used
     pub lexemes: Vec<LexemeSpec>,
     pub regex_builder: RegexBuilder,
 }
@@ -66,9 +65,8 @@ impl Debug for LexemeSpec {
 }
 
 impl LexerSpec {
-    pub fn new(greedy: bool, regex_builder: RegexBuilder, skip: RegexAst) -> Result<Self> {
+    pub fn new(regex_builder: RegexBuilder, skip: RegexAst) -> Result<Self> {
         let mut r = LexerSpec {
-            greedy,
             lexemes: Vec::new(),
             regex_builder,
         };
@@ -158,9 +156,9 @@ impl LexerSpec {
         name: String,
         body_rx: RegexAst,
         stop_rx: RegexAst,
+        lazy: bool,
     ) -> Result<LexemeIdx> {
-        let lazy = !matches!(stop_rx, RegexAst::NoMatch);
-        let rx = if lazy {
+        let rx = if !matches!(stop_rx, RegexAst::EmptyString) {
             RegexAst::Concat(vec![body_rx, RegexAst::LookAhead(Box::new(stop_rx))])
         } else {
             body_rx
@@ -234,7 +232,7 @@ impl LexerSpec {
 
 impl Debug for LexerSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "LexerSpec {{ greedy: {}, lexemes: [", self.greedy)?;
+        writeln!(f, "LexerSpec {{ lexemes: [")?;
         for lex in &self.lexemes {
             writeln!(f, "  {:?}", lex)?;
         }

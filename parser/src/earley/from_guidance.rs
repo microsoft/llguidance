@@ -4,7 +4,7 @@ use super::{grammar::SymbolProps, lexerspec::LexerSpec, CGrammar, Grammar};
 use crate::api::{
     GrammarWithLexer, Node, RegexId, RegexNode, RegexSpec, TopLevelGrammar, DEFAULT_CONTEXTUAL,
 };
-use anyhow::{bail, ensure, Result};
+use anyhow::{bail, Result};
 use derivre::{ExprRef, RegexAst, RegexBuilder};
 
 fn resolve_rx(rx_refs: &[ExprRef], node: &RegexSpec) -> Result<RegexAst> {
@@ -64,16 +64,13 @@ fn map_rx_nodes(rx_nodes: Vec<RegexNode>) -> Result<(RegexBuilder, Vec<ExprRef>)
 }
 
 fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
-    let is_greedy = input.greedy_lexer;
-    let is_lazy = !is_greedy;
-
     let (builder, rx_nodes) = map_rx_nodes(input.rx_nodes)?;
 
     let skip = match input.greedy_skip_rx {
-        Some(rx) if is_greedy => resolve_rx(&rx_nodes, &rx)?,
+        Some(rx) => resolve_rx(&rx_nodes, &rx)?,
         _ => RegexAst::NoMatch,
     };
-    let mut lexer_spec = LexerSpec::new(is_greedy, builder, skip)?;
+    let mut lexer_spec = LexerSpec::new(builder, skip)?;
     let mut grm = Grammar::new();
     let node_map = input
         .nodes
@@ -117,14 +114,14 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
             }
             Node::Gen { data, .. } => {
                 // parser backtracking relies on only lazy lexers having hidden lexemes
-                ensure!(is_lazy, "gen() only allowed in lazy grammars");
                 let body_rx = if data.body_rx.is_missing() {
                     RegexAst::Regex(".*".to_string())
                 } else {
                     resolve_rx(&rx_nodes, &data.body_rx)?
                 };
+                let lazy = data.lazy.unwrap_or(!data.stop_rx.is_missing());
                 let stop_rx = if data.stop_rx.is_missing() {
-                    RegexAst::NoMatch
+                    RegexAst::EmptyString
                 } else {
                     resolve_rx(&rx_nodes, &data.stop_rx)?
                 };
@@ -132,6 +129,7 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
                     format!("gen_{}", grm.sym_name(lhs)),
                     body_rx,
                     stop_rx,
+                    lazy,
                 )?;
 
                 let symprops = grm.sym_props_mut(lhs);
@@ -149,13 +147,21 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
                     grm.make_terminal(lhs, idx, &lexer_spec)?;
                 }
             }
-            Node::Lexeme { rx, contextual, .. } => {
-                ensure!(is_greedy, "lexeme() only allowed in greedy grammars");
+            Node::Lexeme {
+                rx,
+                contextual,
+                temperature,
+                ..
+            } => {
                 let idx = lexer_spec.add_greedy_lexeme(
                     format!("lex_{}", grm.sym_name(lhs)),
                     resolve_rx(&rx_nodes, rx)?,
                     contextual.unwrap_or(input.contextual.unwrap_or(DEFAULT_CONTEXTUAL)),
                 )?;
+                if let Some(t) = temperature {
+                    let symprops = grm.sym_props_mut(lhs);
+                    symprops.temperature = *t;
+                }
                 grm.make_terminal(lhs, idx, &lexer_spec)?;
             }
             Node::String { literal, .. } => {
