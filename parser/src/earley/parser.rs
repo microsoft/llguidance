@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Result};
+use derivre::RegexAst;
 use serde::{Deserialize, Serialize};
 use toktrie::{Recognizer, SimpleVob, SpecialToken, TokTrie, TokenId};
 
@@ -1297,14 +1298,21 @@ impl Parser {
         if allowed_lexemes.is_zero() {
             return false;
         }
+        let mut matched_something = false;
         for lexeme_idx in allowed_lexemes.iter() {
             let lex_spec = &self.lexer_spec().lexemes[lexeme_idx as usize];
+            if lexeme_idx as usize == LexemeIdx::SKIP.as_usize()
+                && matches!(lex_spec.rx, RegexAst::NoMatch)
+            {
+                continue;
+            }
             if !lex_spec.has_forced_bytes(bytes) {
                 return false;
             }
+            matched_something = true;
         }
         // debug!("   forced ok {:?}", String::from_utf8_lossy(bytes));
-        true
+        matched_something
     }
 
     #[inline(always)]
@@ -1350,7 +1358,7 @@ impl Parser {
         let hidden_bytes = lexeme.hidden_bytes();
         assert!(hidden_bytes.len() == pre_lexeme.hidden_len);
 
-        if self.scratch.definitive {
+        if true || self.scratch.definitive {
             trace!(
                 "  hidden_bytes: {} {}",
                 self.lexer_spec().dbg_lexeme_set(added_row_lexemes),
@@ -1359,7 +1367,7 @@ impl Parser {
         }
 
         if self.has_forced_bytes(added_row_lexemes, &hidden_bytes) {
-            if self.scratch.definitive {
+            if true || self.scratch.definitive {
                 trace!("  hidden forced");
             }
             let mut lexer_state = self.lexer.start_state(added_row_lexemes, None);
@@ -1368,7 +1376,10 @@ impl Parser {
             self.pop_lexer_states(hidden_bytes.len() - 1);
             self.stats.hidden_bytes += hidden_bytes.len();
             for b in hidden_bytes {
-                match self.lexer.advance(lexer_state, *b, self.scratch.definitive) {
+                match self
+                    .lexer
+                    .advance(lexer_state, *b, true || self.scratch.definitive)
+                {
                     LexerResult::State(next_state, _) => {
                         lexer_state = next_state;
                     }
