@@ -17,6 +17,8 @@ pub struct StepArg {
     /// Can be more complex when splices are used.
     pub backtrack: u32,
     pub tokens: Vec<TokenId>,
+    /// The token that was sampled (after applying the mask), before any splicing.
+    pub sampled: Option<TokenId>,
 }
 
 impl StepArg {
