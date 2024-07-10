@@ -1352,10 +1352,10 @@ impl Parser {
 
         if self.scratch.definitive {
             trace!(
-                "  allowed lexemes: {}",
-                self.lexer_spec().dbg_lexeme_set(added_row_lexemes)
+                "  hidden_bytes: {} {}",
+                self.lexer_spec().dbg_lexeme_set(added_row_lexemes),
+                String::from_utf8_lossy(&hidden_bytes)
             );
-            trace!("  hidden: {:?}", String::from_utf8_lossy(&hidden_bytes));
         }
 
         if self.has_forced_bytes(added_row_lexemes, &hidden_bytes) {
