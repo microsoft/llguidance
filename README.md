@@ -13,20 +13,24 @@ Guidance branch: https://github.com/hudson-ai/guidance/tree/lazy_grammars
 - `gen()` now generates a new node, `Gen`
 - grammar is serialized to JSON, see `ll_serialize()`
 
-## Status in Guidance
-
-- [x] `save_stop_text=` doesn't work on `gen()`
-- [ ] `substring()` needs to be re-implemented (translate to RegexAst)
-- [ ] translate `commit_point(grammar)` into a RegexAst if
-      (the grammar is non-recursive;
-      no actually hidden stop strings;
-      and no captures)?
-
 ## TODO
 
+- [ ] `substring()` in Guidance needs to be re-implemented (translate to RegexAst)
 - [ ] `to_regex_vec()` in lexerspec.rs - non-contextual keywords
-- [x] fix derivative computation to be non-recursive (critical for `substring()`)
-- [x] add stats about how many parser transitions are made in a token trie traversal
+- [ ] allow byte sequence to fast-forward through grammar at start (grammar derivative)
+- [ ] check if env allows for backtracking (if not, don't use it)
+- [ ] return `{when_sampled:[EOS],ff:[]}` as slice when EOS ends gen()
+- [ ] check for relevance of intersection and negation in `derivre`
+
+## Lexeme-splitting
+
+See https://github.com/hudson-ai/guidance/issues/5
+
+```python
+    g = select(["a", "abq", "c"]) + optional("bQ")
+    check_grammar(g, ["", "a‧b‧q‧≺EOS≻"]) # fails 'q' is forced
+    check_grammar(g, ["", "a‧b‧Q"]) # doesn't match at all
+```
 
 ## Only valid tokens
 
