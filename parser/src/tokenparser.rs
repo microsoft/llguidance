@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use serde_json::json;
-use toktrie::{StepResult, SimpleVob, StepArg, TokenId, TokenizerEnv};
+use toktrie::{SimpleVob, StepArg, StepResult, TokenId, TokenizerEnv};
 
 macro_rules! infoln {
     ($s:expr, $($arg:tt)*) => {
@@ -31,6 +31,8 @@ pub struct TokenParser {
     pub parser: Parser,
     pub log_level: isize,
     pub mid_process_start_time: std::time::Instant,
+    backtrack_supported: bool,
+    pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
     test_trace: bool,
@@ -67,6 +69,7 @@ impl TokenParser {
         token_env: Arc<dyn TokenizerEnv + Sync>,
         buf: TopLevelGrammar,
         log_level: isize,
+        backtrack_supported: bool,
     ) -> Result<Self> {
         let mid_process_start_time = std::time::Instant::now();
         let test_trace = buf.test_trace;
@@ -81,6 +84,8 @@ impl TokenParser {
             log_level,
             test_trace,
             token_env,
+            backtrack_supported,
+            pending_bogus_backtrack: 0,
             mid_process_start_time,
             mid_process_was_accepting: false,
             pop_tokens: None,
@@ -191,7 +196,7 @@ impl TokenParser {
         }
     }
 
-    pub fn mid_process(&mut self, arg: StepArg) -> StepResult {
+    pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
         self.mid_process_start_time = std::time::Instant::now();
         if self.max_tokens_total == 0 {
             warn!(self, "max_tokens_total reached, stopping");
@@ -199,6 +204,11 @@ impl TokenParser {
         }
         self.max_tokens_total -= 1;
         self.max_tokens_parser = self.max_tokens_parser.saturating_sub(1);
+
+        if self.pending_bogus_backtrack != 0 {
+            arg.backtrack = self.pending_bogus_backtrack;
+            self.pending_bogus_backtrack = 0;
+        }
 
         let trace = if self.test_trace {
             let tokens = self.token_env.tok_trie().test_trace_tokens(&arg.tokens);
@@ -399,6 +409,17 @@ impl TokenParser {
                     trie.tokens_dbg(&grm_tokens),
                     backtrack
                 );
+                if backtrack != 0 && !self.backtrack_supported {
+                    warn!(
+                        self,
+                        "can't backtrack over {}; this may confuse the model",
+                        trie.tokens_dbg(
+                            &self.llm_tokens[self.llm_tokens.len() - backtrack as usize..]
+                        )
+                    );
+                    self.pending_bogus_backtrack = backtrack as u32;
+                    backtrack = 0;
+                }
                 return StepResult::splice(backtrack as u32, grm_tokens);
             } else {
                 infoln!(self, "no fixed tokens");

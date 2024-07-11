@@ -44,8 +44,10 @@ impl LLInterpreter {
         let arg: TopLevelGrammar = serde_json::from_str(llguidance_json)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let log_level = log_level.unwrap_or(1);
-        let inner = TokenParser::from_llguidance_json(Arc::new(env), arg, log_level)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let backtrack_supported = true;
+        let inner =
+            TokenParser::from_llguidance_json(Arc::new(env), arg, log_level, backtrack_supported)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let reporter = Reporter::new(&inner);
         Ok(LLInterpreter {
             inner,
