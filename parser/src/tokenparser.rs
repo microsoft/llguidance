@@ -158,7 +158,11 @@ impl TokenParser {
             self.llm_bytes = grm_bytes[0..grm_bytes.len() - chop_bytes].to_vec();
             self.llm_tokens = self.token_env.tokenize_bytes(&self.llm_bytes);
             let decoded = self.token_env.tok_trie().decode(&self.llm_tokens);
-            if self.llm_bytes.len() > 0 && &decoded[1..] == &self.llm_bytes && decoded[0] == b' ' {
+            if self.llm_bytes.len() > 0
+                && decoded.len() > 0
+                && &decoded[1..] == &self.llm_bytes
+                && decoded[0] == b' '
+            {
                 infoln!(self, "applying <s>space hack");
                 self.grm_prefix = decoded[0..1].to_vec();
                 self.llm_bytes = decoded;
