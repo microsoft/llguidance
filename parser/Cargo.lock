@@ -53,7 +53,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "derivre"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/derivre?rev=8cb3b0b1#8cb3b0b1e858101ee0389a896ef322326604004d"
+source = "git+https://github.com/microsoft/derivre?rev=8cb3b0b1e858101ee0389a896ef322326604004d#8cb3b0b1e858101ee0389a896ef322326604004d"
 dependencies = [
  "ahash",
  "anyhow",
@@ -98,7 +98,7 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 
 [[package]]
 name = "llguidance_parser"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "derivre",
@@ -195,7 +195,7 @@ dependencies = [
 [[package]]
 name = "toktrie"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/toktrie?rev=d2cfea79#d2cfea79efb474e13b8c11a87a0c96b70bd2ec60"
+source = "git+https://github.com/microsoft/toktrie?rev=a13ea99a9327761086537d7819211c0122d52540#a13ea99a9327761086537d7819211c0122d52540"
 dependencies = [
  "anyhow",
  "bytemuck",
