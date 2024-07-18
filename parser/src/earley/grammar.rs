@@ -508,24 +508,6 @@ impl CSymIdx {
     }
 }
 
-pub trait SimpleHash {
-    fn simple_hash(&self) -> u32;
-
-    fn mask64(&self) -> u64 {
-        1 << (self.simple_hash() & 63)
-    }
-
-    fn mask32(&self) -> u32 {
-        1 << (self.simple_hash() & 31)
-    }
-}
-
-impl SimpleHash for CSymIdx {
-    fn simple_hash(&self) -> u32 {
-        (self.0 as u32).wrapping_mul(79667123)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RuleIdx(u32);
 
