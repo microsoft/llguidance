@@ -67,6 +67,10 @@ impl LLInterpreter {
         self.inner.mid_process_was_accepting()
     }
 
+    fn stop_reason(&self) -> String {
+        self.inner.stop_reason().to_string()
+    }
+
     fn process_prompt(&mut self, prompt: Vec<TokenId>) -> Vec<TokenId> {
         self.inner.process_prompt(prompt)
     }

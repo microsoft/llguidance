@@ -86,6 +86,20 @@ class LLInterpreter:
         of the parser.
         """
 
+    def stop_reason(self) -> str:
+        """
+        Get the reason why the parser stopped.
+        Returns:
+            "NotStopped" - Parser has not emitted stop() yet.
+            "MaxTokensTotal" - max_tokens limit on the total number of tokens has been reached.
+            "MaxTokensParser" - max_tokens limit on the number of tokens in the top-level parser has been reached.
+            "ParserNotAccepting" - LLM generated tokens that were not accepted by the parser.
+            "NoExtension" - Top-level parser indicates that no more bytes can be added.
+            "NoExtensionBias" - Top-level parser indicates that no more bytes can be added, however it was recognized late.
+            "EndOfSentence" - Top-level parser allowed EOS (as it was in an accepting state), and EOS was generated.
+            "InternalError" - Something went wrong with creating a nested parser.
+        """
+
     def process_prompt(self, prompt: List[TokenId]) -> List[TokenId]:
         """
         Perform any adjustments to the prompt before completion.
@@ -98,7 +112,9 @@ class LLInterpreter:
         Returns: optional token mask and a JSON string.
         """
 
-    def post_process(self, sampled_token: Optional[TokenId]) -> Tuple[int, List[TokenId]]:
+    def post_process(
+            self,
+            sampled_token: Optional[TokenId]) -> Tuple[int, List[TokenId]]:
         """
         Perform any adjustments to the sampled token.
         Returns the number of tokens to remove from the prompt and the

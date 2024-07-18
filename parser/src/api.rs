@@ -222,3 +222,33 @@ impl Default for GenGrammarOptions {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StopReason {
+    /// Parser has not emitted stop() yet.
+    NotStopped,
+    /// max_tokens limit on the total number of tokens has been reached.
+    MaxTokensTotal,
+    /// max_tokens limit on the number of tokens in the top-level parser has been reached.
+    MaxTokensParser,
+    /// LLM generated tokens that were not accepted by the parser.
+    ParserNotAccepting,
+    /// Top-level parser indicates that no more bytes can be added.
+    NoExtension,
+    /// Top-level parser indicates that no more bytes can be added, however it was recognized late.
+    NoExtensionBias,
+    /// Top-level parser allowed EOS (as it was in an accepting state), and EOS was generated.
+    EndOfSentence,
+    /// Something went wrong with creating a nested parser.
+    InternalError,
+}
+
+impl StopReason {
+    pub fn to_string(&self) -> String {
+        serde_json::to_value(self)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+}

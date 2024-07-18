@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    api::{GenGrammarOptions, TopLevelGrammar},
+    api::{GenGrammarOptions, StopReason, TopLevelGrammar},
     earley::{grammars_from_json, CGrammar, CSymIdx, ModelVariable, Parser, ParserStats},
 };
 use anyhow::Result;
@@ -41,7 +41,9 @@ pub struct TokenParser {
     // this is empty for top-level parser,
     // and the previous grm_bytes for sub-parsers
     previous_grm_bytes: Vec<u8>,
+
     mid_process_was_accepting: bool,
+    stop_reason: StopReason,
 
     max_tokens_total: usize,
     max_tokens_parser: usize,
@@ -88,6 +90,7 @@ impl TokenParser {
             pending_bogus_backtrack: 0,
             mid_process_start_time,
             mid_process_was_accepting: false,
+            stop_reason: StopReason::NotStopped,
             pop_tokens: None,
             parser,
             parser_llm_tokens_offset: 0,
@@ -100,6 +103,10 @@ impl TokenParser {
             max_tokens_total: max_tokens,
             max_tokens_parser: max_tokens,
         })
+    }
+
+    pub fn stop_reason(&self) -> StopReason {
+        self.stop_reason
     }
 
     pub fn parser_stats(&self) -> &ParserStats {
@@ -196,11 +203,20 @@ impl TokenParser {
         }
     }
 
+    fn stop(&mut self, reason: StopReason) -> StepResult {
+        self.stop_reason = reason;
+        StepResult::stop()
+    }
+
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
         self.mid_process_start_time = std::time::Instant::now();
+        if self.stop_reason != StopReason::NotStopped {
+            warn!(self, "stopped ({})", self.stop_reason.to_string());
+            return StepResult::stop();
+        }
         if self.max_tokens_total == 0 {
             warn!(self, "max_tokens_total reached, stopping");
-            return StepResult::stop();
+            return self.stop(StopReason::MaxTokensTotal);
         }
         self.max_tokens_total -= 1;
         self.max_tokens_parser = self.max_tokens_parser.saturating_sub(1);
@@ -329,8 +345,8 @@ impl TokenParser {
             Ok("") => {}
             Ok(msg) => infoln!(self, "parser: {}", msg),
             Err(e) => {
-                infoln!(self, "Parser Error: {}", e);
-                self.token_env.stop();
+                warn!(self, "Parser Error: {}", e);
+                return self.stop(StopReason::ParserNotAccepting);
             }
         };
 
@@ -429,7 +445,7 @@ impl TokenParser {
         if token_prefix.is_empty() {
             if let Err(e) = self.maybe_push_parser() {
                 warn!(self, "Error creating nested parser: {}", e);
-                return StepResult::stop();
+                return self.stop(StopReason::InternalError);
             }
         }
 
@@ -462,7 +478,15 @@ impl TokenParser {
                     "only eos token allowed, stopping; accepting: {}",
                     inner_accepting
                 );
-                return StepResult::stop();
+                return self.stop(if inner_done {
+                    if has_eos {
+                        StopReason::EndOfSentence
+                    } else {
+                        StopReason::NoExtension
+                    }
+                } else {
+                    StopReason::MaxTokensParser
+                });
             } else {
                 infoln!(self, "pop_parser; tokens left {}", self.max_tokens_parser);
                 self.pop_parser();
@@ -521,7 +545,7 @@ impl TokenParser {
 
         if set.num_set() == 0 {
             infoln!(self, "no tokens allowed, stopping");
-            return StepResult::stop();
+            return self.stop(StopReason::NoExtensionBias);
         }
 
         return StepResult::sample(set, Some(self.parser.temperature()));

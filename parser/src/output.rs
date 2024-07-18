@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use toktrie::{bytes::to_hex_string, StepResult};
 
-use crate::{earley, TokenParser};
+use crate::{api::StopReason, earley, TokenParser};
 
 #[derive(Serialize, Deserialize)]
 pub struct BytesOutput {
@@ -21,6 +21,7 @@ pub enum ParserOutput {
     FinalText {
         #[serde(flatten)]
         bytes: BytesOutput,
+        stop_reason: StopReason,
     },
     Text {
         #[serde(flatten)]
@@ -127,6 +128,7 @@ impl Reporter {
         if mid_res.is_stop() {
             res.push(ParserOutput::FinalText {
                 bytes: tok_parser.final_bytes().into(),
+                stop_reason: tok_parser.stop_reason(),
             });
         }
 
