@@ -169,9 +169,9 @@ impl LLTokenizer {
 
         // we want decode_bytes([EOS]) etc to be empty
         tokens[tok_eos as usize] = vec![];
-        if let Some(t) = tok_bos {
-            tokens[t as usize] = vec![];
-        }
+        // if let Some(t) = tok_bos {
+        //     tokens[t as usize] = vec![];
+        // }
 
         let info = TokRxInfo {
             vocab_size: tokens.len() as u32,
