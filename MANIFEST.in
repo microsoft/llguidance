@@ -1,3 +1,7 @@
 graft python/llguidance
+graft python/rust
+graft parser
+include python/Cargo.lock
+include python/Cargo.toml
 global-exclude */__pycache__/*
 global-exclude *.pyc
