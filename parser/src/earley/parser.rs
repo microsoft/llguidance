@@ -1452,6 +1452,10 @@ impl Parser {
                 self.handle_hidden_bytes(no_hidden, lexeme_byte, pre_lexeme);
             } else {
                 if pre_lexeme.byte_next_row && no_hidden.lexer_state.is_dead() {
+                    if self.scratch.definitive {
+                        // clean up row infos if needed
+                        self.row_infos.drain(no_hidden.row_idx as usize..);
+                    }
                     return false;
                 }
                 if let Some(b) = transition_byte {
