@@ -4,7 +4,7 @@ set -e
 cd $(dirname $0)/..
 
 pip uninstall -y llguidance || :
-pip install -e . -v --no-build-isolation
+maturin develop --release
 
 PYTEST_FLAGS=
 

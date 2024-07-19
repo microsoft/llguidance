@@ -34,18 +34,13 @@ jobs:
       run: ./scripts/test-guidance.sh
 
     - name: Build sdist
-      run: python -m build --sdist
+      run: maturin build --sdist
 
-    - name: Upload sdist artifact
+    - name: Build wheel
+      run: maturin build
+
+    - name: Upload sdist and wheel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: sdist
-        path: dist/*.tar.gz
-
-    - name: Publish sdist
-      if: startsWith(github.ref, 'refs/tags/v')
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      run: |
-        twine upload dist/*.tar.gz
+        name: wheels
+        path: target/wheels/*
