@@ -34,10 +34,10 @@ jobs:
       run: ./scripts/test-guidance.sh
 
     - name: Build sdist
-      run: maturin build --sdist
+      run: maturin build --sdist --zig
 
     - name: Build wheel
-      run: maturin build
+      run: maturin build --zig
 
     - name: Upload sdist and wheel artifact
       uses: actions/upload-artifact@v4
