@@ -1,5 +1,5 @@
 from typing import List, Tuple, Mapping, Optional, Sequence, Union
-from ._util import TokenId
+from ._util import TokenId, StopReason
 from ._tokenizer import TokenizerWrapper
 
 
@@ -86,7 +86,7 @@ class LLInterpreter:
         of the parser.
         """
 
-    def stop_reason(self) -> str:
+    def stop_reason(self) -> StopReason:
         """
         Get the reason why the parser stopped.
         Returns:
