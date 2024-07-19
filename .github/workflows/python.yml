@@ -1,12 +1,10 @@
 name: Build Python Wheels
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["Rust"]
+    types:
+      - completed
 
 jobs:
   build:
@@ -29,7 +27,7 @@ jobs:
     - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install wheel build setuptools-rust setuptools==68
+        pip install wheel build setuptools-rust setuptools==68 twine
 
     - name: Build wheel
       run: python -m build --wheel
@@ -39,3 +37,10 @@ jobs:
       with:
         name: wheel-${{ matrix.os }}-py${{ matrix.python-version }}
         path: dist/*.whl
+
+    - name: Publish wheel
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        twine upload dist/*.whl
