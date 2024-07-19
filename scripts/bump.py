@@ -6,7 +6,7 @@ import sys
 import os
 
 pyproject_path = "pyproject.toml"
-cargo_paths = ["parser", "python"]
+cargo_paths = ["parser", "rust"]
 version_pattern = r'\nversion\s*=\s*"(\d+\.\d+\.\d+)"'
 
 
