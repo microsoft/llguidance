@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 llguidance_parser = { path = "../parser" }
 bytemuck = "1.16.0"
-pyo3 = "0.21.2"
+pyo3 = {version = "0.21.2", features = ["extension-module", "abi3-py39"]}
 serde = { version = "1.0.192", features = ["derive"] }
 serde_json = "1.0.108"
 
@@ -14,4 +14,4 @@ serde_json = "1.0.108"
 # See https://github.com/PyO3/pyo3 for details
 name = "_lib"
 crate-type = ["cdylib"]
-path = "rust/lib.rs"
+path = "src/lib.rs"
