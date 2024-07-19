@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     strategy:
       matrix:
@@ -39,6 +40,7 @@ jobs:
         path: dist/*.whl
 
     - name: Publish wheel
+      if: startsWith(github.ref, 'refs/tags/v')
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
