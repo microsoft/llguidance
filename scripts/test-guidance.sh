@@ -4,7 +4,18 @@ set -e
 cd $(dirname $0)/..
 
 pip uninstall -y llguidance || :
-maturin develop --release
+
+if test -z "$CONDA_PREFIX" ; then
+    if [ "X$CI" = "Xtrue" ]; then
+        echo "Building in CI with pip"
+        pip install -v -e .
+    else
+        echo "No conda and no CI"
+        exit 1
+    fi
+else
+    maturin develop --release
+fi
 
 PYTEST_FLAGS=
 
