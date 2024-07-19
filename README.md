@@ -1,12 +1,14 @@
 # Low-level Guidance (llguidance)
 
 This controller implements a context-free grammar parser with Earley's algorithm
-on top of a lexer which uses [derivatives of regular expressions](../derivre/README.md).
+on top of a lexer which uses [derivatives of regular expressions](https://github.com/microsoft/derivre).
 
 It's to be used by next-generation [Guidance](https://github.com/guidance-ai/guidance) grammars.
 See how it works in [plan.md](./plan.md).
 
 Guidance branch: https://github.com/hudson-ai/guidance/tree/lazy_grammars
+
+Guidance PR: https://github.com/guidance-ai/guidance/pull/951
 
 ## Guidance implementation notes
 
@@ -18,9 +20,9 @@ Guidance branch: https://github.com/hudson-ai/guidance/tree/lazy_grammars
 - [ ] `substring()` in Guidance needs to be re-implemented (translate to RegexAst)
 - [ ] `to_regex_vec()` in lexerspec.rs - non-contextual keywords
 - [ ] allow byte sequence to fast-forward through grammar at start (grammar derivative)
-- [ ] check if env allows for backtracking (if not, don't use it)
+- [x] check if env allows for backtracking (if not, don't use it)
 - [ ] return `{when_sampled:[EOS],ff:[]}` as slice when EOS ends gen()
-- [ ] check for relevance of intersection and negation in `derivre`
+- [x] check for relevance of intersection and negation in `derivre`
 
 ## Lexeme-splitting
 

@@ -6,6 +6,7 @@ requires-python = ">=3.9"
 license = "MIT"
 authors = [{name = "Michal Moskal"}]
 dependencies = []
+readme = "README.md"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
