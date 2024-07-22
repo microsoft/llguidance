@@ -99,7 +99,7 @@ pub enum Node {
 }
 
 /// Optional fields allowed on any Node
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct NodeProps {
     pub max_tokens: Option<usize>,
     pub name: Option<String>,
