@@ -9,6 +9,27 @@ mod toktree;
 pub use svob::{SimpleVob, SimpleVobIter};
 pub use toktree::{Recognizer, SpecialToken, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
 
+/// Defines what is allowed in Branch
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct InferenceCapabilities {
+    /// Unconditional splice is allowed.
+    #[serde(default)]
+    pub ff_tokens: bool,
+
+    /// Conditional (and unconditional) splices are allowed.
+    #[serde(default)]
+    pub conditional_ff_tokens: bool,
+
+    /// Backtracking is allowed.
+    #[serde(default)]
+    pub backtrack: bool,
+    
+    /// More than one branch is allowed.
+    #[serde(default)]
+    pub fork: bool,
+}
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StepArg {
     /// Sampling result for the previous iteration.
