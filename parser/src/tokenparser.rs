@@ -41,7 +41,6 @@ pub struct TokenParser {
     // this is empty for top-level parser,
     // and the previous grm_bytes for sub-parsers
     previous_grm_bytes: Vec<u8>,
-    pending_ff_tokens: Vec<TokenId>,
 
     mid_process_was_accepting: bool,
     stop_reason: StopReason,
@@ -90,7 +89,6 @@ impl TokenParser {
             token_env,
             inference_caps,
             pending_bogus_backtrack: 0,
-            pending_ff_tokens: Vec::new(),
             mid_process_start_time,
             mid_process_was_accepting: false,
             stop_reason: StopReason::NotStopped,
@@ -224,13 +222,6 @@ impl TokenParser {
         StepResult::stop()
     }
 
-    fn sample_ff_token(&mut self) -> StepResult {
-        let t = self.pending_ff_tokens.pop().unwrap();
-        infoln!(self, "forcing ff_token by mask: {}", t);
-        let mask = self.token_env.tok_trie().singleton_token_set(t);
-        StepResult::sample(mask, None)
-    }
-
     pub fn error_message(&self) -> Option<String> {
         self.error_message.clone()
     }
@@ -246,11 +237,6 @@ impl TokenParser {
         }
         self.max_tokens_total -= 1;
         self.max_tokens_parser = self.max_tokens_parser.saturating_sub(1);
-
-        if self.pending_ff_tokens.len() > 0 {
-            infoln!(self, "forcing ff_token");
-            return self.sample_ff_token();
-        }
 
         if self.pending_bogus_backtrack != 0 {
             arg.backtrack = self.pending_bogus_backtrack;
@@ -304,9 +290,10 @@ impl TokenParser {
                 );
             }
 
-            self.pending_ff_tokens = spl.ff_tokens.clone();
-            self.pending_ff_tokens.reverse();
-            return self.sample_ff_token();
+            let t = spl.ff_tokens[0];
+            infoln!(self, "forcing ff_token by mask: {}", t);
+            let mask = self.token_env.tok_trie().singleton_token_set(t);
+            return StepResult::sample(mask, None);
         }
 
         r
