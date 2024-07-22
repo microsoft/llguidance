@@ -226,6 +226,12 @@ impl TokTrie {
         r
     }
 
+    pub fn singleton_token_set(&self, tok: TokenId) -> SimpleVob {
+        let mut r = self.alloc_token_set();
+        r.allow_token(tok);
+        r
+    }
+
     pub fn token_set_dbg(&self, ts: &SimpleVob) -> String {
         let max_examples = 50;
 
