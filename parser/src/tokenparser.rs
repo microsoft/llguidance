@@ -139,6 +139,10 @@ impl TokenParser {
         &self.llm_bytes[idx..endp]
     }
 
+    pub fn start_without_prompt(&mut self) {
+        infoln!(self, "start without prompt");
+    }
+
     pub fn process_prompt(&mut self, prompt: Vec<TokenId>) -> Vec<TokenId> {
         assert!(self.llm_tokens.is_empty());
 
