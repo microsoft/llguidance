@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use serde_json::json;
-use toktrie::{SimpleVob, StepArg, StepResult, TokenId, TokenizerEnv};
+use toktrie::{InferenceCapabilities, SimpleVob, StepArg, StepResult, TokenId, TokenizerEnv};
 
 macro_rules! infoln {
     ($s:expr, $($arg:tt)*) => {
@@ -31,7 +31,7 @@ pub struct TokenParser {
     pub parser: Parser,
     pub log_level: isize,
     pub mid_process_start_time: std::time::Instant,
-    backtrack_supported: bool,
+    inference_caps: InferenceCapabilities,
     pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
@@ -71,7 +71,7 @@ impl TokenParser {
         token_env: Arc<dyn TokenizerEnv + Sync>,
         buf: TopLevelGrammar,
         log_level: isize,
-        backtrack_supported: bool,
+        inference_caps: InferenceCapabilities,
     ) -> Result<Self> {
         let mid_process_start_time = std::time::Instant::now();
         let test_trace = buf.test_trace;
@@ -86,7 +86,7 @@ impl TokenParser {
             log_level,
             test_trace,
             token_env,
-            backtrack_supported,
+            inference_caps,
             pending_bogus_backtrack: 0,
             mid_process_start_time,
             mid_process_was_accepting: false,
@@ -433,7 +433,7 @@ impl TokenParser {
                     trie.tokens_dbg(&grm_tokens),
                     backtrack
                 );
-                if backtrack != 0 && !self.backtrack_supported {
+                if backtrack != 0 && !self.inference_caps.backtrack {
                     warn!(
                         self,
                         "can't backtrack over {}; this may confuse the model",

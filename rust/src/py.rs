@@ -1,7 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use llguidance_parser::toktrie::{
-    self, StepArg, StepResult, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
+    self, InferenceCapabilities, StepArg, StepResult, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
 };
 use llguidance_parser::{
     api::TopLevelGrammar,
@@ -44,9 +44,14 @@ impl LLInterpreter {
         let arg: TopLevelGrammar = serde_json::from_str(llguidance_json)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let log_level = log_level.unwrap_or(1);
-        let backtrack_supported = true;
+        let inference_caps = InferenceCapabilities {
+            backtrack: true,
+            ff_tokens: true,
+            conditional_ff_tokens: true,
+            fork: false,
+        };
         let inner =
-            TokenParser::from_llguidance_json(Arc::new(env), arg, log_level, backtrack_supported)
+            TokenParser::from_llguidance_json(Arc::new(env), arg, log_level, inference_caps)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let reporter = Reporter::new(&inner);
         Ok(LLInterpreter {
