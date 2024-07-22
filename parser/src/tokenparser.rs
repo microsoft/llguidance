@@ -31,7 +31,7 @@ pub struct TokenParser {
     pub parser: Parser,
     pub log_level: isize,
     pub mid_process_start_time: std::time::Instant,
-    inference_caps: InferenceCapabilities,
+    pub inference_caps: InferenceCapabilities,
     pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
@@ -41,9 +41,11 @@ pub struct TokenParser {
     // this is empty for top-level parser,
     // and the previous grm_bytes for sub-parsers
     previous_grm_bytes: Vec<u8>,
+    pending_ff_tokens: Vec<TokenId>,
 
     mid_process_was_accepting: bool,
     stop_reason: StopReason,
+    error_message: Option<String>,
 
     max_tokens_total: usize,
     max_tokens_parser: usize,
@@ -88,9 +90,11 @@ impl TokenParser {
             token_env,
             inference_caps,
             pending_bogus_backtrack: 0,
+            pending_ff_tokens: Vec::new(),
             mid_process_start_time,
             mid_process_was_accepting: false,
             stop_reason: StopReason::NotStopped,
+            error_message: None,
             pop_tokens: None,
             parser,
             parser_llm_tokens_offset: 0,
@@ -211,9 +215,24 @@ impl TokenParser {
         }
     }
 
-    fn stop(&mut self, reason: StopReason) -> StepResult {
+    fn stop(&mut self, warn: &str, reason: StopReason) -> StepResult {
+        if warn.len() > 0 {
+            self.error_message = Some(warn.to_string());
+            warn!(self, "{}; stopping", warn);
+        }
         self.stop_reason = reason;
         StepResult::stop()
+    }
+
+    fn sample_ff_token(&mut self) -> StepResult {
+        let t = self.pending_ff_tokens.pop().unwrap();
+        infoln!(self, "forcing ff_token by mask: {}", t);
+        let mask = self.token_env.tok_trie().singleton_token_set(t);
+        StepResult::sample(mask, None)
+    }
+
+    pub fn error_message(&self) -> Option<String> {
+        self.error_message.clone()
     }
 
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
@@ -223,11 +242,15 @@ impl TokenParser {
             return StepResult::stop();
         }
         if self.max_tokens_total == 0 {
-            warn!(self, "max_tokens_total reached, stopping");
-            return self.stop(StopReason::MaxTokensTotal);
+            return self.stop("max_tokens_total reached", StopReason::MaxTokensTotal);
         }
         self.max_tokens_total -= 1;
         self.max_tokens_parser = self.max_tokens_parser.saturating_sub(1);
+
+        if self.pending_ff_tokens.len() > 0 {
+            infoln!(self, "forcing ff_token");
+            return self.sample_ff_token();
+        }
 
         if self.pending_bogus_backtrack != 0 {
             arg.backtrack = self.pending_bogus_backtrack;
@@ -269,6 +292,21 @@ impl TokenParser {
                 "arg": trace.unwrap(),
                 "res": res,
             }));
+        }
+
+        if !self.inference_caps.ff_tokens && r.has_ff_tokens() {
+            let spl = r.unconditional_splice().unwrap();
+            assert!(spl.backtrack == 0);
+            if spl.ff_tokens.len() == 0 {
+                return self.stop(
+                    "ff_tokens not allowed, but got empty splice",
+                    StopReason::InternalError,
+                );
+            }
+
+            self.pending_ff_tokens = spl.ff_tokens.clone();
+            self.pending_ff_tokens.reverse();
+            return self.sample_ff_token();
         }
 
         r
@@ -353,8 +391,10 @@ impl TokenParser {
             Ok("") => {}
             Ok(msg) => infoln!(self, "parser: {}", msg),
             Err(e) => {
-                warn!(self, "Parser Error: {}", e);
-                return self.stop(StopReason::ParserNotAccepting);
+                return self.stop(
+                    &format!("Parser Error: {}", e),
+                    StopReason::ParserNotAccepting,
+                );
             }
         };
 
@@ -452,8 +492,10 @@ impl TokenParser {
 
         if token_prefix.is_empty() {
             if let Err(e) = self.maybe_push_parser() {
-                warn!(self, "Error creating nested parser: {}", e);
-                return self.stop(StopReason::InternalError);
+                return self.stop(
+                    &format!("Error creating nested parser: {}", e),
+                    StopReason::InternalError,
+                );
             }
         }
 
@@ -486,15 +528,18 @@ impl TokenParser {
                     "only eos token allowed, stopping; accepting: {}",
                     inner_accepting
                 );
-                return self.stop(if inner_done {
-                    if has_eos {
-                        StopReason::EndOfSentence
+                return self.stop(
+                    "",
+                    if inner_done {
+                        if has_eos {
+                            StopReason::EndOfSentence
+                        } else {
+                            StopReason::NoExtension
+                        }
                     } else {
-                        StopReason::NoExtension
-                    }
-                } else {
-                    StopReason::MaxTokensParser
-                });
+                        StopReason::MaxTokensParser
+                    },
+                );
             } else {
                 infoln!(self, "pop_parser; tokens left {}", self.max_tokens_parser);
                 self.pop_parser();
@@ -553,7 +598,7 @@ impl TokenParser {
 
         if set.num_set() == 0 {
             infoln!(self, "no tokens allowed, stopping");
-            return self.stop(StopReason::NoExtensionBias);
+            return self.stop("", StopReason::NoExtensionBias);
         }
 
         return StepResult::sample(set, Some(self.parser.temperature()));
