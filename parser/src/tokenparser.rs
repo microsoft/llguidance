@@ -461,13 +461,14 @@ impl TokenParser {
                     backtrack
                 );
                 if backtrack != 0 && !self.inference_caps.backtrack {
-                    warn!(
-                        self,
+                    let msg = format!(
                         "can't backtrack over {}; this may confuse the model",
                         trie.tokens_dbg(
                             &self.llm_tokens[self.llm_tokens.len() - backtrack as usize..]
                         )
                     );
+                    warn!(self, "{}", msg);
+                    self.error_message = Some(msg);
                     self.pending_bogus_backtrack = backtrack as u32;
                     backtrack = 0;
                 }
