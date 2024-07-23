@@ -681,10 +681,10 @@ impl Parser {
                     }
 
                     if grm_bytes[byte_idx] != *b {
-                        println!(
-                            "byte mismatch: {} != {} at {}",
-                            grm_bytes[byte_idx], b, last_lexeme
-                        );
+                        // println!(
+                        //     "byte mismatch: {} != {} at {}",
+                        //     grm_bytes[byte_idx], b, last_lexeme
+                        // );
                         return Ok("static reject");
                     }
                 }
