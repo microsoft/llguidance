@@ -32,8 +32,15 @@ fn map_rx_refs(rx_refs: &[ExprRef], ids: Vec<RegexId>) -> Result<Vec<RegexAst>> 
     ids.into_iter().map(|id| map_rx_ref(rx_refs, id)).collect()
 }
 
-fn map_rx_nodes(rx_nodes: Vec<RegexNode>) -> Result<(RegexBuilder, Vec<ExprRef>)> {
+fn map_rx_nodes(
+    rx_nodes: Vec<RegexNode>,
+    allow_invalid_utf8: bool,
+) -> Result<(RegexBuilder, Vec<ExprRef>)> {
     let mut builder = RegexBuilder::new();
+    if allow_invalid_utf8 {
+        builder.utf8(false);
+        builder.unicode(false);
+    }
     let mut rx_refs = vec![];
     for node in rx_nodes {
         rx_refs.push(builder.mk(&map_node(&rx_refs, node)?)?);
@@ -64,7 +71,7 @@ fn map_rx_nodes(rx_nodes: Vec<RegexNode>) -> Result<(RegexBuilder, Vec<ExprRef>)
 }
 
 fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
-    let (builder, rx_nodes) = map_rx_nodes(input.rx_nodes)?;
+    let (builder, rx_nodes) = map_rx_nodes(input.rx_nodes, input.allow_invalid_utf8)?;
 
     let skip = match input.greedy_skip_rx {
         Some(rx) => resolve_rx(&rx_nodes, &rx)?,

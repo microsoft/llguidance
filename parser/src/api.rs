@@ -35,6 +35,10 @@ pub struct GrammarWithLexer {
     #[serde(default)]
     pub rx_nodes: Vec<RegexNode>,
 
+    /// If set, the grammar will allow skip_rx as the first lexeme.
+    #[serde(default)]
+    pub allow_initial_skip: bool,
+
     /// Normally, when a sequence of bytes is forced by grammar, it is tokenized
     /// canonically and forced as tokens.
     /// With `no_forcing`, we let the model decide on tokenization.
@@ -43,9 +47,10 @@ pub struct GrammarWithLexer {
     #[serde(default)]
     pub no_forcing: bool,
 
-    /// If set, the grammar will allow skip_rx as the first lexeme.
+    /// If set, the grammar will allow invalid utf8 byte sequences.
+    /// Any Unicode regex will cause an error.
     #[serde(default)]
-    pub allow_initial_skip: bool,
+    pub allow_invalid_utf8: bool,
 }
 
 #[derive(Serialize, Deserialize)]
