@@ -71,6 +71,12 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
         _ => RegexAst::NoMatch,
     };
     let mut lexer_spec = LexerSpec::new(builder, skip)?;
+    if input.no_forcing {
+        lexer_spec.no_forcing = true;
+    }
+    if input.allow_initial_skip {
+        lexer_spec.allow_initial_skip = true;
+    }
     let mut grm = Grammar::new();
     let node_map = input
         .nodes

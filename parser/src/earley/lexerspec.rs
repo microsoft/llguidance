@@ -9,6 +9,8 @@ use super::regexvec::RegexVec;
 pub struct LexerSpec {
     pub lexemes: Vec<LexemeSpec>,
     pub regex_builder: RegexBuilder,
+    pub no_forcing: bool,
+    pub allow_initial_skip: bool,
 }
 
 #[derive(Clone)]
@@ -69,6 +71,8 @@ impl LexerSpec {
         let mut r = LexerSpec {
             lexemes: Vec::new(),
             regex_builder,
+            no_forcing: false,
+            allow_initial_skip: false,
         };
         let skip = r.add_lexeme_spec(LexemeSpec {
             name: "SKIP".to_string(),

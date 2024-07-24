@@ -361,10 +361,12 @@ impl Parser {
         );
         assert!(r.lexer_stack.len() == 1);
         // set the correct initial lexer state
-        // the initial state, shall not allow the SKIP lexeme
-        r.rows[0]
-            .allowed_lexemes
-            .set(LexemeIdx::SKIP.as_usize(), false);
+        if !r.grammar.lexer_spec().allow_initial_skip {
+            // disallow initial SKIP if asked to
+            r.rows[0]
+                .allowed_lexemes
+                .set(LexemeIdx::SKIP.as_usize(), false);
+        }
         r.lexer_stack[0].lexer_state = r.lexer.start_state(&r.rows[0].allowed_lexemes, None);
         r.assert_definitive();
 

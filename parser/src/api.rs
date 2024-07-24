@@ -34,6 +34,18 @@ pub struct GrammarWithLexer {
     /// When set, the regexps can be referenced by their id (position in this list).
     #[serde(default)]
     pub rx_nodes: Vec<RegexNode>,
+
+    /// Normally, when a sequence of bytes is forced by grammar, it is tokenized
+    /// canonically and forced as tokens.
+    /// With `no_forcing`, we let the model decide on tokenization.
+    /// This generally reduces both quality and speed, so should not be used
+    /// outside of testing.
+    #[serde(default)]
+    pub no_forcing: bool,
+
+    /// If set, the grammar will allow skip_rx as the first lexeme.
+    #[serde(default)]
+    pub allow_initial_skip: bool,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -438,7 +438,9 @@ impl TokenParser {
         let new_forced = grm_bytes[self.llm_bytes.len()..].to_vec();
         let mut token_prefix = Vec::new();
 
-        if new_forced.len() > 0 || backtrack > 0 {
+        let do_force = new_forced.len() > 0 && !self.parser.grammar().lexer_spec().no_forcing;
+
+        if do_force || backtrack > 0 {
             let mut grm_tokens = self.token_env.tokenize_bytes(&new_forced);
             infoln!(
                 self,
@@ -476,6 +478,9 @@ impl TokenParser {
             } else {
                 infoln!(self, "no fixed tokens");
             }
+        } else if new_forced.len() > 0 {
+            token_prefix.extend_from_slice(&new_forced);
+            infoln!(self, "no-forced bytes:{:?}", new_forced);
         }
 
         if token_prefix.is_empty() {
