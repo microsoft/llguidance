@@ -67,7 +67,7 @@ impl SimpleVob {
         r
     }
 
-    pub fn all_true(size: usize) -> Self {
+    pub fn alloc_ones(size: usize) -> Self {
         let mut r = Self::alloc(size);
         r.set_all(true);
         r
@@ -302,6 +302,13 @@ impl SimpleVob {
             .iter()
             .zip(other.data.iter())
             .all(|(a, b)| *a & *b == 0)
+    }
+
+    pub fn sub(&mut self, other: &SimpleVob) {
+        assert_eq!(self.size, other.size);
+        for (idx, v) in self.data.iter_mut().zip(other.data.iter()) {
+            *idx &= !*v;
+        }
     }
 
     pub fn first_bit_set_here_and_in(&self, other: &SimpleVob) -> Option<usize> {

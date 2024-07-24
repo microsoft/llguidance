@@ -221,9 +221,7 @@ impl TokTrie {
     }
 
     pub fn alloc_token_set(&self) -> SimpleVob {
-        let mut r = SimpleVob::new();
-        r.resize(self.vocab_size() + 1);
-        r
+        SimpleVob::alloc(self.vocab_size() + 1)
     }
 
     pub fn singleton_token_set(&self, tok: TokenId) -> SimpleVob {
@@ -324,6 +322,9 @@ impl TokTrie {
     }
 
     pub fn token(&self, idx: u32) -> &[u8] {
+        if idx >= self.token_offsets.len() as u32 {
+            return &[];
+        }
         let off = self.token_offsets[idx as usize];
         let len = off & ((1 << LEN_BITS) - 1);
         let off = (off >> LEN_BITS) as usize;
@@ -711,8 +712,13 @@ impl TokTrie {
             }
         }
 
+        let n = self.child_at_bytes(self.root(), start);
+        if n.is_none() {
+            return;
+        }
+        let n = n.unwrap();
+
         r.trie_started();
-        let n = self.child_at_bytes(self.root(), start).unwrap();
         let defl_tok = self.vocab_size() as u32;
         let off = self.node_offset(n);
         let mut p = off + 1;
