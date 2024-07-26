@@ -20,7 +20,6 @@ macro_rules! debug {
 #[derive(Clone)]
 pub struct Lexer {
     dfa: RegexVec,
-    #[allow(dead_code)]
     spec: LexerSpec,
 }
 
