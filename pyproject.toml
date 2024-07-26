@@ -9,8 +9,8 @@ dependencies = []
 readme = "README.md"
 
 [project.urls]
-repository = "https://github.com/guidance-ai/llguidance"
-issue_tracker = "https://github.com/guidance-ai/llguidance/issues"
+repository = "https://github.com/microsoft/llguidance"
+issue_tracker = "https://github.com/microsoft/llguidance/issues"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
