@@ -221,7 +221,7 @@ impl TokTrie {
     }
 
     pub fn alloc_token_set(&self) -> SimpleVob {
-        SimpleVob::alloc(self.vocab_size() + 1)
+        SimpleVob::alloc_with_capacity(self.vocab_size(), self.vocab_size() + 1)
     }
 
     pub fn singleton_token_set(&self, tok: TokenId) -> SimpleVob {

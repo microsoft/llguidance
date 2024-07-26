@@ -73,6 +73,14 @@ impl SimpleVob {
         r
     }
 
+    pub fn alloc_with_capacity(size: usize, capacity: usize) -> Self {
+        let mut r = Self::new();
+        assert!(size <= capacity);
+        r.resize(capacity);
+        r.size = size;
+        r
+    }
+
     pub fn len(&self) -> usize {
         self.size
     }
@@ -91,7 +99,11 @@ impl SimpleVob {
     pub fn to_bin_string(&self) -> String {
         let mut s = String::new();
         for i in 0..self.size {
-            s.push(if self.is_allowed(i as TokenId) { '1' } else { '0' });
+            s.push(if self.is_allowed(i as TokenId) {
+                '1'
+            } else {
+                '0'
+            });
         }
         s
     }
@@ -280,7 +292,12 @@ impl SimpleVob {
     pub fn or_minus(&mut self, other: &SimpleVob, minus: &SimpleVob) {
         assert_eq!(self.size, other.size);
         assert_eq!(self.size, minus.size);
-        for ((slf, oth), mn) in self.data.iter_mut().zip(other.data.iter()).zip(minus.data.iter()) {
+        for ((slf, oth), mn) in self
+            .data
+            .iter_mut()
+            .zip(other.data.iter())
+            .zip(minus.data.iter())
+        {
             *slf |= *oth & !*mn;
         }
     }
