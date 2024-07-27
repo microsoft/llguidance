@@ -3,7 +3,7 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
     ops::Range,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex},
     vec,
 };
 
@@ -189,8 +189,7 @@ struct LexerState {
 }
 
 #[derive(Clone)]
-pub struct Parser {
-    lexer: Arc<Mutex<Lexer>>,
+struct ParserState {
     grammar: Arc<CGrammar>,
     scratch: Scratch,
     trie_lexer_stack: usize,
@@ -198,13 +197,24 @@ pub struct Parser {
     lexer_stack: Vec<LexerState>,
     rows: Vec<Row>,
     row_infos: Vec<RowInfo>,
-    pub(crate) stats: ParserStats,
+    stats: ParserStats,
     last_collapse: usize,
     token_idx: usize,
     byte_idx: usize,
     options: GenGrammarOptions,
     trie_gen_grammar: Option<CSymIdx>,
     trie_gen_grammar_accepting: bool,
+}
+
+#[derive(Clone)]
+struct SharedState {
+    lexer: Lexer,
+}
+
+#[derive(Clone)]
+pub struct Parser {
+    shared: Arc<Mutex<SharedState>>,
+    state: ParserState,
 }
 
 impl Scratch {
@@ -323,15 +333,14 @@ macro_rules! ensure_internal {
     };
 }
 
-impl Parser {
-    pub fn new(grammar: Arc<CGrammar>, options: GenGrammarOptions) -> Result<Self> {
+impl ParserState {
+    fn new(grammar: Arc<CGrammar>, options: GenGrammarOptions) -> Result<(Self, Lexer)> {
         let start = grammar.start();
-        let lexer = Lexer::from(grammar.lexer_spec())?;
+        let mut lexer = Lexer::from(grammar.lexer_spec())?;
         let scratch = Scratch::new(Arc::clone(&grammar));
         let lexer_state = lexer.a_dead_state(); // placeholder
-        let mut r = Parser {
+        let mut r = ParserState {
             grammar,
-            lexer: Arc::new(Mutex::new(lexer)),
             trie_lexer_stack: usize::MAX,
             rows: vec![],
             row_infos: vec![],
@@ -367,53 +376,40 @@ impl Parser {
                 .allowed_lexemes
                 .set(LexemeIdx::SKIP.as_usize(), false);
         }
-        let state = r.lock_lexer().start_state(&r.rows[0].allowed_lexemes, None);
+        let state = lexer.start_state(&r.rows[0].allowed_lexemes, None);
         r.lexer_stack[0].lexer_state = state;
         r.assert_definitive();
 
-        Ok(r)
+        Ok((r, lexer))
     }
 
-    #[inline(always)]
-    fn lock_lexer(&self) -> MutexGuard<Lexer> {
-        self.lexer.lock().unwrap()
-    }
-
-    pub fn compute_bias_after_gen_grammar(
+    fn compute_bias(
         &mut self,
+        shared: &mut SharedState,
         trie: &TokTrie,
-        symidx: CSymIdx,
-    ) -> (bool, SimpleVob) {
-        self.trie_gen_grammar = Some(symidx);
-        let r = self.compute_bias(trie, &[]);
-        assert!(self.trie_gen_grammar.is_none());
-        (self.trie_gen_grammar_accepting, r)
-    }
-
-    pub fn compute_bias(&mut self, trie: &TokTrie, start: &[u8]) -> SimpleVob {
+        start: &[u8],
+    ) -> SimpleVob {
         let mut set = trie.alloc_token_set();
 
-        self.with_recognizer(|r| {
-            trie.add_bias(r, &mut set, start);
-        });
+        let mut r = ParserRecognizer {
+            shared,
+            state: self,
+        };
+        trie.add_bias(&mut r, &mut set, start);
 
         trie.apply_duplicates(&mut set);
 
         if set.is_zero() {
             // nothing allowed
             // we're going to be stopped outside - we better flush the lexer
-            let _ = self.flush_lexer();
+            let _ = self.flush_lexer(shared);
         }
 
-        if start.is_empty() && self.lexer_allows_eos() {
+        if start.is_empty() && self.lexer_allows_eos(shared) {
             set.allow_token(trie.eos_token());
         }
 
         set
-    }
-
-    pub fn grammar(&self) -> &CGrammar {
-        &self.grammar
     }
 
     fn after_dots(&self) -> impl Iterator<Item = RuleIdx> + '_ {
@@ -459,9 +455,9 @@ impl Parser {
         false
     }
 
-    pub fn lexer_allows_eos(&mut self) -> bool {
+    pub fn lexer_allows_eos(&mut self, shared: &mut SharedState) -> bool {
         if self.has_pending_lexeme_bytes() {
-            self.lock_lexer().allows_eos(self.lexer_state().lexer_state)
+            shared.lexer.allows_eos(self.lexer_state().lexer_state)
         } else {
             // empty lexemes are not allowed
             false
@@ -565,9 +561,9 @@ impl Parser {
         self.grammar.sym_data(self.item_lhs(item))
     }
 
-    pub fn hidden_start(&mut self) -> usize {
-        let hidden_len = self
-            .lock_lexer()
+    fn hidden_start(&self, shared: &mut SharedState) -> usize {
+        let hidden_len = shared
+            .lexer
             .possible_hidden_len(self.lexer_state().lexer_state);
         if hidden_len == 0 {
             return usize::MAX;
@@ -592,6 +588,7 @@ impl Parser {
 
     pub fn apply_tokens(
         &mut self,
+        shared: &mut SharedState,
         trie: &TokTrie,
         tokens: &[TokenId],
         mut num_skip: usize,
@@ -626,7 +623,7 @@ impl Parser {
                     );
 
                     debug!("B: {:?}", *b as char);
-                    if !self.try_push_byte_definitive(Some(*b)) {
+                    if !self.try_push_byte_definitive(shared, Some(*b)) {
                         return Ok("parse reject");
                     }
 
@@ -642,8 +639,7 @@ impl Parser {
                         let mut limit = trie.alloc_token_set();
                         let mut num_limit = 0;
                         {
-                            let lk = self.lock_lexer();
-                            let possible_lexemes = lk.possible_lexemes(lex_state);
+                            let possible_lexemes = shared.lexer.possible_lexemes(lex_state);
                             for idx in possible_lexemes.iter() {
                                 let lex = LexemeIdx::new(idx as usize);
                                 let max_tokens = *info.max_tokens.get(&lex).unwrap_or(&usize::MAX);
@@ -665,10 +661,10 @@ impl Parser {
                                 "  max_tokens limiting to: {}",
                                 self.lexer_spec().dbg_lexeme_set(&limit)
                             );
-                            let new_state = self.lock_lexer().limit_state_to(lex_state, &limit);
+                            let new_state = shared.lexer.limit_state_to(lex_state, &limit);
                             if new_state.is_dead() {
                                 debug!("  limited everything; forcing EOI");
-                                if !self.try_push_byte_definitive(None) {
+                                if !self.try_push_byte_definitive(shared, None) {
                                     return Ok("parse reject on max_tokens");
                                 }
                             } else {
@@ -766,13 +762,13 @@ impl Parser {
         self.row_infos.pop();
     }
 
-    pub fn force_bytes(&mut self) -> Vec<u8> {
+    pub fn force_bytes(&mut self, shared: &mut SharedState) -> Vec<u8> {
         self.assert_definitive();
         trace!("force_bytes lexer_stack {}", self.lexer_stack.len());
         let mut bytes = vec![];
-        while let Some(b) = self.forced_byte() {
+        while let Some(b) = self.forced_byte(shared) {
             debug!("  forced: {:?} 0x{:x}", b as char, b);
-            if !self.try_push_byte_definitive(Some(b)) {
+            if !self.try_push_byte_definitive(shared, Some(b)) {
                 // shouldn't happen?
                 debug!("  force_bytes reject {}", b as char);
                 break;
@@ -790,7 +786,7 @@ impl Parser {
     #[inline(always)]
     fn advance_lexer_or_parser(
         &mut self,
-        lex: &mut Lexer,
+        shared: &mut SharedState,
         lex_result: LexerResult,
         curr: LexerState,
     ) -> bool {
@@ -805,7 +801,7 @@ impl Parser {
                 true
             }
             LexerResult::Error => false,
-            LexerResult::Lexeme(pre_lexeme) => self.advance_parser(lex, pre_lexeme),
+            LexerResult::Lexeme(pre_lexeme) => self.advance_parser(shared, pre_lexeme),
         }
     }
 
@@ -833,21 +829,18 @@ impl Parser {
         r
     }
 
-    pub fn is_accepting(&mut self) -> bool {
-        self.run_speculative(|s| s.flush_lexer() && s.row_is_accepting())
+    pub fn is_accepting(&mut self, shared: &mut SharedState) -> bool {
+        self.run_speculative(|s| s.flush_lexer(shared) && s.row_is_accepting())
     }
 
-    pub fn try_push_byte_definitive(&mut self, byte: Option<u8>) -> bool {
+    pub fn try_push_byte_definitive(&mut self, shared: &mut SharedState, byte: Option<u8>) -> bool {
         assert!(self.scratch.definitive);
 
         let curr = self.lexer_state();
         let row = &self.rows[curr.row_idx as usize];
 
-        let lk = Arc::clone(&self.lexer);
-        let mut lex = lk.lock().unwrap();
-
         let res = if byte.is_none() {
-            let lexeme = lex.force_lexeme_end(curr.lexer_state);
+            let lexeme = shared.lexer.force_lexeme_end(curr.lexer_state);
             if lexeme.is_error() {
                 debug!(
                     "    lexer fail on forced end; allowed: {}",
@@ -857,7 +850,9 @@ impl Parser {
             lexeme
         } else {
             self.stats.definitive_bytes += 1;
-            lex.advance(curr.lexer_state, byte.unwrap(), self.scratch.definitive)
+            shared
+                .lexer
+                .advance(curr.lexer_state, byte.unwrap(), self.scratch.definitive)
         };
 
         if res.is_error() {
@@ -867,18 +862,17 @@ impl Parser {
             );
         }
 
-        self.advance_lexer_or_parser(&mut lex, res, curr)
+        self.advance_lexer_or_parser(shared, res, curr)
     }
 
     fn curr_row(&self) -> &Row {
         &self.rows[self.lexer_state().row_idx as usize]
     }
 
-    pub fn model_variables(&mut self) -> Vec<ModelVariable> {
-        // this can be used in future to allow "end-of-turn" special token and the like
+    pub fn model_variables(&mut self, shared: &mut SharedState) -> Vec<ModelVariable> {
         self.run_speculative(|s| {
             let mut vars = vec![];
-            if s.flush_lexer() {
+            if s.flush_lexer(shared) {
                 for sym_data in s.after_dots_symdata() {
                     if let Some(ref mv) = sym_data.props.model_variable {
                         if !vars.contains(mv) {
@@ -891,8 +885,8 @@ impl Parser {
         })
     }
 
-    fn forced_byte(&mut self) -> Option<u8> {
-        if self.is_accepting() {
+    fn forced_byte(&mut self, shared: &mut SharedState) -> Option<u8> {
+        if self.is_accepting(shared) {
             debug!("  in accept state, not forcing");
             return None;
         }
@@ -900,37 +894,34 @@ impl Parser {
         // self.print_row(self.num_rows() - 1);
 
         self.run_speculative(|s| {
-            s.with_recognizer(|r| {
-                let mut byte_sym = None;
-                for b in 0..=255 {
-                    if r.try_push_byte(b) {
-                        r.pop_bytes(1);
-                        // debug!("  forced: {:?}", b as char);
-                        if byte_sym.is_some() {
-                            // debug!("  forced multiple");
-                            return None; // more than one option
-                        } else {
-                            byte_sym = Some(b);
-                        }
+            let mut r = ParserRecognizer { shared, state: s };
+            let mut byte_sym = None;
+            for b in 0..=255 {
+                if r.try_push_byte(b) {
+                    r.pop_bytes(1);
+                    // debug!("  forced: {:?}", b as char);
+                    if byte_sym.is_some() {
+                        // debug!("  forced multiple");
+                        return None; // more than one option
+                    } else {
+                        byte_sym = Some(b);
                     }
                 }
-                byte_sym
-            })
+            }
+            byte_sym
         })
     }
 
     /// Advance the parser as if the current lexeme (if any)
     /// finished right here.
     /// Returns true if the parser was able to advance (or there were no pending bytes for a lexeme).
-    fn flush_lexer(&mut self) -> bool {
+    fn flush_lexer(&mut self, shared: &mut SharedState) -> bool {
         if !self.has_pending_lexeme_bytes() {
             return true;
         }
         let curr = self.lexer_state();
-        let lk = Arc::clone(&self.lexer);
-        let mut lex = lk.lock().unwrap();
-        let lex_result = lex.try_lexeme_end(curr.lexer_state);
-        self.advance_lexer_or_parser(&mut lex, lex_result, curr)
+        let lex_result = shared.lexer.try_lexeme_end(curr.lexer_state);
+        self.advance_lexer_or_parser(shared, lex_result, curr)
     }
 
     pub fn maybe_gen_grammar(&mut self) -> Option<(String, CSymIdx, GenGrammarOptions)> {
@@ -972,23 +963,16 @@ impl Parser {
         Some((msg, res_idx.unwrap(), res.unwrap()))
     }
 
-    fn flush_gen_grammar(&mut self, lex: &mut Lexer) {
+    fn flush_gen_grammar(&mut self, shared: &mut SharedState) {
         if let Some(idx) = self.trie_gen_grammar.take() {
-            let r = self.scan_gen_grammar_inner(lex, idx, vec![]);
+            let r = self.scan_gen_grammar_inner(shared, idx, vec![]);
             self.trie_gen_grammar_accepting = r && self.row_is_accepting();
         }
     }
 
-    pub fn scan_gen_grammar(&mut self, symidx: CSymIdx, inner_bytes: Vec<u8>) -> bool {
-        self.assert_definitive();
-        let lk = Arc::clone(&self.lexer);
-        let mut lex = lk.lock().unwrap();
-        self.scan_gen_grammar_inner(&mut lex, symidx, inner_bytes)
-    }
-
     fn scan_gen_grammar_inner(
         &mut self,
-        lex: &mut Lexer,
+        shared: &mut SharedState,
         symidx: CSymIdx,
         inner_bytes: Vec<u8>,
     ) -> bool {
@@ -1012,7 +996,7 @@ impl Parser {
         let r = self.push_row(self.num_rows(), self.scratch.row_start, &lexeme);
         if r {
             debug!("  gen_grammar OK");
-            let lexer_state = self.lexer_state_for_added_row(lex, lexeme, None);
+            let lexer_state = self.lexer_state_for_added_row(shared, lexeme, None);
             self.lexer_stack.push(lexer_state);
             true
         } else {
@@ -1021,14 +1005,14 @@ impl Parser {
         }
     }
 
-    pub fn scan_model_variable(&mut self, mv: ModelVariable) -> bool {
+    pub fn scan_model_variable(&mut self, shared: &mut SharedState, mv: ModelVariable) -> bool {
         self.assert_definitive(); // ???
 
-        let lexer_eos = self.lexer_allows_eos();
+        let lexer_eos = self.lexer_allows_eos(shared);
 
         debug!("  scan mv: {:?}; lexer_eos={}", mv, lexer_eos);
 
-        if !self.flush_lexer() {
+        if !self.flush_lexer(shared) {
             debug!("  flush_lexer() failed");
             return false;
         }
@@ -1128,10 +1112,6 @@ impl Parser {
             i += 1;
         }
         self.push_row(self.num_rows(), self.scratch.row_start, lexeme)
-    }
-
-    pub fn captures(&self) -> &[(String, Vec<u8>)] {
-        &self.captures
     }
 
     // lexeme only used for captures (in definitive mode)
@@ -1351,7 +1331,7 @@ impl Parser {
     #[inline(always)]
     fn lexer_state_for_added_row(
         &mut self,
-        lex: &mut Lexer,
+        shared: &mut SharedState,
         lexeme: Lexeme,
         transition_byte: Option<u8>,
     ) -> LexerState {
@@ -1361,7 +1341,7 @@ impl Parser {
         let added_row_lexemes = &self.rows[added_row].allowed_lexemes;
         let no_hidden = LexerState {
             row_idx: added_row as u32,
-            lexer_state: lex.start_state(added_row_lexemes, transition_byte),
+            lexer_state: shared.lexer.start_state(added_row_lexemes, transition_byte),
             byte: transition_byte,
         };
         if self.scratch.definitive {
@@ -1380,7 +1360,7 @@ impl Parser {
     #[inline(always)]
     fn handle_hidden_bytes(
         &mut self,
-        lex: &mut Lexer,
+        shared: &mut SharedState,
         no_hidden: LexerState,
         lexeme_byte: Option<u8>,
         pre_lexeme: PreLexeme,
@@ -1405,13 +1385,16 @@ impl Parser {
             if true || self.scratch.definitive {
                 trace!("  hidden forced");
             }
-            let mut lexer_state = lex.start_state(added_row_lexemes, None);
+            let mut lexer_state = shared.lexer.start_state(added_row_lexemes, None);
             // if the bytes are forced, we just advance the lexer
             // by replacing the top lexer states
             self.pop_lexer_states(hidden_bytes.len() - 1);
             self.stats.hidden_bytes += hidden_bytes.len();
             for b in hidden_bytes {
-                match lex.advance(lexer_state, *b, true || self.scratch.definitive) {
+                match shared
+                    .lexer
+                    .advance(lexer_state, *b, self.scratch.definitive)
+                {
                     LexerResult::State(next_state, _) => {
                         lexer_state = next_state;
                     }
@@ -1431,14 +1414,14 @@ impl Parser {
             if self.scratch.definitive {
                 // set it up for matching after backtrack
                 self.lexer_stack.push(LexerState {
-                    lexer_state: lex.start_state(added_row_lexemes, None),
+                    lexer_state: shared.lexer.start_state(added_row_lexemes, None),
                     byte: None,
                     ..no_hidden
                 });
             } else {
                 // prevent any further matches in this branch
                 self.lexer_stack.push(LexerState {
-                    lexer_state: lex.a_dead_state(),
+                    lexer_state: shared.lexer.a_dead_state(),
                     byte: None,
                     ..no_hidden
                 });
@@ -1452,7 +1435,7 @@ impl Parser {
     /// or lexer_initial_state+byte for greedy lexers.
     /// lexer_byte is the byte that led to producing the lexeme.
     #[inline(always)]
-    fn advance_parser(&mut self, lex: &mut Lexer, pre_lexeme: PreLexeme) -> bool {
+    fn advance_parser(&mut self, shared: &mut SharedState, pre_lexeme: PreLexeme) -> bool {
         let transition_byte = if pre_lexeme.byte_next_row {
             pre_lexeme.byte
         } else {
@@ -1478,10 +1461,10 @@ impl Parser {
         };
 
         if scan_res {
-            let mut no_hidden = self.lexer_state_for_added_row(lex, lexeme, transition_byte);
+            let mut no_hidden = self.lexer_state_for_added_row(shared, lexeme, transition_byte);
 
             if pre_lexeme.hidden_len > 0 {
-                self.handle_hidden_bytes(lex, no_hidden, lexeme_byte, pre_lexeme);
+                self.handle_hidden_bytes(shared, no_hidden, lexeme_byte, pre_lexeme);
             } else {
                 if pre_lexeme.byte_next_row && no_hidden.lexer_state.is_dead() {
                     if self.scratch.definitive {
@@ -1491,7 +1474,9 @@ impl Parser {
                     return false;
                 }
                 if let Some(b) = transition_byte {
-                    let single = lex.check_for_single_byte_lexeme(no_hidden.lexer_state, b);
+                    let single = shared
+                        .lexer
+                        .check_for_single_byte_lexeme(no_hidden.lexer_state, b);
                     if let Some(second_lexeme) = single {
                         if self.scratch.definitive {
                             debug!("single byte lexeme: {:?}", second_lexeme);
@@ -1503,7 +1488,7 @@ impl Parser {
                         assert!(pre_lexeme.byte_next_row);
                         assert!(!second_lexeme.byte_next_row);
 
-                        let r = self.advance_parser(lex, second_lexeme);
+                        let r = self.advance_parser(shared, second_lexeme);
                         if r {
                             let new_top = self.lexer_stack.pop().unwrap();
                             *self.lexer_stack.last_mut().unwrap() = new_top;
@@ -1527,40 +1512,27 @@ impl Parser {
             false
         }
     }
-
-    fn with_lexer<T>(&mut self, f: impl FnOnce(&mut Parser, &mut Lexer) -> T) -> T {
-        let mutex = Arc::clone(&self.lexer);
-        let mut lex = mutex.lock().unwrap();
-        f(self, &mut lex)
-    }
-
-    pub fn with_recognizer<T>(&mut self, f: impl FnOnce(&mut ParserRecognizer) -> T) -> T {
-        self.with_lexer(|parser, lexer| {
-            let mut p = ParserRecognizer { parser, lexer };
-            f(&mut p)
-        })
-    }
 }
 
 pub struct ParserRecognizer<'a> {
-    parser: &'a mut Parser,
-    lexer: &'a mut Lexer,
+    state: &'a mut ParserState,
+    shared: &'a mut SharedState,
 }
 
 impl<'a> Recognizer for ParserRecognizer<'a> {
     fn pop_bytes(&mut self, num: usize) {
-        self.parser.pop_lexer_states(num);
+        self.state.pop_lexer_states(num);
     }
 
     fn collapse(&mut self) {
         // this actually means "commit" - can no longer backtrack past this point
 
         if false {
-            for idx in self.parser.last_collapse..self.parser.num_rows() {
-                self.parser.print_row(idx);
+            for idx in self.state.last_collapse..self.state.num_rows() {
+                self.state.print_row(idx);
             }
         }
-        self.parser.last_collapse = self.parser.num_rows();
+        self.state.last_collapse = self.state.num_rows();
     }
 
     fn special_allowed(&mut self, _tok: SpecialToken) -> bool {
@@ -1580,22 +1552,25 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
     }
 
     fn trie_started(&mut self) {
-        self.parser.trie_started_inner();
-        self.parser.flush_gen_grammar(self.lexer);
+        self.state.trie_started_inner();
+        self.state.flush_gen_grammar(self.shared);
     }
 
     fn trie_finished(&mut self) {
-        self.parser.trie_finished_inner();
+        self.state.trie_finished_inner();
     }
 
     #[inline(always)]
     fn try_push_byte(&mut self, byte: u8) -> bool {
-        assert!(!self.parser.scratch.definitive);
+        assert!(!self.state.scratch.definitive);
         let lexer_logging = false;
-        self.parser.stats.lexer_ops += 1;
-        let curr = self.parser.lexer_state();
-        let res = self.lexer.advance(curr.lexer_state, byte, lexer_logging);
-        self.parser.advance_lexer_or_parser(self.lexer, res, curr)
+        self.state.stats.lexer_ops += 1;
+        let curr = self.state.lexer_state();
+        let res = self
+            .shared
+            .lexer
+            .advance(curr.lexer_state, byte, lexer_logging);
+        self.state.advance_lexer_or_parser(self.shared, res, curr)
     }
 }
 
@@ -1605,4 +1580,120 @@ fn item_to_string(g: &CGrammar, item: &Item) -> String {
         g.rule_to_string(item.rule_idx()),
         item.start_pos(),
     )
+}
+
+impl Parser {
+    pub fn new(grammar: Arc<CGrammar>, options: GenGrammarOptions) -> Result<Self> {
+        let (state, lexer) = ParserState::new(grammar, options)?;
+        let shared = Arc::new(Mutex::new(SharedState { lexer }));
+        Ok(Parser { shared, state })
+    }
+
+    pub fn compute_bias_after_gen_grammar(
+        &mut self,
+        trie: &TokTrie,
+        symidx: CSymIdx,
+    ) -> (bool, SimpleVob) {
+        self.state.trie_gen_grammar = Some(symidx);
+        let r = self.compute_bias(trie, &[]);
+        assert!(self.state.trie_gen_grammar.is_none());
+        (self.state.trie_gen_grammar_accepting, r)
+    }
+
+    pub fn compute_bias(&mut self, trie: &TokTrie, start: &[u8]) -> SimpleVob {
+        let mut shared = self.shared.lock().unwrap();
+        self.state.compute_bias(&mut shared, trie, start)
+    }
+
+    pub fn captures(&self) -> &[(String, Vec<u8>)] {
+        &self.state.captures
+    }
+
+    pub fn stats(&self) -> &ParserStats {
+        &self.state.stats
+    }
+
+    pub(crate) fn set_stats(&mut self, stats: ParserStats) {
+        self.state.stats = stats;
+    }
+
+    pub fn hidden_start(&self) -> usize {
+        let mut shared = self.shared.lock().unwrap();
+        self.state.hidden_start(&mut shared)
+    }
+
+    pub fn with_recognizer<T>(&mut self, f: impl FnOnce(&mut ParserRecognizer) -> T) -> T {
+        let mut shared = self.shared.lock().unwrap();
+        let mut p = ParserRecognizer {
+            shared: &mut shared,
+            state: &mut self.state,
+        };
+        f(&mut p)
+    }
+
+    pub fn scan_gen_grammar(&mut self, symidx: CSymIdx, inner_bytes: Vec<u8>) -> bool {
+        self.state.assert_definitive();
+        let mut shared = self.shared.lock().unwrap();
+        self.state
+            .scan_gen_grammar_inner(&mut shared, symidx, inner_bytes)
+    }
+
+    pub fn get_bytes(&mut self) -> Vec<u8> {
+        self.state.get_bytes()
+    }
+
+    pub fn force_bytes(&mut self) -> Vec<u8> {
+        let mut shared = self.shared.lock().unwrap();
+        self.state.force_bytes(&mut shared)
+    }
+
+    pub fn scan_model_variable(&mut self, mv: ModelVariable) -> bool {
+        let mut shared = self.shared.lock().unwrap();
+        self.state.scan_model_variable(&mut shared, mv)
+    }
+
+    pub fn apply_tokens(
+        &mut self,
+        trie: &TokTrie,
+        tokens: &[TokenId],
+        num_skip: usize,
+    ) -> Result<&'static str> {
+        let mut shared = self.shared.lock().unwrap();
+        self.state.apply_tokens(&mut shared, trie, tokens, num_skip)
+    }
+
+    pub fn filter_max_tokens(&mut self) {
+        self.state.filter_max_tokens();
+    }
+
+    pub fn is_accepting(&mut self) -> bool {
+        let mut shared = self.shared.lock().unwrap();
+        self.state.is_accepting(&mut shared)
+    }
+
+    pub fn has_pending_lexeme_bytes(&self) -> bool {
+        self.state.has_pending_lexeme_bytes()
+    }
+
+    pub fn grammar(&self) -> &CGrammar {
+        &self.state.grammar
+    }
+
+    pub fn can_advance(&self) -> bool {
+        self.state.can_advance()
+    }
+
+    pub fn temperature(&self) -> f32 {
+        self.state.temperature()
+    }
+
+    pub fn maybe_gen_grammar(&mut self) -> Option<(String, CSymIdx, GenGrammarOptions)> {
+        self.state.maybe_gen_grammar()
+    }
+
+    // this can be used in future to allow "end-of-turn" special token and the like
+    pub fn model_variables(&mut self) -> Vec<ModelVariable> {
+        let mut shared = self.shared.lock().unwrap();
+        self.state.model_variables(&mut shared)
+    }
 }
