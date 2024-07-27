@@ -156,7 +156,9 @@ impl TokenParser {
         prompt_bytes.extend_from_slice(&grm_bytes);
         let tokens = self.token_env.tokenize_bytes(&prompt_bytes);
         infoln!(self, "prompt+grm: {}", trie.tokens_dbg(&tokens));
-        let (chop_tokens, chop_bytes) = trie.chop_tokens(&mut self.parser, &tokens);
+        let (chop_tokens, chop_bytes) = self
+            .parser
+            .with_recognizer(|r| trie.chop_tokens(r, &tokens));
         let res_prompt = tokens[..tokens.len() - chop_tokens].to_vec();
 
         // if we moved a bunch of grammar to the prompt, update llm_tokens to reflect that
@@ -449,7 +451,9 @@ impl TokenParser {
                 new_forced,
                 grm_tokens
             );
-            let (chop_tokens, chop_bytes) = trie.chop_tokens(&mut self.parser, &grm_tokens);
+            let (chop_tokens, chop_bytes) = self
+                .parser
+                .with_recognizer(|r| trie.chop_tokens(r, &grm_tokens));
             infoln!(self, "chop: {} tokens, {} bytes", chop_tokens, chop_bytes);
             token_prefix = new_forced[new_forced.len() - chop_bytes..].to_vec();
             // here we remove a suffix from grm_tokens that could be possibly tokenized differently
