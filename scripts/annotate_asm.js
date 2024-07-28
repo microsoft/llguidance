@@ -18,6 +18,11 @@ function main(sname, filter) {
         let m = /^\t\.type\t(.*),@/m.exec(sect)
         if (m) {
             sectId = m[1]
+        } else {
+            m = /^\s*\.p2align.*\n__ZN(.*):/.exec(sect)
+            if (m) {
+                sectId = m[1]
+            }
         }
 
         let outp = ""
@@ -82,7 +87,7 @@ function main(sname, filter) {
                 outp += "// " + tag.padEnd(40, " ") + lines[lineno - 1] + "\n"
             }
         } else {
-            const m = /^(\.L\w+):/.exec(line)
+            const m = /^(\.?L\w+):/.exec(line)
             if (m) {
                 labels[m[1]] = true
             }
