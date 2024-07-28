@@ -160,6 +160,7 @@ impl RegexVec {
     /// Return index of lowest matching regex if any.
     /// Lazy regexes match as soon as they accept, while greedy only
     /// if they accept and force EOI.
+    #[inline(always)]
     pub fn lowest_match(&mut self, state: StateID) -> Option<(usize, usize)> {
         if let Some(lowest_match) = self.state_descs[state.as_usize()].lowest_match {
             return lowest_match;
