@@ -215,13 +215,13 @@ pub fn grammars_from_json(input: TopLevelGrammar, print_out: bool) -> Result<Vec
         .enumerate()
         .map(|(idx, (lex, mut grm))| {
             if print_out {
-                println!("\nGrammar #{}:\n{:?}\n{:?}", idx, lex, grm);
+                eprintln!("\nGrammar #{}:\n{:?}\n{:?}", idx, lex, grm);
             }
 
             grm = grm.optimize();
 
             if print_out {
-                println!("  == Optimize ==>\n{:?}", grm);
+                eprintln!("  == Optimize ==>\n{:?}", grm);
             }
 
             Arc::new(grm.compile(lex))
