@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// This represents a collection of grammars, with a designated
 /// "start" grammar at first position.
 /// Grammars can refer to each other via GrammarRef nodes.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct TopLevelGrammar {
     pub grammars: Vec<GrammarWithLexer>,
     pub max_tokens: Option<usize>,
@@ -13,7 +13,7 @@ pub struct TopLevelGrammar {
 
 pub const DEFAULT_CONTEXTUAL: bool = true;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GrammarWithLexer {
     /// The start symbol is at nodes[0]
     pub nodes: Vec<Node>,
@@ -53,7 +53,7 @@ pub struct GrammarWithLexer {
     pub allow_invalid_utf8: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum Node {
     // Terminals:
     /// Force generation of the specific string.
@@ -116,14 +116,14 @@ pub enum Node {
 }
 
 /// Optional fields allowed on any Node
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct NodeProps {
     pub max_tokens: Option<usize>,
     pub name: Option<String>,
     pub capture_name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GenOptions {
     /// Regular expression matching the body of generation.
     pub body_rx: RegexSpec,
