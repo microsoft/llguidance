@@ -609,8 +609,8 @@ impl TokenParser {
             let grm = Arc::clone(&self.compiled_grammars[gen_grammar.grammar.0]);
             let max_tokens = self.parser.grammar().sym_data(symidx).props.max_tokens;
             let parser = Parser::new(grm, gen_grammar)?;
-            let old_parser = std::mem::replace(&mut self.parser, parser);
-            self.parser.set_stats(old_parser.stats().clone());
+            let mut old_parser = std::mem::replace(&mut self.parser, parser);
+            self.parser.take_global_state_from(&mut old_parser);
             let mut entry = ParserStackEntry {
                 parser: old_parser,
                 parser_llm_tokens_offset: self.parser_llm_tokens_offset,
@@ -632,9 +632,8 @@ impl TokenParser {
     fn pop_parser(&mut self) {
         let inner_bytes = self.parser.get_bytes();
         let entry = self.parser_stack.pop().unwrap();
-        let stats = self.parser.stats().clone();
-        self.parser = entry.parser;
-        self.parser.set_stats(stats);
+        let mut prev_parser = std::mem::replace(&mut self.parser, entry.parser);
+        self.parser.take_global_state_from(&mut prev_parser);
         self.parser_llm_tokens_offset = entry.parser_llm_tokens_offset;
         self.previous_grm_bytes
             .truncate(entry.previous_grm_bytes_len);

@@ -1613,8 +1613,9 @@ impl Parser {
         &self.state.stats
     }
 
-    pub(crate) fn set_stats(&mut self, stats: ParserStats) {
-        self.state.stats = stats;
+    pub(crate) fn take_global_state_from(&mut self, other: &mut Parser) {
+        self.state.stats = other.state.stats.clone();
+        self.state.captures = std::mem::take(&mut other.state.captures);
     }
 
     pub fn hidden_start(&self) -> usize {
