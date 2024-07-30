@@ -116,7 +116,7 @@ impl Reporter {
         res.push(ParserOutput::Text {
             bytes: new_text.into(),
             log_prob: 0.0, // TODO
-            num_tokens: num_tokens - self.token_ptr,
+            num_tokens: num_tokens.saturating_sub(self.token_ptr),
             is_generated: self.is_generated,
             stats,
         });
