@@ -258,9 +258,11 @@ impl SimpleVob {
     }
 
     pub fn set_all(&mut self, val: bool) {
-        let val = if val { !0 } else { 0 };
-        self.data.iter_mut().for_each(|x| *x = val);
-        self.clear_excessive_bits();
+        let bits = if val { !0 } else { 0 };
+        self.data.iter_mut().for_each(|x| *x = bits);
+        if val {
+            self.clear_excessive_bits();
+        }
     }
 
     pub fn apply_to(&self, logits: &mut [f32]) {
