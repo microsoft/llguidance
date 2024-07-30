@@ -26,7 +26,7 @@ Guidance PR: https://github.com/guidance-ai/guidance/pull/951
 
 ## Lexeme-splitting
 
-See https://github.com/hudson-ai/guidance/issues/5
+See https://github.com/microsoft/llguidance/issues/2
 
 ```python
     g = select(["a", "abq", "c"]) + optional("bQ")
@@ -36,7 +36,7 @@ See https://github.com/hudson-ai/guidance/issues/5
 
 ## Only valid tokens
 
-See https://github.com/hudson-ai/guidance/issues/13
+See https://github.com/microsoft/llguidance/issues/1
 
 - [ ] implement `.forced_byte()` method in `derivre`
 - [ ] use this for cheap `.forced_byte()` impl in `llguidance`
