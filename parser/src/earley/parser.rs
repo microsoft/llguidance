@@ -102,6 +102,7 @@ impl ParserStats {
 struct Row {
     first_item: usize,
     last_item: usize,
+    allowed_lexemes: SimpleVob,
 }
 
 impl Row {
@@ -200,7 +201,6 @@ struct ParserState {
     last_collapse: usize,
     token_idx: usize,
     byte_idx: usize,
-    allowed_lexemes: SimpleVob,
     options: GenGrammarOptions,
     trie_gen_grammar: Option<CSymIdx>,
     trie_gen_grammar_accepting: bool,
@@ -238,10 +238,11 @@ impl Scratch {
         self.row_end - self.row_start
     }
 
-    fn work_row(&self) -> Row {
+    fn work_row(&self, allowed_lexemes: SimpleVob) -> Row {
         Row {
             first_item: self.row_start,
             last_item: self.row_end,
+            allowed_lexemes,
         }
     }
 
@@ -335,7 +336,6 @@ macro_rules! ensure_internal {
 impl ParserState {
     fn new(grammar: Arc<CGrammar>, options: GenGrammarOptions) -> Result<(Self, Lexer)> {
         let start = grammar.start();
-        let allowed_lexemes = grammar.lexer_spec().alloc_lexeme_set();
         let mut lexer = Lexer::from(grammar.lexer_spec())?;
         let scratch = Scratch::new(Arc::clone(&grammar));
         let lexer_state = lexer.a_dead_state(); // placeholder
@@ -353,7 +353,6 @@ impl ParserState {
             options,
             trie_gen_grammar: None,
             trie_gen_grammar_accepting: false,
-            allowed_lexemes,
             lexer_stack: vec![LexerState {
                 row_idx: 0,
                 lexer_state,
@@ -373,9 +372,11 @@ impl ParserState {
         // set the correct initial lexer state
         if !r.grammar.lexer_spec().allow_initial_skip {
             // disallow initial SKIP if asked to
-            r.allowed_lexemes.set(LexemeIdx::SKIP.as_usize(), false);
+            r.rows[0]
+                .allowed_lexemes
+                .set(LexemeIdx::SKIP.as_usize(), false);
         }
-        let state = lexer.start_state(&r.allowed_lexemes, None);
+        let state = lexer.start_state(&r.rows[0].allowed_lexemes, None);
         r.lexer_stack[0].lexer_state = state;
         r.assert_definitive();
 
@@ -476,10 +477,10 @@ impl ParserState {
             self.lexer_stack.last().unwrap().lexer_state
         );
 
-        // println!(
-        //     "  allowed: {}",
-        //     self.lexer_spec().dbg_lexeme_set(&row.allowed_lexemes)
-        // );
+        println!(
+            "  allowed: {}",
+            self.lexer_spec().dbg_lexeme_set(&row.allowed_lexemes)
+        );
 
         if row_idx < self.row_infos.len() {
             let info = &self.row_infos[row_idx];
@@ -836,10 +837,15 @@ impl ParserState {
         assert!(self.scratch.definitive);
 
         let curr = self.lexer_state();
+        let row = &self.rows[curr.row_idx as usize];
+
         let res = if byte.is_none() {
             let lexeme = shared.lexer.force_lexeme_end(curr.lexer_state);
             if lexeme.is_error() {
-                debug!("    lexer fail on forced end");
+                debug!(
+                    "    lexer fail on forced end; allowed: {}",
+                    self.lexer_spec().dbg_lexeme_set(&row.allowed_lexemes)
+                );
             }
             lexeme
         } else {
@@ -850,7 +856,10 @@ impl ParserState {
         };
 
         if res.is_error() {
-            debug!("  lexer fail");
+            debug!(
+                "  lexer fail; allowed: {}",
+                self.lexer_spec().dbg_lexeme_set(&row.allowed_lexemes)
+            );
         }
 
         self.advance_lexer_or_parser(shared, res, curr)
@@ -1047,6 +1056,7 @@ impl ParserState {
     // this just copies current row
     fn scan_skip_lexeme(&mut self, lexeme: &Lexeme) -> bool {
         let src = self.curr_row().item_indices();
+        let allowed_lexemes = self.curr_row().allowed_lexemes.clone();
         let n = src.len();
         if n == 0 {
             return false;
@@ -1066,6 +1076,7 @@ impl ParserState {
         let added_row_idx = self.num_rows();
         // the allowed_lexemes were not computed correctly due to us messing
         // with agenda pointer above
+        self.rows[added_row_idx].allowed_lexemes = allowed_lexemes;
         if self.scratch.definitive {
             self.row_infos[added_row_idx].max_tokens =
                 self.row_infos[added_row_idx - 1].max_tokens.clone();
@@ -1106,7 +1117,7 @@ impl ParserState {
     // lexeme only used for captures (in definitive mode)
     #[inline(always)]
     fn push_row(&mut self, curr_idx: usize, mut agenda_ptr: usize, lexeme: &Lexeme) -> bool {
-        self.allowed_lexemes.set_all(false);
+        let mut allowed_lexemes = self.lexer_spec().alloc_lexeme_set();
         let mut max_tokens = vec![];
 
         while agenda_ptr < self.scratch.row_end {
@@ -1174,7 +1185,7 @@ impl ParserState {
             } else {
                 let sym_data = self.grammar.sym_data(after_dot);
                 if let Some(lx) = sym_data.lexeme {
-                    self.allowed_lexemes.set(lx.as_usize(), true);
+                    allowed_lexemes.set(lx.as_usize(), true);
                     if self.scratch.definitive {
                         max_tokens.push((lx, sym_data.props.max_tokens));
                     }
@@ -1212,17 +1223,17 @@ impl ParserState {
         } else {
             self.stats.all_items += row_len;
 
-            self.allowed_lexemes.set(LexemeIdx::SKIP.as_usize(), true);
+            allowed_lexemes.set(LexemeIdx::SKIP.as_usize(), true);
 
             if self.scratch.definitive {
                 debug!(
                     "  push row: {}",
-                    self.lexer_spec().dbg_lexeme_set(&self.allowed_lexemes),
+                    self.lexer_spec().dbg_lexeme_set(&allowed_lexemes),
                 );
             }
 
             let idx = self.num_rows();
-            let row = self.scratch.work_row();
+            let row = self.scratch.work_row(allowed_lexemes);
             if self.rows.len() == 0 || self.rows.len() == idx {
                 self.rows.push(row);
             } else {
@@ -1327,11 +1338,10 @@ impl ParserState {
         // note, that while self.rows[] is updated, the lexer stack is not
         // so the last added row is at self.num_rows(), and not self.num_rows() - 1
         let added_row = self.num_rows();
+        let added_row_lexemes = &self.rows[added_row].allowed_lexemes;
         let no_hidden = LexerState {
             row_idx: added_row as u32,
-            lexer_state: shared
-                .lexer
-                .start_state(&self.allowed_lexemes, transition_byte),
+            lexer_state: shared.lexer.start_state(added_row_lexemes, transition_byte),
             byte: transition_byte,
         };
         if self.scratch.definitive {
@@ -1341,7 +1351,7 @@ impl ParserState {
                 "lex: re-start {:?} (via {:?}); allowed: {}",
                 no_hidden.lexer_state,
                 transition_byte.map(|b| b as char),
-                self.lexer_spec().dbg_lexeme_set(&self.allowed_lexemes)
+                self.lexer_spec().dbg_lexeme_set(added_row_lexemes)
             );
         }
         no_hidden
@@ -1355,7 +1365,7 @@ impl ParserState {
         lexeme_byte: Option<u8>,
         pre_lexeme: PreLexeme,
     ) {
-        let added_row_lexemes = &self.allowed_lexemes;
+        let added_row_lexemes = &self.rows[self.num_rows()].allowed_lexemes;
 
         // make sure we have a real lexeme
         let lexeme = self.mk_lexeme(lexeme_byte, pre_lexeme);
