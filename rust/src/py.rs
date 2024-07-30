@@ -105,7 +105,6 @@ impl LLInterpreter {
                     .expect("expecting unconditional splice or mask");
                 let mut res = vec![0u8; m.len()];
                 m.iter_set_entries(|i| res[i] = 200);
-                res.pop();
                 Some(Cow::Owned(res))
             };
 
