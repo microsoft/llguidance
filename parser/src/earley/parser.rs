@@ -151,7 +151,7 @@ struct RowInfo {
     lexeme: Lexeme,
     token_idx_start: usize,
     token_idx_stop: usize,
-    max_tokens: HashMap<LexemeIdx, usize>,
+    max_tokens: Arc<HashMap<LexemeIdx, usize>>,
 }
 
 impl RowInfo {
@@ -728,7 +728,7 @@ impl ParserState {
             start_byte_idx: 0,
             token_idx_start: self.token_idx,
             token_idx_stop: self.token_idx,
-            max_tokens: HashMap::default(),
+            max_tokens: Arc::new(HashMap::default()),
         });
 
         for idx in 0..self.num_rows() {
@@ -1257,7 +1257,7 @@ impl ParserState {
                     token_idx_start: self.token_idx,
                     token_idx_stop: self.token_idx,
                     start_byte_idx: self.byte_idx,
-                    max_tokens: max_tokens_map,
+                    max_tokens: Arc::new(max_tokens_map),
                 });
                 // debug!("  push: {idx} {} {}", self.rows.len(), self.row_infos.len());
             }
