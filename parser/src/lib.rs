@@ -13,7 +13,7 @@ macro_rules! infoln {
     ($s:expr, $($arg:tt)*) => {
         if $s.logger.level_enabled(2) {
             use std::fmt::Write;
-            writeln!($s.logger, $($arg)*).unwrap();
+            writeln!($s.logger.info_logger(), $($arg)*).unwrap();
         }
     };
 }
@@ -23,8 +23,8 @@ macro_rules! warn {
     ($s:expr, $($arg:tt)*) => {
         if $s.logger.level_enabled(1) {
             use std::fmt::Write;
-            $s.logger.write_str("Warning: ").unwrap();
-            writeln!($s.logger, $($arg)*).unwrap();
+            $s.logger.write_warning("Warning: ");
+            writeln!($s.logger.warning_logger(), $($arg)*).unwrap();
         }
     };
 }

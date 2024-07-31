@@ -220,13 +220,20 @@ pub fn grammars_from_json(
         .enumerate()
         .map(|(idx, (lex, mut grm))| {
             if logger.level_enabled(2) {
-                writeln!(logger, "Grammar #{}:\n{:?}\n{:?}\n", idx, lex, grm).unwrap();
+                writeln!(
+                    logger.info_logger(),
+                    "Grammar #{}:\n{:?}\n{:?}\n",
+                    idx,
+                    lex,
+                    grm
+                )
+                .unwrap();
             }
 
             grm = grm.optimize();
 
             if logger.level_enabled(2) {
-                write!(logger, "  == Optimize ==>\n{:?}", grm).unwrap();
+                write!(logger.info_logger(), "  == Optimize ==>\n{:?}", grm).unwrap();
             }
 
             Arc::new(grm.compile(lex))

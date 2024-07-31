@@ -7,6 +7,14 @@ pub struct Logger {
     buffer: String,
 }
 
+pub struct InfoLogger<'a> {
+    logger: &'a mut Logger,
+}
+
+pub struct WarningLogger<'a> {
+    logger: &'a mut Logger,
+}
+
 impl Clone for Logger {
     fn clone(&self) -> Self {
         Self {
@@ -30,16 +38,38 @@ impl Logger {
 
     pub fn warn(&mut self, s: &str) {
         if self.level_enabled(1) {
-            self.write_str("Warning: ").unwrap();
-            self.write_str(s).unwrap();
-            self.write_str("\n").unwrap();
+            self.write_warning("Warning: ");
+            self.write_warning(s);
+            self.write_warning("\n");
         }
     }
 
     pub fn info(&mut self, s: &str) {
         if self.level_enabled(2) {
-            self.write_str(s).unwrap();
-            self.write_str("\n").unwrap();
+            self.write_info(s);
+            self.write_info("\n");
+        }
+    }
+
+    pub fn write_warning(&mut self, s: &str) {
+        self.write_level(1, s);
+    }
+
+    pub fn write_info(&mut self, s: &str) {
+        self.write_level(2, s);
+    }
+
+    pub fn write_buffer(&mut self, s: &str) {
+        self.buffer.push_str(s);
+    }
+
+    #[inline(always)]
+    pub fn write_level(&mut self, level: u32, s: &str) {
+        if self.buffer_level >= level {
+            self.buffer.push_str(s);
+        }
+        if self.stderr_level >= level {
+            eprint!("{}", s);
         }
     }
 
@@ -80,16 +110,26 @@ impl Logger {
     pub fn get_and_clear_logs(&mut self) -> String {
         std::mem::take(&mut self.buffer)
     }
+
+    pub fn info_logger(&mut self) -> InfoLogger {
+        InfoLogger { logger: self }
+    }
+
+    pub fn warning_logger(&mut self) -> WarningLogger {
+        WarningLogger { logger: self }
+    }
 }
 
-impl Write for Logger {
+impl<'a> Write for InfoLogger<'a> {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        if self.effective_level >= self.buffer_level {
-            self.buffer.push_str(s);
-        }
-        if self.effective_level >= self.stderr_level {
-            eprint!("{}", s);
-        }
+        self.logger.write_info(s);
+        Ok(())
+    }
+}
+
+impl<'a> Write for WarningLogger<'a> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.logger.write_warning(s);
         Ok(())
     }
 }
