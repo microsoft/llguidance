@@ -1,9 +1,9 @@
 use anyhow::{anyhow, bail, Result};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use tokenizers::{normalizers::Sequence, NormalizerWrapper, Tokenizer};
-use toktrie::{TokRxInfo, TokTrie, TokenId, TokenizerEnv};
+use std::{collections::BTreeMap, sync::Arc};
+use tokenizers::{normalizers::Sequence, FromPretrainedParameters, NormalizerWrapper, Tokenizer};
+use toktrie::{TokEnv, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
 
 #[derive(Serialize, Deserialize)]
 pub struct ByteTokenizer {
@@ -39,7 +39,39 @@ fn build_char_map() -> FxHashMap<char, u8> {
     res
 }
 
+fn strip_suffix(sep: &str, s: &mut String) -> Option<String> {
+    let mut parts = s.splitn(2, sep);
+    let core = parts.next().unwrap().to_string();
+    let suff = parts.next().map(|s| s.to_string());
+    *s = core;
+    suff
+}
+
 impl ByteTokenizer {
+    pub fn from_name(name: &str) -> Result<ByteTokenizer> {
+        let loaded = if name.starts_with(".") || name.starts_with("/") {
+            Tokenizer::from_file(name)
+        } else {
+            let mut name2 = name.to_string();
+            let mut args = FromPretrainedParameters::default();
+            match strip_suffix("@", &mut name2) {
+                Some(s) => args.revision = s,
+                None => {}
+            }
+            Tokenizer::from_pretrained(name2, Some(args))
+        };
+
+        let tok = loaded.map_err(|e| anyhow!("error loading tokenizer: {}", e))?;
+
+        ByteTokenizer::from_tokenizer(tok)
+    }
+
+    pub fn from_file(name: &str) -> Result<ByteTokenizer> {
+        let tok =
+            Tokenizer::from_file(name).map_err(|e| anyhow!("error loading tokenizer: {}", e))?;
+        ByteTokenizer::from_tokenizer(tok)
+    }
+
     pub fn from_tokenizer(mut hft: Tokenizer) -> Result<ByteTokenizer> {
         let mut is_byte_level = false;
         let mut is_byte_fallback = false;
@@ -195,12 +227,21 @@ pub struct ByteTokenizerEnv {
 }
 
 impl ByteTokenizerEnv {
+    pub fn from_name(name: &str) -> Result<ByteTokenizerEnv> {
+        let tokenizer = ByteTokenizer::from_name(name)?;
+        Ok(ByteTokenizerEnv::new(tokenizer))
+    }
+
     pub fn new(tokenizer: ByteTokenizer) -> ByteTokenizerEnv {
         let tok_trie = TokTrie::from(&tokenizer.tokrx_info(), &tokenizer.token_bytes());
         ByteTokenizerEnv {
             tokenizer,
             tok_trie,
         }
+    }
+
+    pub fn to_env(self) -> TokEnv {
+        Arc::new(self)
     }
 }
 

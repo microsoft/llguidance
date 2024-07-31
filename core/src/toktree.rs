@@ -1,6 +1,8 @@
 // use 8:24 encoding - num_ch:tok_id (ch_byte:ch_off)* - 8 bytes per tree node
 // special case num_ch=0xff -> num_ch=0x100
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use bytemuck_derive::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
@@ -70,6 +72,8 @@ pub trait TokenizerEnv: Send {
         self.tok_trie().eos_token()
     }
 }
+
+pub type TokEnv = Arc<dyn TokenizerEnv + Sync + 'static>;
 
 #[derive(Clone)]
 pub struct TokTrie {
