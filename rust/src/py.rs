@@ -51,7 +51,7 @@ impl LLInterpreter {
             fork: false,
         };
         let inner =
-            TokenParser::from_llguidance_json(Arc::new(env), arg, log_level, inference_caps)
+            TokenParser::from_llguidance_json(Arc::new(env), arg, log_level, false, inference_caps)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let reporter = Reporter::new(&inner);
         Ok(LLInterpreter {
