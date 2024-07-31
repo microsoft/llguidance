@@ -3,6 +3,7 @@ use std::{borrow::Cow, sync::Arc};
 use llguidance_parser::toktrie::{
     self, InferenceCapabilities, StepArg, StepResult, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
 };
+use llguidance_parser::Logger;
 use llguidance_parser::{
     api::TopLevelGrammar,
     output::{ParserOutput, Reporter},
@@ -50,9 +51,9 @@ impl LLInterpreter {
             conditional_ff_tokens: true,
             fork: false,
         };
-        let inner =
-            TokenParser::from_llguidance_json(Arc::new(env), arg, log_level, false, inference_caps)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let logger = Logger::new(0, std::cmp::max(0, log_level) as u32);
+        let inner = TokenParser::from_llguidance_json(Arc::new(env), arg, logger, inference_caps)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let reporter = Reporter::new(&inner);
         Ok(LLInterpreter {
             inner,

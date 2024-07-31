@@ -5,6 +5,7 @@ use super::{grammar::SymbolProps, lexerspec::LexerSpec, CGrammar, Grammar};
 use crate::api::{
     GrammarWithLexer, Node, RegexId, RegexNode, RegexSpec, TopLevelGrammar, DEFAULT_CONTEXTUAL,
 };
+use crate::Logger;
 use anyhow::{bail, Result};
 use derivre::{ExprRef, RegexAst, RegexBuilder};
 
@@ -202,8 +203,8 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
 
 pub fn grammars_from_json(
     input: TopLevelGrammar,
-    print_out: bool,
-) -> Result<(Vec<Arc<CGrammar>>, String)> {
+    logger: &mut Logger,
+) -> Result<Vec<Arc<CGrammar>>> {
     let grammars = input
         .grammars
         .into_iter()
@@ -214,24 +215,23 @@ pub fn grammars_from_json(
         g.validate_grammar_refs(&grammars)?;
     }
 
-    let mut out = String::new();
     let grammars = grammars
         .into_iter()
         .enumerate()
         .map(|(idx, (lex, mut grm))| {
-            if print_out {
-                writeln!(out, "Grammar #{}:\n{:?}\n{:?}\n", idx, lex, grm).unwrap();
+            if logger.level_enabled(2) {
+                writeln!(logger, "Grammar #{}:\n{:?}\n{:?}\n", idx, lex, grm).unwrap();
             }
 
             grm = grm.optimize();
 
-            if print_out {
-                write!(out, "  == Optimize ==>\n{:?}", grm).unwrap();
+            if logger.level_enabled(2) {
+                write!(logger, "  == Optimize ==>\n{:?}", grm).unwrap();
             }
 
             Arc::new(grm.compile(lex))
         })
         .collect::<Vec<_>>();
 
-    Ok((grammars, out))
+    Ok(grammars)
 }
