@@ -81,9 +81,9 @@ impl LLInterpreter {
         self.inner.process_prompt(prompt)
     }
 
-    fn mid_process(&mut self) -> (Option<Cow<[u8]>>, String) {
+    fn mid_process(&mut self, py: Python<'_>) -> (Option<Cow<[u8]>>, String) {
         let arg = std::mem::replace(&mut self.step_arg, StepArg::empty());
-        self.last_result = self.inner.mid_process(arg);
+        self.last_result = py.allow_threads(|| self.inner.mid_process(arg));
         let r = &self.last_result;
         let is_final = r.is_stop();
         if let Some(t) = r.temperature {
