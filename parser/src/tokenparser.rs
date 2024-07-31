@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::sync::Arc;
 
 use crate::{
@@ -11,7 +12,11 @@ use toktrie::{InferenceCapabilities, SimpleVob, StepArg, StepResult, TokenId, To
 macro_rules! infoln {
     ($s:expr, $($arg:tt)*) => {
         if $s.log_level >= 2 {
-            eprintln!($($arg)*);
+            if $s.save_logs {
+                writeln!($s.logs, $($arg)*).unwrap();
+            } else {
+                eprintln!($($arg)*);
+            }
         }
     };
 }
@@ -19,8 +24,13 @@ macro_rules! infoln {
 macro_rules! warn {
     ($s:expr, $($arg:tt)*) => {
         if $s.log_level >= 1 {
-            eprint!("Warning: ");
-            eprintln!($($arg)*);
+            if $s.save_logs {
+                $s.logs.push_str("Warning: ");
+                writeln!($s.logs, $($arg)*).unwrap();
+            } else {
+                eprint!("Warning: ");
+                eprintln!($($arg)*);
+            }
         }
     };
 }
@@ -32,6 +42,8 @@ pub struct TokenParser {
     pub log_level: isize,
     pub mid_process_start_time: std::time::Instant,
     pub inference_caps: InferenceCapabilities,
+    save_logs: bool,
+    logs: String,
     pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
@@ -72,12 +84,13 @@ impl TokenParser {
         token_env: Arc<dyn TokenizerEnv + Sync>,
         buf: TopLevelGrammar,
         log_level: isize,
+        save_logs: bool,
         inference_caps: InferenceCapabilities,
     ) -> Result<Self> {
         let mid_process_start_time = std::time::Instant::now();
         let test_trace = buf.test_trace;
         let max_tokens = buf.max_tokens.unwrap_or(usize::MAX);
-        let compiled_grammars = grammars_from_json(buf, log_level >= 2)?;
+        let (compiled_grammars, grammar_log) = grammars_from_json(buf, log_level >= 2)?;
         let parser = Parser::new(
             Arc::clone(&compiled_grammars[0]),
             GenGrammarOptions::default(),
@@ -85,6 +98,8 @@ impl TokenParser {
 
         Ok(TokenParser {
             log_level,
+            logs: grammar_log,
+            save_logs,
             test_trace,
             token_env,
             inference_caps,
@@ -105,6 +120,10 @@ impl TokenParser {
             max_tokens_total: max_tokens,
             max_tokens_parser: max_tokens,
         })
+    }
+
+    pub fn get_and_clear_logs(&mut self) -> String {
+        std::mem::replace(&mut self.logs, String::new())
     }
 
     pub fn stop_reason(&self) -> StopReason {
@@ -209,7 +228,7 @@ impl TokenParser {
         self.parser_stack.is_empty()
     }
 
-    fn test_trace_json(&self, j: &serde_json::Value) {
+    fn test_trace_json(&mut self, j: &serde_json::Value) {
         if self.test_trace {
             infoln!(self, "TEST: {}", serde_json::to_string(j).unwrap());
         }

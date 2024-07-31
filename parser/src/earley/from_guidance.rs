@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::{sync::Arc, vec};
 
 use super::{grammar::SymbolProps, lexerspec::LexerSpec, CGrammar, Grammar};
@@ -199,7 +200,10 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
     Ok((lexer_spec, grm))
 }
 
-pub fn grammars_from_json(input: TopLevelGrammar, print_out: bool) -> Result<Vec<Arc<CGrammar>>> {
+pub fn grammars_from_json(
+    input: TopLevelGrammar,
+    print_out: bool,
+) -> Result<(Vec<Arc<CGrammar>>, String)> {
     let grammars = input
         .grammars
         .into_iter()
@@ -210,21 +214,24 @@ pub fn grammars_from_json(input: TopLevelGrammar, print_out: bool) -> Result<Vec
         g.validate_grammar_refs(&grammars)?;
     }
 
-    Ok(grammars
+    let mut out = String::new();
+    let grammars = grammars
         .into_iter()
         .enumerate()
         .map(|(idx, (lex, mut grm))| {
             if print_out {
-                eprintln!("\nGrammar #{}:\n{:?}\n{:?}", idx, lex, grm);
+                writeln!(out, "Grammar #{}:\n{:?}\n{:?}\n", idx, lex, grm).unwrap();
             }
 
             grm = grm.optimize();
 
             if print_out {
-                eprintln!("  == Optimize ==>\n{:?}", grm);
+                write!(out, "  == Optimize ==>\n{:?}", grm).unwrap();
             }
 
             Arc::new(grm.compile(lex))
         })
-        .collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+
+    Ok((grammars, out))
 }
