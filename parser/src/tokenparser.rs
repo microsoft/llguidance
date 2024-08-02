@@ -215,6 +215,22 @@ impl TokenParser {
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
         self.mid_process_start_time = std::time::Instant::now();
         if self.stop_reason != StopReason::NotStopped {
+            let trie = self.token_env.tok_trie();
+            infoln!(
+                self,
+                "stopped; post tokens: bt={} {}",
+                arg.backtrack,
+                trie.tokens_dbg(&arg.tokens)
+            );
+
+            if arg.backtrack == 0
+                && (arg.tokens.len() == 0
+                    || (arg.tokens.len() == 1 && arg.tokens[0] == trie.eos_token()))
+            {
+                // Don't warn in this case
+                return StepResult::stop();
+            }
+
             warn!(self, "stopped ({})", self.stop_reason.to_string());
             return StepResult::stop();
         }
