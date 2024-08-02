@@ -458,7 +458,8 @@ impl TokenParser {
                         )
                     );
                     warn!(self, "{}", msg);
-                    self.error_message = Some(msg);
+                    // Setting error is too extreme here (may terminate the sequence)
+                    // self.error_message = Some(msg);
                     self.pending_bogus_backtrack = backtrack as u32;
                     backtrack = 0;
                 }
