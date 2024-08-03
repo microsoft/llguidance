@@ -326,7 +326,7 @@ impl TokenParser {
     }
 
     fn mid_process_inner(&mut self, mut arg: StepArg) -> StepResult {
-        let start_time = std::time::Instant::now();
+        let start_time = instant::Instant::now();
 
         self.mid_process_was_accepting = false;
 
