@@ -7,11 +7,11 @@ use crate::{
 };
 use anyhow::Result;
 use serde_json::json;
-use toktrie::{InferenceCapabilities, SimpleVob, StepArg, StepResult, TokenId, TokenizerEnv};
+use toktrie::{InferenceCapabilities, SimpleVob, Splice, StepArg, StepResult, TokEnv, TokenId};
 
 #[derive(Clone)]
 pub struct TokenParser {
-    pub token_env: Arc<dyn TokenizerEnv + Sync>,
+    pub token_env: TokEnv,
     pub parser: Parser,
     pub mid_process_start_time: std::time::Instant,
     pub inference_caps: InferenceCapabilities,
@@ -29,6 +29,8 @@ pub struct TokenParser {
     mid_process_was_accepting: bool,
     stop_reason: StopReason,
     error_message: Option<String>,
+
+    no_bias_this_mid_process: bool,
 
     max_tokens_total: usize,
     max_tokens_parser: usize,
@@ -53,7 +55,7 @@ struct ParserStackEntry {
 
 impl TokenParser {
     pub fn from_llguidance_json(
-        token_env: Arc<dyn TokenizerEnv + Sync>,
+        token_env: TokEnv,
         buf: TopLevelGrammar,
         mut logger: Logger,
         inference_caps: InferenceCapabilities,
@@ -75,6 +77,7 @@ impl TokenParser {
             pending_bogus_backtrack: 0,
             mid_process_start_time,
             mid_process_was_accepting: false,
+            no_bias_this_mid_process: false,
             stop_reason: StopReason::NotStopped,
             error_message: None,
             pop_tokens: None,
@@ -212,8 +215,29 @@ impl TokenParser {
         self.error_message.clone()
     }
 
+    pub fn advance_parser(&mut self, arg: StepArg) -> Option<Splice> {
+        assert!(self.inference_caps.ff_tokens);
+        assert!(!self.test_trace);
+
+        self.no_bias_this_mid_process = true;
+        let r = self.mid_process(arg);
+        self.no_bias_this_mid_process = false;
+        if r.is_stop() {
+            None
+        } else {
+            Some(r.unconditional_splice().cloned().unwrap_or_else(|| Splice {
+                when_sampled: vec![],
+                backtrack: 0,
+                ff_tokens: vec![],
+            }))
+        }
+    }
+
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
-        self.mid_process_start_time = std::time::Instant::now();
+        if !self.no_bias_this_mid_process {
+            self.mid_process_start_time = std::time::Instant::now();
+        }
+
         if self.stop_reason != StopReason::NotStopped {
             let trie = self.token_env.tok_trie();
             infoln!(
@@ -515,8 +539,6 @@ impl TokenParser {
         };
 
         let trie = self.token_env.tok_trie();
-        // self.parser.print_row(self.parser.num_rows() - 1);
-        let mut set = self.parser.compute_bias(trie, &token_prefix);
 
         if inner_done || self.max_tokens_parser == 0 {
             if self.parser_stack.is_empty() {
@@ -553,6 +575,13 @@ impl TokenParser {
                 });
             }
         }
+
+        if self.no_bias_this_mid_process {
+            self.no_bias_this_mid_process = false;
+            return StepResult::noop();
+        }
+
+        let mut set = self.parser.compute_bias(trie, &token_prefix);
 
         if inner_accepting {
             let mut all_accepting = true;
