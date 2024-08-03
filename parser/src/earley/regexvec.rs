@@ -377,7 +377,7 @@ impl RegexVec {
 
         let d0 = self.deriv.num_deriv;
         let c0 = self.exprs.cost();
-        let t0 = std::time::Instant::now();
+        let t0 = instant::Instant::now();
 
         for (idx, e) in iter_state(&self.rx_sets, state) {
             let d = self.deriv.derivative(&mut self.exprs, e, b);

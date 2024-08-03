@@ -13,7 +13,7 @@ use toktrie::{InferenceCapabilities, SimpleVob, Splice, StepArg, StepResult, Tok
 pub struct TokenParser {
     pub token_env: TokEnv,
     pub parser: Parser,
-    pub mid_process_start_time: std::time::Instant,
+    pub mid_process_start_time: instant::Instant,
     pub inference_caps: InferenceCapabilities,
     pub logger: Logger,
     pending_bogus_backtrack: u32,
@@ -60,7 +60,7 @@ impl TokenParser {
         mut logger: Logger,
         inference_caps: InferenceCapabilities,
     ) -> Result<Self> {
-        let mid_process_start_time = std::time::Instant::now();
+        let mid_process_start_time = instant::Instant::now();
         let test_trace = buf.test_trace;
         let max_tokens = buf.max_tokens.unwrap_or(usize::MAX);
         let compiled_grammars = grammars_from_json(buf, &mut logger)?;
@@ -235,7 +235,7 @@ impl TokenParser {
 
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
         if !self.no_bias_this_mid_process {
-            self.mid_process_start_time = std::time::Instant::now();
+            self.mid_process_start_time = instant::Instant::now();
         }
 
         if self.stop_reason != StopReason::NotStopped {
