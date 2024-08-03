@@ -80,6 +80,28 @@ impl Reporter {
         tok_parser: &mut TokenParser,
         mid_res: &StepResult,
     ) -> Vec<ParserOutput> {
+        let mut res = self.get_progress_core(tok_parser);
+        self.is_generated = !mid_res.is_stop() && mid_res.splices.len() == 0;
+
+        if mid_res.is_stop() {
+            res.push(self.final_text(tok_parser));
+        }
+
+        res
+    }
+
+    pub fn final_text(&self, tok_parser: &mut TokenParser) -> ParserOutput {
+        ParserOutput::FinalText {
+            bytes: tok_parser.final_bytes().into(),
+            stop_reason: tok_parser.stop_reason(),
+        }
+    }
+
+    pub fn set_is_generated(&mut self, is_generated: bool) {
+        self.is_generated = is_generated;
+    }
+
+    pub fn get_progress_core(&mut self, tok_parser: &mut TokenParser) -> Vec<ParserOutput> {
         let mut res = vec![];
 
         // start with captures
@@ -122,15 +144,6 @@ impl Reporter {
         });
         self.text_ptr += new_text.len();
         self.token_ptr = num_tokens;
-
-        self.is_generated = !mid_res.is_stop() && mid_res.splices.len() == 0;
-
-        if mid_res.is_stop() {
-            res.push(ParserOutput::FinalText {
-                bytes: tok_parser.final_bytes().into(),
-                stop_reason: tok_parser.stop_reason(),
-            });
-        }
 
         res
     }
