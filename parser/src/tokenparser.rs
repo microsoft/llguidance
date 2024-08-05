@@ -234,10 +234,7 @@ impl TokenParser {
     }
 
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
-        if !self.no_bias_this_mid_process {
-            self.mid_process_start_time = instant::Instant::now();
-        }
-
+        self.mid_process_start_time = instant::Instant::now();
         if self.stop_reason != StopReason::NotStopped {
             let trie = self.token_env.tok_trie();
             infoln!(
