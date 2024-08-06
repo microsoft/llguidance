@@ -240,7 +240,7 @@ impl ByteTokenizerEnv {
             }
             info.vocab_size = n_vocab as u32;
         }
-        let tok_trie = TokTrie::from(&tokenizer.tokrx_info(), &tokenizer.token_bytes());
+        let tok_trie = TokTrie::from(&info, &token_bytes);
         Ok(ByteTokenizerEnv {
             tokenizer,
             tok_trie,
