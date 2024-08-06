@@ -1,16 +1,13 @@
 use anyhow::{anyhow, bail, Result};
 use rustc_hash::FxHashMap;
-use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 use tokenizers::{normalizers::Sequence, FromPretrainedParameters, NormalizerWrapper, Tokenizer};
 use toktrie::{TokEnv, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
 
-#[derive(Serialize, Deserialize)]
 pub struct ByteTokenizer {
     pub hf_model: String,
     pub hf_tokenizer: Tokenizer,
-    pub eos_token: u32,
-    pub vocab_size: u32,
+    info: TokRxInfo,
     token_bytes: Vec<Vec<u8>>,
     pub special: BTreeMap<String, u32>,
 }
@@ -129,8 +126,7 @@ impl ByteTokenizer {
 
         let mut res = ByteTokenizer {
             hf_model: "foobar".to_string(),
-            eos_token: 0,
-            vocab_size,
+            info: TokRxInfo::new(vocab_size, 0),
             special: BTreeMap::new(),
             token_bytes: (0..vocab_size).map(|_| Vec::new()).collect(),
             hf_tokenizer: hft,
@@ -139,7 +135,10 @@ impl ByteTokenizer {
         for (id, info) in added.iter() {
             if info.special {
                 match info.content.as_str() {
-                    "</s>" | "<|endoftext|>" | "<|end_of_text|>" => res.eos_token = *id,
+                    "</s>" | "<|endoftext|>" | "<|end_of_text|>" => res.info.tok_eos = *id,
+                    "<|end|>" | "<|eot_id|>" => res.info.tok_end_of_turn = Some(*id),
+                    "<unk>" | "<|unk|>" => res.info.tok_unk = Some(*id),
+                    "<pad>" | "<|pad|>" => res.info.tok_pad = Some(*id),
                     _ => {}
                 }
                 res.special.insert(info.content.clone(), *id);
@@ -198,24 +197,21 @@ impl ByteTokenizer {
     }
 
     pub fn tokrx_info(&self) -> TokRxInfo {
-        TokRxInfo {
-            vocab_size: self.vocab_size,
-            tok_eos: self.eos_token,
-        }
+        self.info.clone()
     }
     pub fn token_bytes(&self) -> Vec<Vec<u8>> {
         self.token_bytes.clone()
     }
 
     pub fn add_missing_tokens(&mut self, vocab_size: usize) {
-        assert!(self.vocab_size == self.token_bytes.len() as u32);
+        assert!(self.info.vocab_size == self.token_bytes.len() as u32);
         assert!(vocab_size >= self.token_bytes.len());
         assert!(vocab_size - self.token_bytes.len() <= 200);
         while self.token_bytes.len() < vocab_size {
             let idx = self.token_bytes.len();
             let name = format!("<AddedToken_{idx}>");
             self.token_bytes.push(name.as_bytes().to_vec());
-            self.vocab_size += 1;
+            self.info.vocab_size += 1;
             self.special.insert(name, idx as u32);
         }
     }

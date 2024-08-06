@@ -16,9 +16,50 @@ pub type TokenId = u32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroable, Pod)]
 #[repr(C)]
+pub struct BinTokRxInfo {
+    pub vocab_size: u32,
+    pub tok_eos: TokenId,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct TokRxInfo {
     pub vocab_size: u32,
     pub tok_eos: TokenId,
+    pub tok_bos: Option<TokenId>,
+    pub tok_pad: Option<TokenId>,
+    pub tok_unk: Option<TokenId>,
+    pub tok_end_of_turn: Option<TokenId>,
+}
+
+impl TokRxInfo {
+    pub fn new(vocab_size: u32, tok_eos: TokenId) -> Self {
+        TokRxInfo {
+            vocab_size,
+            tok_eos,
+            tok_bos: None,
+            tok_pad: None,
+            tok_unk: None,
+            tok_end_of_turn: None,
+        }
+    }
+
+    pub fn from_bin(info: &BinTokRxInfo) -> Self {
+        TokRxInfo {
+            vocab_size: info.vocab_size,
+            tok_eos: info.tok_eos,
+            tok_bos: None,
+            tok_pad: None,
+            tok_unk: None,
+            tok_end_of_turn: None,
+        }
+    }
+
+    pub fn to_bin(&self) -> BinTokRxInfo {
+        BinTokRxInfo {
+            vocab_size: self.vocab_size,
+            tok_eos: self.tok_eos,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -28,6 +69,7 @@ pub enum SpecialToken {
     Separator,
     BeginningOfSentence,
     EndOfSentence,
+    EndOfTurn,
 }
 
 pub trait Recognizer {
@@ -93,7 +135,7 @@ pub struct TokTrieHeader {
     trie_bytes: u32,
     token_offset_bytes: u32,
     token_data_bytes: u32,
-    info: TokRxInfo,
+    info: BinTokRxInfo,
     align: [u32; 0],
 }
 
@@ -175,6 +217,14 @@ impl TokTrie {
             token_duplicates: FxHashMap::default(),
         };
         r.finalize_ctor();
+        r
+    }
+
+    pub fn build_chat_mode_trie(&self) -> Self {
+        let mut r = self.clone();
+        if let Some(t) = self.info.tok_end_of_turn {
+            r.info.tok_eos = t;
+        }
         r
     }
 
@@ -447,7 +497,7 @@ impl TokTrie {
         let token_data = vec_from_bytes(&bytes[offsets_end..]);
 
         let mut r = TokTrie {
-            info: hd.info,
+            info: TokRxInfo::from_bin(&hd.info),
             token_offsets,
             token_data,
             nodes,
@@ -497,7 +547,7 @@ impl TokTrie {
             trie_bytes: trie_data.len() as u32,
             token_offset_bytes: token_offsets.len() as u32,
             token_data_bytes: trie_data.len() as u32,
-            info: self.info.clone(),
+            info: self.info.to_bin(),
             align: [],
         };
 
