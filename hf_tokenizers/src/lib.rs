@@ -223,17 +223,28 @@ pub struct ByteTokenizerEnv {
 }
 
 impl ByteTokenizerEnv {
-    pub fn from_name(name: &str) -> Result<ByteTokenizerEnv> {
+    pub fn from_name(name: &str, n_vocab: Option<usize>) -> Result<ByteTokenizerEnv> {
         let tokenizer = ByteTokenizer::from_name(name)?;
-        Ok(ByteTokenizerEnv::new(tokenizer))
+        ByteTokenizerEnv::new(tokenizer, n_vocab)
     }
 
-    pub fn new(tokenizer: ByteTokenizer) -> ByteTokenizerEnv {
+    pub fn new(tokenizer: ByteTokenizer, n_vocab: Option<usize>) -> Result<ByteTokenizerEnv> {
+        let mut info = tokenizer.tokrx_info();
+        let mut token_bytes = tokenizer.token_bytes();
+        if let Some(n_vocab) = n_vocab {
+            if n_vocab < token_bytes.len() {
+                bail!("vocab size too small; {} vs {}", n_vocab, token_bytes.len());
+            }
+            while n_vocab > token_bytes.len() {
+                token_bytes.push(Vec::new());
+            }
+            info.vocab_size = n_vocab as u32;
+        }
         let tok_trie = TokTrie::from(&tokenizer.tokrx_info(), &tokenizer.token_bytes());
-        ByteTokenizerEnv {
+        Ok(ByteTokenizerEnv {
             tokenizer,
             tok_trie,
-        }
+        })
     }
 
     pub fn to_env(self) -> TokEnv {
