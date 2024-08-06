@@ -178,10 +178,7 @@ impl LLTokenizer {
         //     tokens[t as usize] = vec![];
         // }
 
-        let info = TokRxInfo {
-            vocab_size: tokens.len() as u32,
-            tok_eos,
-        };
+        let info = TokRxInfo::new(tokens.len() as u32, tok_eos);
 
         let tok_trie = TokTrie::from(&info, &tokens);
         Ok(LLTokenizer {
