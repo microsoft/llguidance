@@ -1,6 +1,6 @@
-use toktrie::SimpleVob;
 use derivre::raw::{DerivCache, ExprSet, NextByteCache, VecHashCons};
 use std::fmt::Debug;
+use toktrie::SimpleVob;
 
 pub use derivre::{AlphabetInfo, ExprRef, NextByte, StateID};
 
@@ -31,7 +31,7 @@ pub struct StateDesc {
     possible_lookahead_len: Option<usize>,
     lookahead_len: Option<Option<usize>>,
     next_byte: Option<NextByte>,
-    lowest_match: Option<Option<(usize, usize)>>,
+    lowest_match: Option<(usize, usize)>,
 }
 
 impl StateDesc {
@@ -162,12 +162,7 @@ impl RegexVec {
     /// if they accept and force EOI.
     #[inline(always)]
     pub fn lowest_match(&mut self, state: StateID) -> Option<(usize, usize)> {
-        if let Some(lowest_match) = self.state_descs[state.as_usize()].lowest_match {
-            return lowest_match;
-        }
-        let res = self.lowest_match_inner(state);
-        self.state_descs[state.as_usize()].lowest_match = Some(res);
-        res
+        self.state_descs[state.as_usize()].lowest_match
     }
 
     /// Check if the there is only one transition out of state.
@@ -333,7 +328,9 @@ impl RegexVec {
         assert!(lst.len() % 2 == 0);
         let id = StateID::new(self.rx_sets.insert(&lst));
         if id.as_usize() >= self.state_descs.len() {
-            self.append_state(self.compute_state_desc(id));
+            let mut state_desc = self.compute_state_desc(id);
+            state_desc.lowest_match = self.lowest_match_inner(id);
+            self.append_state(state_desc);
         }
         id
     }
