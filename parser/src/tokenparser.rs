@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     api::{GenGrammarOptions, StopReason, TopLevelGrammar},
@@ -14,6 +14,7 @@ pub struct TokenParser {
     pub token_env: TokEnv,
     pub parser: Parser,
     pub mid_process_start_time: instant::Instant,
+    pub last_bias_time: Duration,
     pub inference_caps: InferenceCapabilities,
     pub logger: Logger,
     pending_bogus_backtrack: u32,
@@ -91,6 +92,7 @@ impl TokenParser {
             grm_prefix: Vec::new(),
             max_tokens_total: max_tokens,
             max_tokens_parser: max_tokens,
+            last_bias_time: Duration::from_secs(0),
         })
     }
 
@@ -578,7 +580,9 @@ impl TokenParser {
             return StepResult::noop();
         }
 
+        let pre = instant::Instant::now();
         let mut set = self.parser.compute_bias(trie, &token_prefix);
+        self.last_bias_time = pre.elapsed();
 
         if inner_accepting {
             let mut all_accepting = true;
