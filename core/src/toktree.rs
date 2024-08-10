@@ -754,7 +754,6 @@ impl TokTrie {
         ok
     }
 
-    #[inline(never)]
     pub fn add_bias(&self, r: &mut impl Recognizer, toks: &mut SimpleVob, start: &[u8]) {
         // all prefixes of 'start' are also allowed
         if start.len() > 0 {
@@ -771,8 +770,20 @@ impl TokTrie {
             return;
         }
         let n = n.unwrap();
-
         r.trie_started();
+        let next_pop = self.add_bias_inner(r, toks, n);
+        if start.len() == 0 {
+            // if start was non-empty, trie_finished() is supposed to clean this up
+            r.pop_bytes(next_pop);
+        }
+        r.trie_finished();
+        // revert the fake token
+        let defl_tok = self.vocab_size() as u32;
+        toks.disallow_token(defl_tok);
+    }
+
+    #[inline(never)]
+    fn add_bias_inner(&self, r: &mut impl Recognizer, toks: &mut SimpleVob, n: &TrieNode) -> usize {
         let defl_tok = self.vocab_size() as u32;
         let off = self.node_offset(n);
         let mut p = off + 1;
@@ -795,13 +806,88 @@ impl TokTrie {
                 next_pop = n.num_parents() - 1;
             }
         }
-        if start.len() == 0 {
-            // if start was non-empty, trie_finished() is supposed to clean this up
-            r.pop_bytes(next_pop);
+        next_pop
+    }
+
+    fn count_until_depth(&self, depth: usize) -> usize {
+        let mut count = 0;
+        let mut stack = vec![(self.root(), 0)];
+        while let Some((n, d)) = stack.pop() {
+            if d == depth {
+                continue;
+            } else {
+                for c in self.node_children(n) {
+                    count += 1;
+                    stack.push((c, d + 1));
+                }
+            }
         }
-        r.trie_finished();
-        // revert the fake token
-        toks.disallow_token(defl_tok);
+        count
+    }
+
+    pub fn trie_stats(&self) -> String {
+        let mut nodes_histogram = vec![0; 256];
+
+        let mut token_nodes = 0;
+
+        let n = self.root();
+        let off = self.node_offset(n);
+        let mut p = off + 1;
+        let endp = off + n.subtree_size();
+        while p < endp {
+            let n = &self.nodes[p];
+
+            if n.token_id().is_some() {
+                token_nodes += 1;
+            }
+
+            let last_ch = self.next_node(n);
+            let mut ch_p = p + 1;
+            let mut num_children = 0;
+
+            while ch_p < last_ch {
+                let ch = &self.nodes[ch_p];
+                ch_p += ch.subtree_size();
+                num_children += 1;
+            }
+
+            nodes_histogram[std::cmp::min(9, num_children)] += 1;
+
+            p += 1;
+        }
+
+        let mut histogram = String::new();
+        for (idx, num) in nodes_histogram.iter().enumerate() {
+            if *num > 0 {
+                if !histogram.is_empty() {
+                    histogram.push_str(", ");
+                }
+                histogram.push_str(&format!("{}:{}", idx, num));
+            }
+        }
+
+        for n in self.node_children(self.root()) {
+            histogram.push_str(&format!(
+                "\n{} => {} {}",
+                n.byte(),
+                self.node_children(n).count(),
+                n.subtree_size()
+            ));
+        }
+
+        for depth in 0..30 {
+            let count = self.count_until_depth(depth);
+            if count > 0 {
+                histogram.push_str(&format!("\ndepth {}: {} nodes", depth, count));
+            }
+        }
+
+        format!(
+            "{} nodes, {} token nodes,\n{}",
+            self.nodes.len(),
+            token_nodes,
+            histogram
+        )
     }
 }
 
