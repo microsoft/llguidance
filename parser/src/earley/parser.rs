@@ -82,6 +82,8 @@ pub struct ParserStats {
     pub rows: usize,
     pub definitive_bytes: usize,
     pub lexer_ops: usize,
+    pub num_lex_errors: usize,
+    pub num_lexemes: usize,
     pub all_items: usize,
     pub hidden_bytes: usize,
 }
@@ -92,6 +94,8 @@ impl ParserStats {
             rows: self.rows - previous.rows,
             definitive_bytes: self.definitive_bytes - previous.definitive_bytes,
             lexer_ops: self.lexer_ops - previous.lexer_ops,
+            num_lexemes: self.num_lexemes - previous.num_lexemes,
+            num_lex_errors: self.num_lex_errors - previous.num_lex_errors,
             all_items: self.all_items - previous.all_items,
             hidden_bytes: self.hidden_bytes - previous.hidden_bytes,
         }
@@ -1434,7 +1438,9 @@ impl ParserState {
     /// It either initial lexer states for lazy lexers,
     /// or lexer_initial_state+byte for greedy lexers.
     /// lexer_byte is the byte that led to producing the lexeme.
-    #[inline(always)]
+
+    // This is never inlined anyways, so better make it formal
+    #[inline(never)]
     fn advance_parser(&mut self, shared: &mut SharedState, pre_lexeme: PreLexeme) -> bool {
         let transition_byte = if pre_lexeme.byte_next_row {
             pre_lexeme.byte
@@ -1562,14 +1568,25 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
 
     #[inline(always)]
     fn try_push_byte(&mut self, byte: u8) -> bool {
-        assert!(!self.state.scratch.definitive);
+        let stats = false;
+
         let lexer_logging = false;
-        self.state.stats.lexer_ops += 1;
         let curr = self.state.lexer_state();
         let res = self
             .shared
             .lexer
             .advance(curr.lexer_state, byte, lexer_logging);
+
+        if stats {
+            assert!(!self.state.scratch.definitive); // this has significant cost
+            self.state.stats.lexer_ops += 1;
+            match res {
+                LexerResult::State(_, _) => {}
+                LexerResult::Error => self.state.stats.num_lex_errors += 1,
+                LexerResult::Lexeme(_) => self.state.stats.num_lexemes += 1,
+            }
+        }
+
         self.state.advance_lexer_or_parser(self.shared, res, curr)
     }
 }

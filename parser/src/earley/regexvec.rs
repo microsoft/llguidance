@@ -27,11 +27,11 @@ pub struct StateDesc {
     pub lowest_accepting: Option<usize>,
     pub accepting: SimpleVob,
     pub possible: SimpleVob,
+    pub lowest_match: Option<(usize, usize)>,
 
     possible_lookahead_len: Option<usize>,
     lookahead_len: Option<Option<usize>>,
     next_byte: Option<NextByte>,
-    lowest_match: Option<(usize, usize)>,
 }
 
 impl StateDesc {
@@ -108,10 +108,7 @@ impl RegexVec {
         if new_state != StateID::MISSING {
             new_state
         } else {
-            let new_state = self.transition_inner(state, mapped as u8);
-            self.num_transitions += 1;
-            self.state_table[idx] = new_state;
-            new_state
+            self.transition_inner(state, mapped as u8, idx)
         }
     }
 
@@ -367,7 +364,7 @@ impl RegexVec {
         vec_desc.push(e.as_u32());
     }
 
-    fn transition_inner(&mut self, state: StateID, b: u8) -> StateID {
+    fn transition_inner(&mut self, state: StateID, b: u8, idx: usize) -> StateID {
         assert!(state.is_valid());
 
         let mut vec_desc = vec![];
@@ -397,7 +394,10 @@ impl RegexVec {
                 cost
             );
         }
-        self.insert_state(vec_desc)
+        let new_state = self.insert_state(vec_desc);
+        self.num_transitions += 1;
+        self.state_table[idx] = new_state;
+        new_state
     }
 }
 
