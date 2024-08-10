@@ -809,8 +809,9 @@ impl TokTrie {
         next_pop
     }
 
-    fn count_until_depth(&self, depth: usize) -> usize {
+    fn count_until_depth(&self, depth: usize) -> (usize, usize) {
         let mut count = 0;
+        let mut num_tokens = 0;
         let mut stack = vec![(self.root(), 0)];
         while let Some((n, d)) = stack.pop() {
             if d == depth {
@@ -818,11 +819,14 @@ impl TokTrie {
             } else {
                 for c in self.node_children(n) {
                     count += 1;
+                    if c.token_id().is_some() {
+                        num_tokens += 1;
+                    }
                     stack.push((c, d + 1));
                 }
             }
         }
-        count
+        (count, num_tokens)
     }
 
     pub fn trie_stats(&self) -> String {
@@ -876,17 +880,19 @@ impl TokTrie {
         }
 
         for depth in 0..30 {
-            let count = self.count_until_depth(depth);
-            if count > 0 {
-                histogram.push_str(&format!("\ndepth {}: {} nodes", depth, count));
-            }
+            let (count, num_tokens) = self.count_until_depth(depth);
+            histogram.push_str(&format!(
+                "\ndepth {}: {} nodes {} tokens",
+                depth, count, num_tokens
+            ));
         }
 
         format!(
-            "{} nodes, {} token nodes,\n{}",
+            "{}\n{} nodes, {} token nodes, {} token bytes",
+            histogram,
             self.nodes.len(),
             token_nodes,
-            histogram
+            self.token_data.len(),
         )
     }
 }
