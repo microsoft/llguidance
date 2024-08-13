@@ -132,12 +132,6 @@ pub enum Node {
     },
 }
 
-pub enum JsonQuoteOptions {
-    /// Do not allow \uXXXX in strings. Will allow \n, \t, \" etc
-    NoUnicodeEscapes,
-    WithUnicodeEscapes,
-}
-
 /// Optional fields allowed on any Node
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct NodeProps {
