@@ -1,5 +1,5 @@
 use anyhow::Result;
-use derivre::{ExprRef, RegexAst, RegexBuilder};
+use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use std::{fmt::Debug, hash::Hash};
 use toktrie::{bytes::limit_str, SimpleVob};
 
@@ -22,6 +22,7 @@ pub struct LexemeSpec {
     ends_at_eos: bool,
     lazy: bool,
     contextual: bool,
+    json_options: Option<JsonQuoteOptions>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -129,6 +130,11 @@ impl LexerSpec {
 
     fn add_lexeme_spec(&mut self, mut spec: LexemeSpec) -> Result<LexemeIdx> {
         let compiled = self.regex_builder.mk(&spec.rx)?;
+        let compiled = if let Some(ref opts) = spec.json_options {
+            self.regex_builder.json_quote(compiled, opts)?
+        } else {
+            compiled
+        };
         if let Some(idx) = self
             .lexemes
             .iter()
@@ -152,6 +158,7 @@ impl LexerSpec {
             lazy: false,
             contextual: false,
             ends_at_eos: false,
+            json_options: None,
         }
     }
 
@@ -195,11 +202,13 @@ impl LexerSpec {
         name: String,
         rx: RegexAst,
         contextual: bool,
+        json_options: Option<JsonQuoteOptions>,
     ) -> Result<LexemeIdx> {
         self.add_lexeme_spec(LexemeSpec {
             name,
             rx,
             contextual,
+            json_options,
             ..self.empty_spec()
         })
     }

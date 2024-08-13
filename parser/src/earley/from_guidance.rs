@@ -6,8 +6,8 @@ use crate::api::{
     GrammarWithLexer, Node, RegexId, RegexNode, RegexSpec, TopLevelGrammar, DEFAULT_CONTEXTUAL,
 };
 use crate::Logger;
-use anyhow::{bail, Result};
-use derivre::{ExprRef, RegexAst, RegexBuilder};
+use anyhow::{bail, ensure, Result};
+use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 
 fn resolve_rx(rx_refs: &[ExprRef], node: &RegexSpec) -> Result<RegexAst> {
     match node {
@@ -166,12 +166,32 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
                 rx,
                 contextual,
                 temperature,
+                json_allowed_escapes,
+                json_raw,
+                json_string,
                 ..
             } => {
+                let json_options = if json_string.unwrap_or(false) {
+                    Some(JsonQuoteOptions {
+                        allowed_escapes: json_allowed_escapes
+                            .as_ref()
+                            .map_or("nrbtf\\\"u", |e| e.as_str())
+                            .to_string(),
+                        raw_mode: json_raw.unwrap_or(false),
+                    })
+                } else {
+                    ensure!(
+                        json_allowed_escapes.is_none(),
+                        "json_allowed_escapes is only valid for json_string"
+                    );
+                    ensure!(json_raw.is_none(), "json_raw is only valid for json_string");
+                    None
+                };
                 let idx = lexer_spec.add_greedy_lexeme(
                     format!("lex_{}", grm.sym_name(lhs)),
                     resolve_rx(&rx_nodes, rx)?,
                     contextual.unwrap_or(input.contextual.unwrap_or(DEFAULT_CONTEXTUAL)),
+                    json_options,
                 )?;
                 if let Some(t) = temperature {
                     let symprops = grm.sym_props_mut(lhs);

@@ -86,6 +86,23 @@ pub enum Node {
         /// Override sampling temperature.
         temperature: Option<f32>,
 
+        /// When set, the lexeme will be quoted as a JSON string.
+        /// For example, /[a-z"]+/ will be quoted as /([a-z]|\\")+/
+        json_string: Option<bool>,
+
+        /// It lists the allowed escape sequences, typically one of:
+        /// "nrbtf\\\"u" - to allow all JSON escapes, including \u00XX for control characters
+        ///     this is the default
+        /// "nrbtf\\\"" - to disallow \u00XX control characters
+        /// "nrt\\\"" - to also disallow unusual escapes (\f and \b)
+        /// "" - to disallow all escapes
+        /// Note that \uXXXX for non-control characters (code points above U+001F) are never allowed,
+        /// as they never have to be quoted in JSON.
+        json_allowed_escapes: Option<String>,
+
+        /// When set and json_string is also set, "..." will not be added around the regular expression.
+        json_raw: Option<bool>,
+
         #[serde(flatten)]
         props: NodeProps,
     },
@@ -113,6 +130,12 @@ pub enum Node {
         #[serde(flatten)]
         props: NodeProps,
     },
+}
+
+pub enum JsonQuoteOptions {
+    /// Do not allow \uXXXX in strings. Will allow \n, \t, \" etc
+    NoUnicodeEscapes,
+    WithUnicodeEscapes,
 }
 
 /// Optional fields allowed on any Node
