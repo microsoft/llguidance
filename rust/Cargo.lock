@@ -65,7 +65,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "derivre"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/derivre?rev=fb0ba7b6307782e0d43a0ca598b237836cb6d304#fb0ba7b6307782e0d43a0ca598b237836cb6d304"
+source = "git+https://github.com/microsoft/derivre?rev=ad363698cc95d7e63c5116aa114596f18dc79385#ad363698cc95d7e63c5116aa114596f18dc79385"
 dependencies = [
  "ahash",
  "anyhow",

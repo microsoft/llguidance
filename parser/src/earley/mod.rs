@@ -1,9 +1,10 @@
 mod from_guidance;
 mod grammar;
 mod lexer;
-mod lexerspec;
 mod parser;
-mod regexvec;
+
+pub mod lexerspec;
+pub mod regexvec;
 
 pub use from_guidance::grammars_from_json;
 #[allow(unused_imports)]
