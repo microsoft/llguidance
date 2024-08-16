@@ -5,7 +5,7 @@ cd $(dirname $0)/..
 
 pip uninstall -y llguidance || :
 
-if test -z "$CONDA_PREFIX" ; then
+if test -z "$CONDA_PREFIX" -a -z "$VIRTUAL_ENV" ; then
     if [ "X$CI" = "Xtrue" ]; then
         echo "Building in CI with pip"
         pip install -v -e .
