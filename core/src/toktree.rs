@@ -809,6 +809,32 @@ impl TokTrie {
         next_pop
     }
 
+    pub fn sorted_tokens(&self) -> Vec<(u32, Vec<u8>)> {
+        let mut res = vec![];
+        let n = self.root();
+        let off = self.node_offset(n);
+        let mut p = off + 1;
+        let endp = off + n.subtree_size();
+        let mut next_pop = 0;
+        let mut bytes = vec![];
+        while p < endp {
+            bytes.drain(bytes.len() - next_pop..);
+            let n = &self.nodes[p];
+            let b = n.byte();
+            bytes.push(b);
+            if let Some(t) = n.token_id() {
+                res.push((t, bytes.clone()));
+            }
+            next_pop = if n.subtree_size() == 1 {
+                n.num_parents()
+            } else {
+                0
+            };
+            p += 1;
+        }
+        res
+    }
+
     fn count_until_depth(&self, depth: usize) -> (usize, usize) {
         let mut count = 0;
         let mut num_tokens = 0;
