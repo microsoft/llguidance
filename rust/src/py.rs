@@ -113,6 +113,43 @@ impl LLInterpreter {
         }
     }
 
+    fn advance_parser(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
+        if !self.step_arg.tokens.is_empty() || !self.step_arg.sampled.is_none() {
+            return Err(PyValueError::new_err("post_process() called twice"));
+        }
+
+        if self.last_result.is_stop() {
+            return Err(PyValueError::new_err("post_process() called after stop"));
+        }
+
+        if let Some(s) = self.last_result.unconditional_splice() {
+            self.step_arg = StepArg::from_splice(s, sampled_token);
+            return Ok((s.backtrack, s.ff_tokens.clone()));
+        }
+
+        let tok = sampled_token.ok_or_else(|| PyValueError::new_err("Expecting sampled token"))?;
+        let arg = StepArg {
+            backtrack: 0,
+            tokens: vec![tok],
+            sampled: sampled_token,
+        };
+        // TODO this may generate progress entries that we should return
+        let pres = self.inner.advance_parser(arg);
+
+        if let Some(splice) = pres {
+            self.step_arg = StepArg::from_splice(&splice, sampled_token);
+            if self.step_arg.backtrack > 0 {
+                self.step_arg.backtrack -= 1; // the sampled token was ignored
+            } else {
+                self.step_arg.tokens.insert(0, tok);
+            }
+            Ok((self.step_arg.backtrack, self.step_arg.tokens.clone()))
+        } else {
+            // it's stop, really; let the next mid_process() call handle it
+            Ok((0, vec![]))
+        }
+    }
+
     fn post_process(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
         let splice = if let Some(t) = sampled_token {
             self.last_result.spliced(t)

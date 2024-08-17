@@ -121,3 +121,12 @@ class LLInterpreter:
         list of tokens to append.
         If mid_process() returned None, this should be called immedietly with None.
         """
+
+    def advance_parser(
+            self,
+            sampled_token: Optional[TokenId]) -> Tuple[int, List[TokenId]]:
+        """
+        Like post_process(), but goes further.
+        This is experimental and breaks tests when used instead of post_process().
+        """
+
