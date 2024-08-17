@@ -54,4 +54,7 @@ cargo_toml_contents = re.sub(
 with open(cargo_toml_path, "w") as file:
     file.write(cargo_toml_contents)
 
+# run cargo fetch to Cargo.lock
+subprocess.run(["cargo", "fetch", "--manifest-path", "rust/Cargo.toml"], check=True)
+
 print("Cargo.toml updated successfully.")

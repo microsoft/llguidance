@@ -102,13 +102,13 @@ impl RegexVec {
 
     #[inline(always)]
     pub fn transition(&mut self, state: StateID, b: u8) -> StateID {
-        let mapped = self.alpha.map(b);
-        let idx = state.as_usize() * self.alpha.len() + mapped;
+        let idx = self.alpha.map_state(state, b);
+        // let new_state = unsafe { std::ptr::read(self.state_table_ptr.add(idx)) };
         let new_state = self.state_table[idx];
         if new_state != StateID::MISSING {
             new_state
         } else {
-            self.transition_inner(state, mapped as u8, idx)
+            self.transition_inner(state, self.alpha.map(b) as u8, idx)
         }
     }
 
@@ -329,7 +329,11 @@ impl RegexVec {
             state_desc.lowest_match = self.lowest_match_inner(id);
             self.append_state(state_desc);
         }
-        id
+        if self.state_desc(id).lowest_match.is_some() {
+            id._set_lowest_match()
+        } else {
+            id
+        }
     }
 
     fn compute_state_desc(&self, state: StateID) -> StateDesc {

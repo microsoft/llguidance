@@ -1,6 +1,6 @@
-use toktrie::SimpleVob;
 use anyhow::Result;
 use std::fmt::Debug;
+use toktrie::SimpleVob;
 
 use super::{
     lexerspec::{LexemeIdx, LexerSpec},
@@ -152,7 +152,7 @@ impl Lexer {
             } else {
                 LexerResult::Error
             }
-        } else {
+        } else if state.has_lowest_match() {
             if let Some((idx, hidden_len)) = self.dfa.lowest_match(state) {
                 LexerResult::Lexeme(PreLexeme {
                     idx: LexemeIdx::new(idx),
@@ -161,8 +161,10 @@ impl Lexer {
                     hidden_len,
                 })
             } else {
-                LexerResult::State(state, byte)
+                unreachable!()
             }
+        } else {
+            LexerResult::State(state, byte)
         }
     }
 }
