@@ -4,7 +4,7 @@ TRG=`rustup show | head -1 | sed -e 's/.*: //'`
 #CRATE=`grep "^name =" Cargo.toml  | head -1 | sed -e 's/.*= "//; s/"//'`
 CRATE=$1
 shift
-RUSTFLAGS="--emit asm" cargo build --release --target $TRG
+RUSTFLAGS="--emit asm $RUSTFLAGS" cargo $RUSTCHANNEL build --release --target $TRG
 TRG_DIR=`cargo metadata --format-version 1 | jq -r '.target_directory'`
 F=`echo $TRG_DIR/$TRG/release/deps/$CRATE-*.s`
 # if $F has more than one file
