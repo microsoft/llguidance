@@ -8,6 +8,8 @@ pub use toktrie;
 mod logging;
 pub use logging::Logger;
 
+pub use derivre;
+
 #[macro_export]
 macro_rules! infoln {
     ($s:expr, $($arg:tt)*) => {
