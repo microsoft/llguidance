@@ -887,38 +887,50 @@ impl TokTrie {
         }
 
         let mut histogram = String::new();
-        for (idx, num) in nodes_histogram.iter().enumerate() {
-            if *num > 0 {
-                if !histogram.is_empty() {
-                    histogram.push_str(", ");
+
+        if false {
+            for (idx, num) in nodes_histogram.iter().enumerate() {
+                if *num > 0 {
+                    if !histogram.is_empty() {
+                        histogram.push_str(", ");
+                    }
+                    histogram.push_str(&format!("{}:{}", idx, num));
                 }
-                histogram.push_str(&format!("{}:{}", idx, num));
             }
         }
 
-        for n in self.node_children(self.root()) {
-            histogram.push_str(&format!(
-                "\n{} => {} {}",
-                n.byte(),
-                self.node_children(n).count(),
-                n.subtree_size()
-            ));
+        if false {
+            for n in self.node_children(self.root()) {
+                histogram.push_str(&format!(
+                    "\n{} => {} {}",
+                    n.byte(),
+                    self.node_children(n).count(),
+                    n.subtree_size()
+                ));
+            }
         }
 
-        for depth in 0..30 {
-            let (count, num_tokens) = self.count_until_depth(depth);
-            histogram.push_str(&format!(
-                "\ndepth {}: {} nodes {} tokens",
-                depth, count, num_tokens
-            ));
+        if false {
+            for depth in 0..30 {
+                let (count, num_tokens) = self.count_until_depth(depth);
+                histogram.push_str(&format!(
+                    "\ndepth {}: {} nodes {} tokens",
+                    depth, count, num_tokens
+                ));
+            }
+        }
+
+        if histogram.len() > 0 {
+            histogram = format!("\n{}", histogram);
         }
 
         format!(
-            "{}\n{} nodes, {} token nodes, {} token bytes",
+            "{}{} nodes, {} token nodes, {} token bytes, {} max len",
             histogram,
             self.nodes.len(),
             token_nodes,
             self.token_data.len(),
+            self.max_token_len,
         )
     }
 }
