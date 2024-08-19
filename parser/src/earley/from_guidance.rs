@@ -5,7 +5,7 @@ use super::{grammar::SymbolProps, lexerspec::LexerSpec, CGrammar, Grammar};
 use crate::api::{
     GrammarWithLexer, Node, RegexId, RegexNode, RegexSpec, TopLevelGrammar, DEFAULT_CONTEXTUAL,
 };
-use crate::Logger;
+use crate::{loginfo, Logger};
 use anyhow::{bail, ensure, Result};
 use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use instant::Instant;
@@ -276,15 +276,12 @@ pub fn grammars_from_json(
         })
         .collect::<Vec<_>>();
 
-    if logger.level_enabled(2) {
-        writeln!(
-            logger.info_logger(),
-            "build grammar: {:?}; optimize: {:?}",
-            t1 - t0,
-            t1.elapsed()
-        )
-        .unwrap();
-    }
+    loginfo!(
+        logger,
+        "build grammar: {:?}; optimize: {:?}",
+        t1 - t0,
+        t1.elapsed()
+    );
 
     Ok(grammars)
 }

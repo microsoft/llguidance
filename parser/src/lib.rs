@@ -11,6 +11,16 @@ pub use logging::Logger;
 pub use derivre;
 
 #[macro_export]
+macro_rules! loginfo {
+    ($s:expr, $($arg:tt)*) => {
+        if $s.level_enabled(2) {
+            use std::fmt::Write;
+            writeln!($s.info_logger(), $($arg)*).unwrap();
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! infoln {
     ($s:expr, $($arg:tt)*) => {
         if $s.logger.level_enabled(2) {
