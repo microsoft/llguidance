@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
-use toktrie::SpecialToken;
 use anyhow::{bail, ensure, Result};
+use toktrie::SpecialToken;
 
 use crate::api::GenGrammarOptions;
 
@@ -178,6 +178,10 @@ impl Grammar {
 
     pub fn start(&self) -> SymIdx {
         self.symbols[0].idx
+    }
+
+    pub fn is_small(&self) -> bool {
+        self.symbols.len() < 200
     }
 
     fn sym_data(&self, sym: SymIdx) -> &Symbol {
@@ -442,6 +446,24 @@ impl Grammar {
         self.symbol_by_name.insert(name, idx);
         idx
     }
+
+    pub fn stats(&self) -> String {
+        let mut num_term = 0;
+        let mut num_rules = 0;
+        let mut num_non_term = 0;
+        for sym in &self.symbols {
+            if sym.is_terminal() {
+                num_term += 1;
+            } else {
+                num_non_term += 1;
+                num_rules += sym.rules.len();
+            }
+        }
+        format!(
+            "{} terminals; {} non-terminals with {} rules",
+            num_term, num_non_term, num_rules
+        )
+    }
 }
 
 impl Debug for Grammar {
@@ -455,16 +477,7 @@ impl Debug for Grammar {
                 _ => {}
             }
         }
-        let mut num_term = 0;
-        let mut num_rules = 0;
-        let mut num_non_term = 0;
         for sym in &self.symbols {
-            if sym.is_terminal() {
-                num_term += 1;
-            } else {
-                num_non_term += 1;
-                num_rules += sym.rules.len();
-            }
             if sym.rules.is_empty() {
                 if sym.props.is_special() {
                     writeln!(
@@ -481,11 +494,7 @@ impl Debug for Grammar {
                 }
             }
         }
-        writeln!(
-            f,
-            "stats: {} terminals; {} non-terminals with {} rules\n",
-            num_term, num_non_term, num_rules
-        )?;
+        writeln!(f, "stats: {}\n", self.stats())?;
         Ok(())
     }
 }

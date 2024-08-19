@@ -14,3 +14,4 @@ __pycache__/
 dist
 *.egg-info
 build
+.intentionally-empty-file.o

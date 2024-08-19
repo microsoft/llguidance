@@ -8,6 +8,7 @@ use crate::api::{
 use crate::Logger;
 use anyhow::{bail, ensure, Result};
 use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
+use instant::Instant;
 
 fn resolve_rx(rx_refs: &[ExprRef], node: &RegexSpec) -> Result<RegexAst> {
     match node {
@@ -225,6 +226,7 @@ pub fn grammars_from_json(
     input: TopLevelGrammar,
     logger: &mut Logger,
 ) -> Result<Vec<Arc<CGrammar>>> {
+    let t0 = Instant::now();
     let grammars = input
         .grammars
         .into_iter()
@@ -235,11 +237,15 @@ pub fn grammars_from_json(
         g.validate_grammar_refs(&grammars)?;
     }
 
+    let t1 = Instant::now();
+
     let grammars = grammars
         .into_iter()
         .enumerate()
         .map(|(idx, (lex, mut grm))| {
-            if logger.level_enabled(2) {
+            let log_grammar =
+                logger.level_enabled(3) || (logger.level_enabled(2) && grm.is_small());
+            if log_grammar {
                 writeln!(
                     logger.info_logger(),
                     "Grammar #{}:\n{:?}\n{:?}\n",
@@ -248,17 +254,37 @@ pub fn grammars_from_json(
                     grm
                 )
                 .unwrap();
+            } else if logger.level_enabled(2) {
+                writeln!(
+                    logger.info_logger(),
+                    "Grammar #{}; (skipping body; log_level=3 will print it); {}",
+                    idx,
+                    grm.stats()
+                )
+                .unwrap();
             }
 
             grm = grm.optimize();
 
-            if logger.level_enabled(2) {
+            if log_grammar {
                 write!(logger.info_logger(), "  == Optimize ==>\n{:?}", grm).unwrap();
+            } else if logger.level_enabled(2) {
+                writeln!(logger.info_logger(), "  ==> {}", grm.stats()).unwrap();
             }
 
             Arc::new(grm.compile(lex))
         })
         .collect::<Vec<_>>();
+
+    if logger.level_enabled(2) {
+        writeln!(
+            logger.info_logger(),
+            "build grammar: {:?}; optimize: {:?}",
+            t1 - t0,
+            t1.elapsed()
+        )
+        .unwrap();
+    }
 
     Ok(grammars)
 }
