@@ -2,7 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     api::{GenGrammarOptions, StopReason, TopLevelGrammar},
-    earley::{grammars_from_json, CGrammar, CSymIdx, ModelVariable, Parser, ParserStats},
+    earley::{
+        grammars_from_json, CGrammar, CSymIdx, ModelVariable, Parser, ParserLimits, ParserStats,
+    },
     infoln, warn, Logger,
 };
 use anyhow::Result;
@@ -17,6 +19,7 @@ pub struct TokenParser {
     pub last_bias_time: Duration,
     pub inference_caps: InferenceCapabilities,
     pub logger: Logger,
+    pub limits: ParserLimits,
     pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
@@ -60,6 +63,7 @@ impl TokenParser {
         buf: TopLevelGrammar,
         mut logger: Logger,
         inference_caps: InferenceCapabilities,
+        limits: ParserLimits,
     ) -> Result<Self> {
         let mid_process_start_time = instant::Instant::now();
         let test_trace = buf.test_trace;
@@ -68,6 +72,7 @@ impl TokenParser {
         let parser = Parser::new(
             Arc::clone(&compiled_grammars[0]),
             GenGrammarOptions::default(),
+            limits.clone(),
         )?;
 
         Ok(TokenParser {
@@ -75,6 +80,7 @@ impl TokenParser {
             test_trace,
             token_env,
             inference_caps,
+            limits,
             pending_bogus_backtrack: 0,
             mid_process_start_time,
             mid_process_was_accepting: false,
@@ -654,7 +660,7 @@ impl TokenParser {
             }
             let grm = Arc::clone(&self.compiled_grammars[gen_grammar.grammar.0]);
             let max_tokens = self.parser.grammar().sym_data(symidx).props.max_tokens;
-            let parser = Parser::new(grm, gen_grammar)?;
+            let parser = Parser::new(grm, gen_grammar, self.limits.clone())?;
             let mut old_parser = std::mem::replace(&mut self.parser, parser);
             self.parser.take_global_state_from(&mut old_parser);
             let mut entry = ParserStackEntry {

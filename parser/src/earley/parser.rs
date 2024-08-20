@@ -23,7 +23,24 @@ use super::{
 const TRACE: bool = false;
 const DEBUG: bool = true;
 
-const MAX_ROW: usize = 200;
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ParserLimits {
+    pub max_row: usize,
+    pub initial_lexer_fuel: usize,
+    pub step_lexer_fuel: usize,
+    pub max_lexer_states: usize,
+}
+
+impl Default for ParserLimits {
+    fn default() -> Self {
+        Self {
+            max_row: 200,
+            initial_lexer_fuel: 1_000_000,
+            step_lexer_fuel: 500_000,
+            max_lexer_states: 10_000,
+        }
+    }
+}
 
 macro_rules! trace {
     ($($arg:tt)*) => {
@@ -210,6 +227,7 @@ struct ParserState {
     options: GenGrammarOptions,
     trie_gen_grammar: Option<CSymIdx>,
     trie_gen_grammar_accepting: bool,
+    limits: ParserLimits,
 }
 
 #[derive(Clone)]
@@ -340,7 +358,11 @@ macro_rules! ensure_internal {
 }
 
 impl ParserState {
-    fn new(grammar: Arc<CGrammar>, options: GenGrammarOptions) -> Result<(Self, Lexer)> {
+    fn new(
+        grammar: Arc<CGrammar>,
+        options: GenGrammarOptions,
+        limits: ParserLimits,
+    ) -> Result<(Self, Lexer)> {
         let start = grammar.start();
         let mut lexer = Lexer::from(grammar.lexer_spec())?;
         let scratch = Scratch::new(Arc::clone(&grammar));
@@ -359,6 +381,7 @@ impl ParserState {
             options,
             trie_gen_grammar: None,
             trie_gen_grammar_accepting: false,
+            limits,
             lexer_stack: vec![LexerState {
                 row_idx: 0,
                 lexer_state,
@@ -684,11 +707,11 @@ impl ParserState {
                     }
 
                     let item_count = self.curr_row().item_indices().count();
-                    if item_count > MAX_ROW {
+                    if item_count > self.limits.max_row {
                         bail!(
                             "Current row has {} items; max is {}; consider making your grammar left-recursive if it's right-recursive",
                             item_count,
-                            MAX_ROW,
+                            self.limits.max_row,
                         );
                     }
                     last_lexeme = self.num_rows() - 1;
@@ -1606,8 +1629,12 @@ fn item_to_string(g: &CGrammar, item: &Item) -> String {
 }
 
 impl Parser {
-    pub fn new(grammar: Arc<CGrammar>, options: GenGrammarOptions) -> Result<Self> {
-        let (state, lexer) = ParserState::new(grammar, options)?;
+    pub fn new(
+        grammar: Arc<CGrammar>,
+        options: GenGrammarOptions,
+        limits: ParserLimits,
+    ) -> Result<Self> {
+        let (state, lexer) = ParserState::new(grammar, options, limits)?;
         let shared = Arc::new(Mutex::new(SharedState { lexer }));
         Ok(Parser { shared, state })
     }
