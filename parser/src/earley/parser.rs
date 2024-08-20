@@ -23,7 +23,7 @@ use super::{
 const TRACE: bool = false;
 const DEBUG: bool = true;
 
-const MAX_ROW: usize = 100;
+const MAX_ROW: usize = 200;
 
 macro_rules! trace {
     ($($arg:tt)*) => {
