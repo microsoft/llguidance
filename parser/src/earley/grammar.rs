@@ -488,17 +488,23 @@ impl Grammar {
         let mut num_term = 0;
         let mut num_rules = 0;
         let mut num_non_term = 0;
+        let mut size = 0;
         for sym in &self.symbols {
+            size += 1;
             if sym.is_terminal() {
                 num_term += 1;
             } else {
+                size += 1;
                 num_non_term += 1;
                 num_rules += sym.rules.len();
+                for r in &sym.rules {
+                    size += r.rhs.len();
+                }
             }
         }
         format!(
-            "{} terminals; {} non-terminals with {} rules",
-            num_term, num_non_term, num_rules
+            "{} terminals; {} non-terminals with {} rules with {} symbols",
+            num_term, num_non_term, num_rules, size
         )
     }
 }

@@ -265,8 +265,6 @@ pub enum StopReason {
     MaxTokensTotal,
     /// max_tokens limit on the number of tokens in the top-level parser has been reached.
     MaxTokensParser,
-    /// LLM generated tokens that were not accepted by the parser.
-    ParserNotAccepting,
     /// Top-level parser indicates that no more bytes can be added.
     NoExtension,
     /// Top-level parser indicates that no more bytes can be added, however it was recognized late.
@@ -275,6 +273,10 @@ pub enum StopReason {
     EndOfSentence,
     /// Something went wrong with creating a nested parser.
     InternalError,
+    /// The lexer is too complex
+    LexerTooComplex,
+    /// The parser is too complex
+    ParserTooComplex,
 }
 
 impl StopReason {

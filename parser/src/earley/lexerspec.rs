@@ -241,6 +241,10 @@ impl LexerSpec {
     pub fn lexeme_spec(&self, idx: LexemeIdx) -> &LexemeSpec {
         &self.lexemes[idx.0]
     }
+
+    pub fn cost(&self) -> u64 {
+        self.regex_builder.exprset().cost()
+    }
 }
 
 impl Debug for LexerSpec {

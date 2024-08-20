@@ -1,6 +1,7 @@
 use std::fmt::Write;
 use std::{sync::Arc, vec};
 
+use super::ParserLimits;
 use super::{grammar::SymbolProps, lexerspec::LexerSpec, CGrammar, Grammar};
 use crate::api::{
     GrammarWithLexer, Node, RegexId, RegexNode, RegexSpec, TopLevelGrammar, DEFAULT_CONTEXTUAL,
@@ -36,6 +37,7 @@ fn map_rx_refs(rx_refs: &[ExprRef], ids: Vec<RegexId>) -> Result<Vec<RegexAst>> 
 }
 
 fn map_rx_nodes(
+    limits: &ParserLimits,
     rx_nodes: Vec<RegexNode>,
     allow_invalid_utf8: bool,
 ) -> Result<(RegexBuilder, Vec<ExprRef>)> {
@@ -47,6 +49,11 @@ fn map_rx_nodes(
     let mut rx_refs = vec![];
     for node in rx_nodes {
         rx_refs.push(builder.mk(&map_node(&rx_refs, node)?)?);
+        ensure!(
+            builder.exprset().cost() <= limits.initial_lexer_fuel,
+            "initial lexer configuration (rx_nodes) too big (limit for this grammar: {})",
+            limits.initial_lexer_fuel
+        );
     }
     return Ok((builder, rx_refs));
 
@@ -73,8 +80,11 @@ fn map_rx_nodes(
     }
 }
 
-fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
-    let (builder, rx_nodes) = map_rx_nodes(input.rx_nodes, input.allow_invalid_utf8)?;
+fn grammar_from_json(
+    limits: &mut ParserLimits,
+    input: GrammarWithLexer,
+) -> Result<(LexerSpec, Grammar)> {
+    let (builder, rx_nodes) = map_rx_nodes(limits, input.rx_nodes, input.allow_invalid_utf8)?;
 
     let skip = match input.greedy_skip_rx {
         Some(rx) => resolve_rx(&rx_nodes, &rx)?,
@@ -114,6 +124,8 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
         })
         .collect::<Vec<_>>();
 
+    let mut size = input.nodes.len();
+
     for (n, sym) in input.nodes.iter().zip(node_map.iter()) {
         let lhs = *sym;
         match &n {
@@ -122,10 +134,12 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
                 // ensure!(among.len() > 0, "empty select");
                 for v in among {
                     grm.add_rule(lhs, vec![node_map[v.0]])?;
+                    size += 2;
                 }
             }
             Node::Join { sequence, .. } => {
                 let rhs = sequence.iter().map(|idx| node_map[idx.0]).collect();
+                size += 1 + sequence.len();
                 grm.add_rule(lhs, rhs)?;
             }
             Node::Gen { data, .. } => {
@@ -218,19 +232,36 @@ fn grammar_from_json(input: GrammarWithLexer) -> Result<(LexerSpec, Grammar)> {
                 grm.make_gen_grammar(lhs, data)?;
             }
         }
+
+        ensure!(
+            lexer_spec.cost() <= limits.initial_lexer_fuel,
+            "initial lexer configuration (grammar) too big (limit for this grammar: {})",
+            limits.initial_lexer_fuel
+        );
+
+        ensure!(
+            size <= limits.max_grammar_size,
+            "grammar size (number of symbols) too big (limit for this grammar: {})",
+            limits.max_grammar_size,
+        );
     }
+
+    limits.initial_lexer_fuel = limits.initial_lexer_fuel.saturating_sub(lexer_spec.cost());
+    limits.max_grammar_size = limits.max_grammar_size.saturating_sub(size);
+
     Ok((lexer_spec, grm))
 }
 
 pub fn grammars_from_json(
     input: TopLevelGrammar,
     logger: &mut Logger,
+    mut limits: ParserLimits,
 ) -> Result<Vec<Arc<CGrammar>>> {
     let t0 = Instant::now();
     let grammars = input
         .grammars
         .into_iter()
-        .map(grammar_from_json)
+        .map(|g| grammar_from_json(&mut limits, g))
         .collect::<Result<Vec<_>>>()?;
 
     for (_, g) in &grammars {

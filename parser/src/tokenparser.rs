@@ -68,7 +68,7 @@ impl TokenParser {
         let mid_process_start_time = instant::Instant::now();
         let test_trace = buf.test_trace;
         let max_tokens = buf.max_tokens.unwrap_or(usize::MAX);
-        let compiled_grammars = grammars_from_json(buf, &mut logger)?;
+        let compiled_grammars = grammars_from_json(buf, &mut logger, limits.clone())?;
         let parser = Parser::new(
             Arc::clone(&compiled_grammars[0]),
             GenGrammarOptions::default(),
@@ -417,7 +417,7 @@ impl TokenParser {
             Err(e) => {
                 return self.stop(
                     &format!("Parser Error: {}", e),
-                    StopReason::ParserNotAccepting,
+                    StopReason::ParserTooComplex,
                 );
             }
         };
@@ -596,6 +596,10 @@ impl TokenParser {
         let pre_stats = self.parser.stats().clone();
         let mut set = self.parser.compute_bias(trie, &token_prefix);
         let p_stats = self.parser.stats().delta(&pre_stats);
+        if let Some(err) = self.parser.lexer_error() {
+            let err = format!("lexer error: {}", err);
+            return self.stop(&err, StopReason::LexerTooComplex);
+        }
         self.last_bias_time = pre.elapsed();
 
         if inner_accepting {
@@ -608,6 +612,10 @@ impl TokenParser {
                         let (is_accepting, mask) = pentry
                             .parser
                             .compute_bias_after_gen_grammar(trie, pentry.symidx);
+                        if let Some(err) = pentry.parser.lexer_error() {
+                            let err = format!("lexer error (inner): {}", err);
+                            return self.stop(&err, StopReason::LexerTooComplex);
+                        }
                         infoln!(self, "bias for upper parser: {}", trie.token_set_dbg(&mask));
                         pentry.mask = Some(mask);
                         pentry.is_accepting = is_accepting;

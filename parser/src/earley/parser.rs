@@ -25,19 +25,21 @@ const DEBUG: bool = true;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ParserLimits {
-    pub max_row: usize,
-    pub initial_lexer_fuel: usize,
-    pub step_lexer_fuel: usize,
+    pub max_items_in_row: usize,
+    pub initial_lexer_fuel: u64,
+    pub step_lexer_fuel: u64,
     pub max_lexer_states: usize,
+    pub max_grammar_size: usize,
 }
 
 impl Default for ParserLimits {
     fn default() -> Self {
         Self {
-            max_row: 200,
-            initial_lexer_fuel: 1_000_000,
-            step_lexer_fuel: 500_000,
-            max_lexer_states: 10_000,
+            max_items_in_row: 200,
+            initial_lexer_fuel: 1_000_000, // fhir schema => 500k
+            step_lexer_fuel: 500_000,      // 500k => 10ms
+            max_lexer_states: 10_000,      // ?
+            max_grammar_size: 500_000,     // fhir schema => 200k
         }
     }
 }
@@ -430,6 +432,10 @@ impl ParserState {
 
         self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
 
+        let dfa = &mut shared.lexer.dfa;
+        dfa.set_fuel(self.limits.step_lexer_fuel);
+        dfa.set_max_states(self.limits.max_lexer_states);
+
         trie.apply_duplicates(&mut set);
 
         if set.is_zero() {
@@ -707,11 +713,11 @@ impl ParserState {
                     }
 
                     let item_count = self.curr_row().item_indices().count();
-                    if item_count > self.limits.max_row {
+                    if item_count > self.limits.max_items_in_row {
                         bail!(
                             "Current row has {} items; max is {}; consider making your grammar left-recursive if it's right-recursive",
                             item_count,
-                            self.limits.max_row,
+                            self.limits.max_items_in_row,
                         );
                     }
                     last_lexeme = self.num_rows() - 1;
@@ -1676,6 +1682,11 @@ impl Parser {
     pub fn lexer_stats(&self) -> String {
         let shared = self.shared.lock().unwrap();
         shared.lexer.dfa.stats()
+    }
+
+    pub fn lexer_error(&self) -> Option<String> {
+        let shared = self.shared.lock().unwrap();
+        shared.lexer.dfa.get_error()
     }
 
     pub fn with_recognizer<T>(&mut self, f: impl FnOnce(&mut ParserRecognizer) -> T) -> T {

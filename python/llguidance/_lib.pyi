@@ -93,7 +93,8 @@ class LLInterpreter:
             "NotStopped" - Parser has not emitted stop() yet.
             "MaxTokensTotal" - max_tokens limit on the total number of tokens has been reached.
             "MaxTokensParser" - max_tokens limit on the number of tokens in the top-level parser has been reached.
-            "ParserNotAccepting" - LLM generated tokens that were not accepted by the parser.
+            "ParserTooComplex" - Grammar is too complex (row item limit)
+            "LexerTooComplex" - Lexer regex hit some limit
             "NoExtension" - Top-level parser indicates that no more bytes can be added.
             "NoExtensionBias" - Top-level parser indicates that no more bytes can be added, however it was recognized late.
             "EndOfSentence" - Top-level parser allowed EOS (as it was in an accepting state), and EOS was generated.
