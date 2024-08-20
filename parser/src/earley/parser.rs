@@ -86,6 +86,7 @@ pub struct ParserStats {
     pub num_lexemes: usize,
     pub all_items: usize,
     pub hidden_bytes: usize,
+    pub lexer_cost: u64,
 }
 
 impl ParserStats {
@@ -98,6 +99,7 @@ impl ParserStats {
             num_lex_errors: self.num_lex_errors - previous.num_lex_errors,
             all_items: self.all_items - previous.all_items,
             hidden_bytes: self.hidden_bytes - previous.hidden_bytes,
+            lexer_cost: self.lexer_cost - previous.lexer_cost,
         }
     }
 }
@@ -384,6 +386,8 @@ impl ParserState {
         r.lexer_stack[0].lexer_state = state;
         r.assert_definitive();
 
+        r.stats.lexer_cost = lexer.dfa.total_fuel_spent();
+
         Ok((r, lexer))
     }
 
@@ -400,6 +404,8 @@ impl ParserState {
             state: self,
         };
         trie.add_bias(&mut r, &mut set, start);
+
+        self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
 
         trie.apply_duplicates(&mut set);
 
@@ -1638,6 +1644,11 @@ impl Parser {
     pub fn hidden_start(&self) -> usize {
         let mut shared = self.shared.lock().unwrap();
         self.state.hidden_start(&mut shared)
+    }
+
+    pub fn lexer_stats(&self) -> String {
+        let shared = self.shared.lock().unwrap();
+        shared.lexer.dfa.stats()
     }
 
     pub fn with_recognizer<T>(&mut self, f: impl FnOnce(&mut ParserRecognizer) -> T) -> T {

@@ -18,7 +18,7 @@ pub struct RegexVec {
     num_transitions: usize,
     num_ast_nodes: usize,
     max_states: usize,
-    fuel: usize,
+    fuel: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -201,7 +201,7 @@ impl RegexVec {
         self.insert_state(vec_desc)
     }
 
-    pub fn total_fuel_spent(&self) -> usize {
+    pub fn total_fuel_spent(&self) -> u64 {
         self.exprs.cost()
     }
 
@@ -213,7 +213,7 @@ impl RegexVec {
 
     // Each fuel point is on the order 100ns (though it varies).
     // So, for ~10ms limit, do a .set_fuel(100_000).
-    pub fn set_fuel(&mut self, fuel: usize) {
+    pub fn set_fuel(&mut self, fuel: u64) {
         if !self.has_error() {
             self.fuel = fuel;
         }
@@ -295,7 +295,7 @@ impl RegexVec {
             state_descs: vec![],
             num_transitions: 0,
             num_ast_nodes,
-            fuel: usize::MAX,
+            fuel: u64::MAX,
             max_states: usize::MAX,
         };
 
@@ -376,9 +376,11 @@ impl RegexVec {
         let d0 = self.deriv.num_deriv;
         let c0 = self.exprs.cost();
         let t0 = instant::Instant::now();
+        let mut state_size = 0;
 
         for (idx, e) in iter_state(&self.rx_sets, state) {
             let d = self.deriv.derivative(&mut self.exprs, e, b);
+            state_size += 1;
             if d != ExprRef::NO_MATCH {
                 Self::push_rx(&mut vec_desc, idx, d);
             }
@@ -391,12 +393,17 @@ impl RegexVec {
             self.alpha.enter_error_state();
         }
         if false && cost > 40 {
-            println!(
-                "cost: {:?} {} {}",
+            eprintln!(
+                "cost: {:?} {} {} size={}",
                 t0.elapsed() / (cost as u32),
                 num_deriv,
-                cost
+                cost,
+                state_size
             );
+
+            // for (idx, e) in iter_state(&self.rx_sets, state) {
+            //     eprintln!("expr{}: {}", idx, self.exprs.expr_to_string(e));
+            // }
         }
         let new_state = self.insert_state(vec_desc);
         self.num_transitions += 1;

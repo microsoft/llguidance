@@ -131,10 +131,16 @@ impl TokenParser {
     }
 
     pub fn start_without_prompt(&mut self) {
-        infoln!(self, "start without prompt");
+        infoln!(
+            self,
+            "initial lexer cost: {} (no prompt)",
+            self.parser.lexer_stats()
+        );
     }
 
     pub fn process_prompt(&mut self, prompt: Vec<TokenId>) -> Vec<TokenId> {
+        infoln!(self, "initial lexer cost: {}", self.parser.lexer_stats());
+
         assert!(self.llm_tokens.is_empty());
 
         let trie = self.token_env.tok_trie();
@@ -581,7 +587,9 @@ impl TokenParser {
         }
 
         let pre = instant::Instant::now();
+        let pre_stats = self.parser.stats().clone();
         let mut set = self.parser.compute_bias(trie, &token_prefix);
+        let p_stats = self.parser.stats().delta(&pre_stats);
         self.last_bias_time = pre.elapsed();
 
         if inner_accepting {
@@ -617,10 +625,17 @@ impl TokenParser {
 
         infoln!(
             self,
-            "bias: (pref: {:?}; accpt: {}) {:?} {}",
+            "step-stats: {:?}; {} lex fuel; {}",
+            start_time.elapsed(),
+            p_stats.lexer_cost,
+            self.parser.lexer_stats(),
+        );
+
+        infoln!(
+            self,
+            "bias: (pref: {:?}; accpt: {}) {}",
             String::from_utf8_lossy(&token_prefix),
             self.mid_process_was_accepting,
-            start_time.elapsed(),
             self.token_env.tok_trie().token_set_dbg(&set)
         );
 
