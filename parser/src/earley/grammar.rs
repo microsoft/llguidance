@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    hash::{BuildHasher, Hash},
-};
+use std::{fmt::Debug, hash::Hash};
 
 use anyhow::{bail, ensure, Result};
 use toktrie::SpecialToken;
@@ -14,6 +10,12 @@ use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymIdx(u32);
+
+impl SymIdx {
+    pub fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
 
 impl Symbol {
     fn is_terminal(&self) -> bool {
@@ -312,7 +314,7 @@ impl Grammar {
     }
 
     fn expand_shortcuts(&self) -> Self {
-        let mut definition = FxHashMap::default();
+        let mut definition = vec![None; self.symbols.len()];
         for sym in &self.symbols {
             // don't inline special symbols (commit points, captures, ...) or start symbol
             if sym.idx == self.start() || sym.props.is_special() {
@@ -323,14 +325,16 @@ impl Grammar {
             }
         }
 
+        uf_compress_all(&mut definition);
+
         let mut use_count = vec![0; self.symbols.len()];
         for sym in &self.symbols {
-            if uf_find(&mut definition, sym.idx) != sym.idx {
+            if definition[sym.idx.as_usize()].is_some() {
                 continue;
             }
             for r in sym.rules.iter() {
                 for s in &r.rhs {
-                    let s = uf_find(&mut definition, *s);
+                    let s = definition[s.as_usize()].unwrap_or(*s);
                     use_count[s.0 as usize] += 1;
                 }
             }
@@ -338,47 +342,55 @@ impl Grammar {
 
         let mut repl = FxHashMap::default();
 
-        let defs = definition.keys().map(|e| *e).collect::<Vec<_>>();
-        for k in defs {
-            let root = uf_find(&mut definition, k);
-            assert!(root != k);
-            repl.insert(k, vec![root]);
-        }
-
         for sym in &self.symbols {
             if sym.idx == self.start() || sym.props.is_special() {
                 continue;
             }
             if sym.rules.len() == 1 && use_count[sym.idx.0 as usize] == 1 {
                 // eliminate sym.idx
-                repl.insert(sym.idx, sym.rules[0].rhs.clone());
+                repl.insert(
+                    sym.idx,
+                    sym.rules[0]
+                        .rhs
+                        .iter()
+                        .map(|e| definition[e.as_usize()].unwrap_or(*e))
+                        .collect::<Vec<_>>(),
+                );
             }
         }
 
-        // fix-point expand the mapping
-        // TODO union-find?
-        loop {
-            let to_change = repl
-                .iter()
-                .filter_map(|(lhs, rhs)| {
-                    let rhs2 = rhs
-                        .iter()
-                        .flat_map(|s| repl.get(s).cloned().unwrap_or_else(|| vec![*s]))
-                        .collect::<Vec<_>>();
-                    // println!("expand: {:?} {:?}", lhs, rhs2);
-                    assert!(rhs2.iter().all(|s| *s != *lhs), "cyclic?");
-                    if *rhs != rhs2 {
-                        Some((*lhs, rhs2))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-            if to_change.is_empty() {
-                break;
+        for (idx, m) in definition.iter().enumerate() {
+            if let Some(r) = m {
+                repl.insert(SymIdx(idx as u32), vec![*r]);
             }
-            for (lhs, rhs) in to_change {
-                repl.insert(lhs, rhs);
+        }
+
+        let mut simple_repl = FxHashMap::default();
+        while !repl.is_empty() {
+            let mut new_repl = FxHashMap::default();
+            for (k, v) in repl.iter() {
+                let v2 = v
+                    .iter()
+                    .flat_map(|s| {
+                        simple_repl
+                            .get(s)
+                            .cloned()
+                            .unwrap_or_else(|| repl.get(s).cloned().unwrap_or_else(|| vec![*s]))
+                    })
+                    .collect::<Vec<_>>();
+                if *v == v2 {
+                    simple_repl.insert(*k, v2);
+                } else {
+                    new_repl.insert(*k, v2);
+                }
+            }
+            repl = new_repl;
+        }
+        repl = simple_repl;
+
+        for (k, v) in repl.iter() {
+            if let Some(p) = v.iter().find(|e| repl.contains_key(e)) {
+                panic!("loop at {:?} ({:?})", k, p);
             }
         }
 
@@ -891,17 +903,17 @@ fn rule_to_string(
     format!("{:15} ⇦ {}  {}", lhs, rhs.join(" "), props.to_string())
 }
 
-fn uf_find<K: Eq + Hash + Copy, B: BuildHasher>(map: &mut HashMap<K, K, B>, e: K) -> K {
+fn uf_find(map: &mut [Option<SymIdx>], e: SymIdx) -> SymIdx {
     let mut root = e;
     let mut steps = 0;
-    while let Some(q) = map.get(&root) {
-        root = *q;
+    while let Some(q) = map[root.as_usize()] {
+        root = q;
         steps += 1;
     }
     if steps > 1 {
         let mut p = e;
         assert!(p != root);
-        while let Some(q) = map.insert(p, root) {
+        while let Some(q) = std::mem::replace(&mut map[p.as_usize()], Some(root)) {
             if q == root {
                 break;
             }
@@ -910,11 +922,20 @@ fn uf_find<K: Eq + Hash + Copy, B: BuildHasher>(map: &mut HashMap<K, K, B>, e: K
     }
     root
 }
-fn uf_union<K: Eq + Hash + Copy, B: BuildHasher>(map: &mut HashMap<K, K, B>, mut a: K, mut b: K) {
+
+fn uf_union(map: &mut [Option<SymIdx>], mut a: SymIdx, mut b: SymIdx) {
     a = uf_find(map, a);
     b = uf_find(map, b);
     if a != b {
-        let r = map.insert(a, b);
+        let r = std::mem::replace(&mut map[a.as_usize()], Some(b));
         assert!(r.is_none());
+    }
+}
+
+fn uf_compress_all(map: &mut [Option<SymIdx>]) {
+    for idx in 0..map.len() {
+        if map[idx].is_some() {
+            uf_find(map, SymIdx(idx as u32));
+        }
     }
 }
