@@ -1,4 +1,8 @@
-use std::fmt::Debug;
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    hash::{BuildHasher, Hash},
+};
 
 use anyhow::{bail, ensure, Result};
 use toktrie::SpecialToken;
@@ -308,24 +312,44 @@ impl Grammar {
     }
 
     fn expand_shortcuts(&self) -> Self {
+        let mut definition = FxHashMap::default();
+        for sym in &self.symbols {
+            // don't inline special symbols (commit points, captures, ...) or start symbol
+            if sym.idx == self.start() || sym.props.is_special() {
+                continue;
+            }
+            if sym.rules.len() == 1 && sym.rules[0].rhs.len() == 1 {
+                uf_union(&mut definition, sym.idx, sym.rules[0].rhs[0]);
+            }
+        }
+
         let mut use_count = vec![0; self.symbols.len()];
         for sym in &self.symbols {
+            if uf_find(&mut definition, sym.idx) != sym.idx {
+                continue;
+            }
             for r in sym.rules.iter() {
                 for s in &r.rhs {
+                    let s = uf_find(&mut definition, *s);
                     use_count[s.0 as usize] += 1;
                 }
             }
         }
 
         let mut repl = FxHashMap::default();
+
+        let defs = definition.keys().map(|e| *e).collect::<Vec<_>>();
+        for k in defs {
+            let root = uf_find(&mut definition, k);
+            assert!(root != k);
+            repl.insert(k, vec![root]);
+        }
+
         for sym in &self.symbols {
-            // don't inline special symbols (commit points, captures, ...) or start symbol
             if sym.idx == self.start() || sym.props.is_special() {
                 continue;
             }
-            if sym.rules.len() == 1
-                && (use_count[sym.idx.0 as usize] == 1 || sym.rules[0].rhs.len() == 1)
-            {
+            if sym.rules.len() == 1 && use_count[sym.idx.0 as usize] == 1 {
                 // eliminate sym.idx
                 repl.insert(sym.idx, sym.rules[0].rhs.clone());
             }
@@ -341,6 +365,7 @@ impl Grammar {
                         .iter()
                         .flat_map(|s| repl.get(s).cloned().unwrap_or_else(|| vec![*s]))
                         .collect::<Vec<_>>();
+                    // println!("expand: {:?} {:?}", lhs, rhs2);
                     assert!(rhs2.iter().all(|s| *s != *lhs), "cyclic?");
                     if *rhs != rhs2 {
                         Some((*lhs, rhs2))
@@ -864,4 +889,32 @@ fn rule_to_string(
         rhs.insert(dot, "•");
     }
     format!("{:15} ⇦ {}  {}", lhs, rhs.join(" "), props.to_string())
+}
+
+fn uf_find<K: Eq + Hash + Copy, B: BuildHasher>(map: &mut HashMap<K, K, B>, e: K) -> K {
+    let mut root = e;
+    let mut steps = 0;
+    while let Some(q) = map.get(&root) {
+        root = *q;
+        steps += 1;
+    }
+    if steps > 1 {
+        let mut p = e;
+        assert!(p != root);
+        while let Some(q) = map.insert(p, root) {
+            if q == root {
+                break;
+            }
+            p = q;
+        }
+    }
+    root
+}
+fn uf_union<K: Eq + Hash + Copy, B: BuildHasher>(map: &mut HashMap<K, K, B>, mut a: K, mut b: K) {
+    a = uf_find(map, a);
+    b = uf_find(map, b);
+    if a != b {
+        let r = map.insert(a, b);
+        assert!(r.is_none());
+    }
 }
