@@ -6,9 +6,15 @@ on top of a lexer which uses [derivatives of regular expressions](https://github
 It's to be used by next-generation [Guidance](https://github.com/guidance-ai/guidance) grammars.
 See how it works in [plan.md](./plan.md).
 
-Guidance branch: https://github.com/hudson-ai/guidance/tree/lazy_grammars
-
+This is now available in `main` branch of Guidance.
 Guidance PR: https://github.com/guidance-ai/guidance/pull/951
+
+## Building
+
+* [install rust](https://www.rust-lang.org/tools/install); 1.75 or later
+* install python 3.9 or later; very likely you'll need a virtual env/conda
+* run `./scripts/install-deps.sh`
+* to build and after any changes, run `./scripts/test-guidance.sh`
 
 ## Guidance implementation notes
 
