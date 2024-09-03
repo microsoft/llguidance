@@ -59,6 +59,7 @@ impl LLInterpreter {
             logger,
             inference_caps,
             ParserLimits::default(),
+            vec![],
         )
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let reporter = Reporter::new(&inner);

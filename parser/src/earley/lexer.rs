@@ -126,6 +126,15 @@ impl Lexer {
         }
     }
 
+    pub fn subsume_possible(&mut self, state: StateID) -> bool {
+        self.dfa.subsume_possible(state)
+    }
+
+    pub fn check_subsume(&mut self, state: StateID, extra_idx: usize, budget: u64) -> Result<bool> {
+        self.dfa
+            .check_subsume(state, self.spec.extra_lexeme(extra_idx).as_usize(), budget)
+    }
+
     #[inline(always)]
     pub fn advance(&mut self, prev: StateID, byte: u8, enable_logging: bool) -> LexerResult {
         let state = self.dfa.transition(prev, byte);

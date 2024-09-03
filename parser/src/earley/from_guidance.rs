@@ -256,6 +256,7 @@ pub fn grammars_from_json(
     input: TopLevelGrammar,
     logger: &mut Logger,
     mut limits: ParserLimits,
+    extra_lexemes: Vec<String>,
 ) -> Result<Vec<Arc<CGrammar>>> {
     let t0 = Instant::now();
     let grammars = input
@@ -273,7 +274,9 @@ pub fn grammars_from_json(
     let grammars = grammars
         .into_iter()
         .enumerate()
-        .map(|(idx, (lex, mut grm))| {
+        .map(|(idx, (mut lex, mut grm))| {
+            lex.add_extra_lexemes(&extra_lexemes);
+
             let log_grammar =
                 logger.level_enabled(3) || (logger.level_enabled(2) && grm.is_small());
             if log_grammar {

@@ -11,6 +11,7 @@ pub struct LexerSpec {
     pub regex_builder: RegexBuilder,
     pub no_forcing: bool,
     pub allow_initial_skip: bool,
+    pub num_extra_lexemes: usize,
 }
 
 #[derive(Clone)]
@@ -74,6 +75,7 @@ impl LexerSpec {
             regex_builder,
             no_forcing: false,
             allow_initial_skip: false,
+            num_extra_lexemes: 0,
         };
         let skip = r.add_lexeme_spec(LexemeSpec {
             name: "SKIP".to_string(),
@@ -211,6 +213,25 @@ impl LexerSpec {
             json_options,
             ..self.empty_spec()
         })
+    }
+
+    pub fn add_extra_lexemes(&mut self, extra_lexemes: &Vec<String>) {
+        assert!(self.num_extra_lexemes == 0);
+        self.num_extra_lexemes = extra_lexemes.len();
+        for (idx, added) in extra_lexemes.iter().enumerate() {
+            self.add_greedy_lexeme(
+                format!("$extra_{}", idx),
+                RegexAst::Regex(added.clone()),
+                false,
+                None,
+            )
+            .expect("adding lexeme");
+        }
+    }
+
+    pub fn extra_lexeme(&self, idx: usize) -> LexemeIdx {
+        assert!(idx < self.num_extra_lexemes);
+        self.lexemes[self.lexemes.len() - self.num_extra_lexemes + idx].idx
     }
 
     pub fn dbg_lexeme(&self, lex: &Lexeme) -> String {

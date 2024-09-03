@@ -1,5 +1,6 @@
-use derivre::raw::{DerivCache, ExprSet, NextByteCache, VecHashCons};
-use std::fmt::Debug;
+use anyhow::Result;
+use derivre::raw::{DerivCache, ExprSet, NextByteCache, RelevanceCache, VecHashCons};
+use std::{fmt::Debug, u64};
 use toktrie::SimpleVob;
 
 pub use derivre::{AlphabetInfo, ExprRef, NextByte, StateID};
@@ -9,6 +10,7 @@ pub struct RegexVec {
     exprs: ExprSet,
     deriv: DerivCache,
     next_byte: NextByteCache,
+    relevance: RelevanceCache,
     alpha: AlphabetInfo,
     lazy: SimpleVob,
     rx_list: Vec<ExprRef>,
@@ -112,11 +114,50 @@ impl RegexVec {
         }
     }
 
+    pub fn subsume_possible(&mut self, state: StateID) -> bool {
+        if state.is_dead() || self.has_error() {
+            return false;
+        }
+        for (idx, _) in iter_state(&self.rx_sets, state) {
+            if self.lazy[idx] {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn check_subsume(
+        &mut self,
+        state: StateID,
+        lexeme_idx: usize,
+        mut budget: u64,
+    ) -> Result<bool> {
+        assert!(self.subsume_possible(state));
+        let small = self.rx_list[lexeme_idx];
+        self.set_fuel(u64::MAX);
+        for (idx, e) in iter_state(&self.rx_sets, state) {
+            assert!(!self.lazy[idx]);
+            let big = self.exprs.mk_not(e);
+            let check = self.exprs.mk_and(vec![small, big]);
+            let c0 = self.exprs.cost();
+            let not_contained =
+                self.relevance
+                    .is_relevant_limited(&mut self.exprs, check, budget)?;
+            if !not_contained {
+                return Ok(true);
+            }
+            let cost = self.exprs.cost() - c0;
+            budget = budget.saturating_sub(cost);
+        }
+        Ok(false)
+    }
+
     /// Estimate the size of the regex tables in bytes.
     pub fn num_bytes(&self) -> usize {
         self.exprs.num_bytes()
             + self.deriv.num_bytes()
             + self.next_byte.num_bytes()
+            + self.relevance.num_bytes()
             + self.state_descs.len() * 100
             + self.state_table.len() * std::mem::size_of::<StateID>()
             + self.rx_sets.num_bytes()
@@ -286,6 +327,7 @@ impl RegexVec {
         let mut r = RegexVec {
             deriv: DerivCache::new(),
             next_byte: NextByteCache::new(),
+            relevance: RelevanceCache::new(),
             lazy: lazy.unwrap_or_else(|| SimpleVob::alloc(rx_list.len())),
             exprs: exprset,
             alpha,
@@ -298,6 +340,8 @@ impl RegexVec {
             fuel: u64::MAX,
             max_states: usize::MAX,
         };
+
+        assert!(r.lazy.len() == r.rx_list.len());
 
         r.insert_state(vec![]);
         // also append state for the "MISSING"
