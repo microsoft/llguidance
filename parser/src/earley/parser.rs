@@ -8,15 +8,15 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Result};
-use derivre::RegexAst;
+use derivre::{RegexAst, StateID};
 use serde::{Deserialize, Serialize};
-use toktrie::{Recognizer, SimpleVob, SpecialToken, TokTrie, TokenId};
+use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie, TokenId};
 
 use crate::{api::GenGrammarOptions, earley::lexer::Lexer};
 
 use super::{
     grammar::{CGrammar, CSymIdx, CSymbol, ModelVariable, RuleIdx},
-    lexer::{LexerResult, PreLexeme, StateID},
+    lexer::{LexerResult, PreLexeme},
     lexerspec::{Lexeme, LexemeIdx, LexerSpec},
 };
 
@@ -419,24 +419,22 @@ impl ParserState {
     fn compute_bias(
         &mut self,
         shared: &mut SharedState,
-        trie: &TokTrie,
+        computer: &dyn BiasComputer,
         start: &[u8],
     ) -> SimpleVob {
-        let mut set = trie.alloc_token_set();
+        let dfa = &mut shared.lexer.dfa;
+        dfa.set_fuel(self.limits.step_lexer_fuel);
+        dfa.set_max_states(self.limits.max_lexer_states);
 
         let mut r = ParserRecognizer {
             shared,
             state: self,
         };
-        trie.add_bias(&mut r, &mut set, start);
+        let mut set = computer.compute_bias(&mut r, start);
 
         self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
 
-        let dfa = &mut shared.lexer.dfa;
-        dfa.set_fuel(self.limits.step_lexer_fuel);
-        dfa.set_max_states(self.limits.max_lexer_states);
-
-        trie.apply_duplicates(&mut set);
+        computer.trie().apply_duplicates(&mut set);
 
         if set.is_zero() {
             // nothing allowed
@@ -445,7 +443,7 @@ impl ParserState {
         }
 
         if start.is_empty() && self.lexer_allows_eos(shared) {
-            set.allow_token(trie.eos_token());
+            set.allow_token(computer.trie().eos_token());
         }
 
         set
@@ -1560,6 +1558,42 @@ pub struct ParserRecognizer<'a> {
     shared: &'a mut SharedState,
 }
 
+impl<'a> ParserRecognizer<'a> {
+    pub fn lexer(&mut self) -> &mut Lexer {
+        &mut self.shared.lexer
+    }
+    pub fn lexer_state(&self) -> StateID {
+        self.state.lexer_state().lexer_state
+    }
+}
+
+pub trait BiasComputer: Send + Sync {
+    fn compute_bias<'a>(&self, rec: &mut ParserRecognizer<'a>, start: &[u8]) -> SimpleVob;
+    fn trie(&self) -> &TokTrie;
+}
+
+pub struct DefaultBiasComputer {
+    tok_env: TokEnv,
+}
+
+impl DefaultBiasComputer {
+    pub fn new(tok_env: TokEnv) -> Self {
+        DefaultBiasComputer { tok_env }
+    }
+}
+
+impl BiasComputer for DefaultBiasComputer {
+    fn compute_bias<'b>(&self, rec: &mut ParserRecognizer<'b>, start: &[u8]) -> SimpleVob {
+        let mut set = self.trie().alloc_token_set();
+        self.trie().add_bias(rec, &mut set, start);
+        set
+    }
+
+    fn trie(&self) -> &TokTrie {
+        self.tok_env.tok_trie()
+    }
+}
+
 impl<'a> Recognizer for ParserRecognizer<'a> {
     fn pop_bytes(&mut self, num: usize) {
         self.state.pop_lexer_states(num);
@@ -1647,18 +1681,18 @@ impl Parser {
 
     pub fn compute_bias_after_gen_grammar(
         &mut self,
-        trie: &TokTrie,
+        computer: &dyn BiasComputer,
         symidx: CSymIdx,
     ) -> (bool, SimpleVob) {
         self.state.trie_gen_grammar = Some(symidx);
-        let r = self.compute_bias(trie, &[]);
+        let r = self.compute_bias(computer, &[]);
         assert!(self.state.trie_gen_grammar.is_none());
         (self.state.trie_gen_grammar_accepting, r)
     }
 
-    pub fn compute_bias(&mut self, trie: &TokTrie, start: &[u8]) -> SimpleVob {
+    pub fn compute_bias(&mut self, computer: &dyn BiasComputer, start: &[u8]) -> SimpleVob {
         let mut shared = self.shared.lock().unwrap();
-        self.state.compute_bias(&mut shared, trie, start)
+        self.state.compute_bias(&mut shared, computer, start)
     }
 
     pub fn captures(&self) -> &[(String, Vec<u8>)] {

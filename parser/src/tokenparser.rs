@@ -3,7 +3,8 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     api::{GenGrammarOptions, StopReason, TopLevelGrammar},
     earley::{
-        grammars_from_json, CGrammar, CSymIdx, ModelVariable, Parser, ParserLimits, ParserStats,
+        grammars_from_json, BiasComputer, CGrammar, CSymIdx, DefaultBiasComputer, ModelVariable,
+        Parser, ParserLimits, ParserStats,
     },
     infoln, warn, Logger,
 };
@@ -20,6 +21,7 @@ pub struct TokenParser {
     pub inference_caps: InferenceCapabilities,
     pub logger: Logger,
     pub limits: ParserLimits,
+    pub bias_computer: Arc<dyn BiasComputer>,
     pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
@@ -60,15 +62,17 @@ struct ParserStackEntry {
 impl TokenParser {
     pub fn from_llguidance_json(
         token_env: TokEnv,
-        buf: TopLevelGrammar,
+        top_grammar: TopLevelGrammar,
         mut logger: Logger,
         inference_caps: InferenceCapabilities,
         limits: ParserLimits,
+        extra_lexemes: Vec<String>,
     ) -> Result<Self> {
         let mid_process_start_time = instant::Instant::now();
-        let test_trace = buf.test_trace;
-        let max_tokens = buf.max_tokens.unwrap_or(usize::MAX);
-        let compiled_grammars = grammars_from_json(buf, &mut logger, limits.clone())?;
+        let test_trace = top_grammar.test_trace;
+        let max_tokens = top_grammar.max_tokens.unwrap_or(usize::MAX);
+        let compiled_grammars =
+            grammars_from_json(top_grammar, &mut logger, limits.clone(), extra_lexemes)?;
         let parser = Parser::new(
             Arc::clone(&compiled_grammars[0]),
             GenGrammarOptions::default(),
@@ -76,6 +80,7 @@ impl TokenParser {
         )?;
 
         Ok(TokenParser {
+            bias_computer: Arc::new(DefaultBiasComputer::new(token_env.clone())),
             logger,
             test_trace,
             token_env,
@@ -594,7 +599,7 @@ impl TokenParser {
 
         let pre = instant::Instant::now();
         let pre_stats = self.parser.stats().clone();
-        let mut set = self.parser.compute_bias(trie, &token_prefix);
+        let mut set = self.parser.compute_bias(&*self.bias_computer, &token_prefix);
         let p_stats = self.parser.stats().delta(&pre_stats);
         if let Some(err) = self.parser.lexer_error() {
             let err = format!("lexer error: {}", err);
@@ -611,7 +616,7 @@ impl TokenParser {
                         assert!(token_prefix.is_empty());
                         let (is_accepting, mask) = pentry
                             .parser
-                            .compute_bias_after_gen_grammar(trie, pentry.symidx);
+                            .compute_bias_after_gen_grammar(&*self.bias_computer, pentry.symidx);
                         if let Some(err) = pentry.parser.lexer_error() {
                             let err = format!("lexer error (inner): {}", err);
                             return self.stop(&err, StopReason::LexerTooComplex);
