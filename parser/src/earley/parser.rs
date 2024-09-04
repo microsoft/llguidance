@@ -673,7 +673,7 @@ impl ParserState {
                             self.token_idx as isize + 1 - info.token_idx_start as isize,
                         ) as usize;
                         let lex_state = self.lexer_state().lexer_state;
-                        let mut limit = trie.alloc_token_set();
+                        let mut limit = self.lexer_spec().alloc_lexeme_set();
                         let mut num_limit = 0;
                         {
                             let possible_lexemes = shared.lexer.possible_lexemes(lex_state);
