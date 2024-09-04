@@ -132,6 +132,8 @@ impl RegexVec {
         lexeme_idx: usize,
         mut budget: u64,
     ) -> Result<bool> {
+        let budget0 = budget;
+        let t0 = instant::Instant::now();
         assert!(self.subsume_possible(state));
         let small = self.rx_list[lexeme_idx];
         self.set_fuel(u64::MAX);
@@ -142,12 +144,16 @@ impl RegexVec {
             let c0 = self.exprs.cost();
             let not_contained =
                 self.relevance
-                    .is_relevant_limited(&mut self.exprs, check, budget)?;
+                    .is_non_empty_limited(&mut self.exprs, check, budget)?;
             if !not_contained {
                 return Ok(true);
             }
             let cost = self.exprs.cost() - c0;
             budget = budget.saturating_sub(cost);
+        }
+        let cost = budget0 - budget;
+        if false && cost > 10 {
+            println!("check_subsume: {}/{} {:?}", cost, budget0, t0.elapsed());
         }
         Ok(false)
     }
