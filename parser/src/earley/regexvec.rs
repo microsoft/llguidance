@@ -137,16 +137,24 @@ impl RegexVec {
         assert!(self.subsume_possible(state));
         let small = self.rx_list[lexeme_idx];
         self.set_fuel(u64::MAX);
+        let mut res = false;
         for (idx, e) in iter_state(&self.rx_sets, state) {
             assert!(!self.lazy[idx]);
-            let big = self.exprs.mk_not(e);
+            let pref = self.exprs.mk_prefixes(e);
+            let big = self.exprs.mk_not(pref);
             let check = self.exprs.mk_and(vec![small, big]);
             let c0 = self.exprs.cost();
             let not_contained =
                 self.relevance
                     .is_non_empty_limited(&mut self.exprs, check, budget)?;
+            // println!(
+            //     "{} -> contained={}",
+            //     self.exprs.expr_to_string(check),
+            //     !not_contained
+            // );
             if !not_contained {
-                return Ok(true);
+                res = true;
+                break;
             }
             let cost = self.exprs.cost() - c0;
             budget = budget.saturating_sub(cost);
@@ -155,7 +163,7 @@ impl RegexVec {
         if false && cost > 10 {
             println!("check_subsume: {}/{} {:?}", cost, budget0, t0.elapsed());
         }
-        Ok(false)
+        Ok(res)
     }
 
     /// Estimate the size of the regex tables in bytes.
