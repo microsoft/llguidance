@@ -64,6 +64,7 @@ impl RegexVec {
         self.insert_state(vec_desc)
     }
 
+    #[inline(always)]
     pub fn state_desc(&self, state: StateID) -> &StateDesc {
         &self.state_descs[state.as_usize()]
     }

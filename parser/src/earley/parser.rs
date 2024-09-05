@@ -1595,6 +1595,7 @@ impl BiasComputer for DefaultBiasComputer {
 }
 
 impl<'a> Recognizer for ParserRecognizer<'a> {
+    #[inline(always)]
     fn pop_bytes(&mut self, num: usize) {
         self.state.pop_lexer_states(num);
     }
