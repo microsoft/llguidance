@@ -92,3 +92,28 @@ while p < nodes.len() {
 
 Note that the only branch that gets mis-predicted here is the `if byte_allowed(n.byte)`.
 The `if` in argument to `pop_bytes` is compiled to bit operations, so it is branchless.
+
+### Actual code
+
+See `add_bias_inner` in [toktree.rs](./core/src/toktree.rs).
+
+* it uses `try_push_byte()` which combines `byte_allowed()` and `push_byte()`
+* it calls `pop_bytes()` at the beginning with a variable stored in previous iteration
+
+The following is a breakdown of all memory reads and writes,
+when used with [llguidance](https://github.com/microsoft/llguidance),
+see `try_push_byte()` in [parser.rs](https://github.com/microsoft/llguidance/blob/main/parser/src/earley/parser.rs#L1638).
+This only considers the fast lexer path.
+
+* `pop_bytes()` - only register update (stack length)
+* fetch current `TrieNode` (8 bytes)
+* `try_push_byte()` - 3 reads, 1 write, see below
+* updating token bit-mask - 1 read, 1 write
+
+The `try_push_byte()` function:
+
+* fetch lexer state from the stack (1 read)
+* compute next DFA state: 1 read for alphabet compression if enabled, 1 read for transition table
+* push lexer state to the stack (1 write)
+
+Together, this is 5 reads and 2 writes per node.
