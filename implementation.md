@@ -97,23 +97,36 @@ The `if` in argument to `pop_bytes` is compiled to bit operations, so it is bran
 
 See `add_bias_inner` in [toktree.rs](./core/src/toktree.rs).
 
-* it uses `try_push_byte()` which combines `byte_allowed()` and `push_byte()`
-* it calls `pop_bytes()` at the beginning with a variable stored in previous iteration
+- it uses `try_push_byte()` which combines `byte_allowed()` and `push_byte()`
+- it calls `pop_bytes()` at the beginning with a variable stored in previous iteration
 
 The following is a breakdown of all memory reads and writes,
 when used with [llguidance](https://github.com/microsoft/llguidance),
 see `try_push_byte()` in [parser.rs](https://github.com/microsoft/llguidance/blob/main/parser/src/earley/parser.rs#L1638).
 This only considers the fast lexer path.
 
-* `pop_bytes()` - only register update (stack length)
-* fetch current `TrieNode` (8 bytes)
-* `try_push_byte()` - 3 reads, 1 write, see below
-* updating token bit-mask - 1 read, 1 write
+- `pop_bytes()` - only register update (stack length)
+- fetch current `TrieNode` (8 bytes)
+- `try_push_byte()` - 3 reads, 1 write, see below
+- updating token bit-mask - 1 read, 1 write
 
 The `try_push_byte()` function:
 
-* fetch lexer state from the stack (1 read)
-* compute next DFA state: 1 read for alphabet compression if enabled, 1 read for transition table
-* push lexer state to the stack (1 write)
+- fetch lexer state from the stack (1 read)
+- compute next DFA state: 1 read for alphabet compression if enabled, 1 read for transition table
+- push lexer state to the stack (1 write)
 
 Together, this is 5 reads and 2 writes per node.
+There is at least one dependency chains of length 3
+(read lexer state -> compute dfa state -> write lexer state)
+and another one with compression
+(read byte -> compute compressed byte -> compute dfa state).
+
+On an AMD EPYC 7V13 a single node is processed in around 13 cycles;
+this drops by 1 cycle if the alphabet compression is disabled
+(likely only 1 because lexer stack fetch and alphabet compression fetch can be done in parallel).
+
+The 7V13 has 4 cycles L1 latency (32KB), 13 cycles L2 latency (512KB),
+and 34 cycles L3 latency (16MB or so) [source](https://www.anandtech.com/show/14694/amd-rome-epyc-2nd-gen/7).
+
+Given the 4 cycle L1 and 3-deep dependency chain, 13 seems fairly optimal.
