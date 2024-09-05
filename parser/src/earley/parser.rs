@@ -544,6 +544,7 @@ impl ParserState {
         self.lexer_state().row_idx as usize + 1
     }
 
+    #[inline(always)]
     fn pop_lexer_states(&mut self, n: usize) {
         assert!(self.lexer_stack.len() > n);
         unsafe { self.lexer_stack.set_len(self.lexer_stack.len() - n) }
