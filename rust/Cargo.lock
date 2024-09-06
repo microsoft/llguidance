@@ -378,7 +378,7 @@ checksum = "e1fc403891a21bcfb7c37834ba66a547a8f402146eba7265b5a6d88059c9ff2f"
 [[package]]
 name = "toktrie"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/toktrie?rev=7cb20cd594428f5397f6159115d5e070e8c0935f#7cb20cd594428f5397f6159115d5e070e8c0935f"
+source = "git+https://github.com/microsoft/toktrie?rev=f4370794574a1b186c1bd472c553434fffe4aa36#f4370794574a1b186c1bd472c553434fffe4aa36"
 dependencies = [
  "anyhow",
  "bytemuck",
