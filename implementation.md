@@ -117,16 +117,18 @@ The `try_push_byte()` function:
 - push lexer state to the stack (1 write)
 
 Together, this is 5 reads and 2 writes per node.
-There is at least one dependency chains of length 3
-(read lexer state -> compute dfa state -> write lexer state)
-and another one with compression
-(read byte -> compute compressed byte -> compute dfa state).
+Dependency chain lengths are difficult to estimate, given the possible
+speculation and out-of-order execution.
 
-On an AMD EPYC 7V13 a single node is processed in around 13 cycles;
+On an AMD EPYC 7V13 a single node is processed in around 13 cycles
+(at 4.2 instructions per cycle);
 this drops by 1 cycle if the alphabet compression is disabled
 (likely only 1 because lexer stack fetch and alphabet compression fetch can be done in parallel).
 
 The 7V13 has 4 cycles L1 latency (32KB), 13 cycles L2 latency (512KB),
-and 34 cycles L3 latency (16MB or so) [source](https://www.anandtech.com/show/14694/amd-rome-epyc-2nd-gen/7).
-
-Given the 4 cycle L1 and 3-deep dependency chain, 13 seems fairly optimal.
+and 46 cycles L3 latency (up to 32MB per core, but shared).
+It also has 6-wide uop dispatch.
+Sources:
+[EPYC Milan](https://www.anandtech.com/show/16529/amd-epyc-milan-review/4),
+[Zen3](https://www.anandtech.com/show/16214/amd-zen-3-ryzen-deep-dive-review-5950x-5900x-5800x-and-5700x-tested/4),
+[Zen2](https://www.anandtech.com/show/14694/amd-rome-epyc-2nd-gen/7) (shares L1/L2 specs).
