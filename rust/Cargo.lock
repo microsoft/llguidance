@@ -131,7 +131,7 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 
 [[package]]
 name = "llguidance"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "bytemuck",
  "llguidance_parser",
@@ -142,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "llguidance_parser"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "derivre",
