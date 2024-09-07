@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::{borrow::Cow, sync::Arc};
 
-use llguidance_parser::earley::ParserLimits;
+use llguidance_parser::api::ParserLimits;
 use llguidance_parser::toktrie::{
     self, InferenceCapabilities, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
 };
@@ -77,7 +77,8 @@ impl LLInterpreter {
     fn mid_process(&mut self, py: Python<'_>) -> PyResult<(Option<Cow<[u8]>>, String)> {
         let r = py
             .allow_threads(|| self.inner.compute_mask())
-            .map_err(val_error)?;
+            .map_err(val_error)?
+            .clone();
         let is_final = r.is_stop();
         let res = PyMidProcessResult {
             progress: self.inner.flush_progress(),

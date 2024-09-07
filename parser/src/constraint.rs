@@ -34,11 +34,11 @@ impl Constraint {
         }
     }
 
-    fn save_progress_and_result(&mut self, res: &StepResult) {
+    fn save_progress_and_result(&mut self, res: StepResult) {
         if let Some(temp) = res.temperature {
             self.temperature = temp;
         }
-        self.last_res = res.clone();
+        self.last_res = res;
         if self.log_json_progress {
             for p in self.reporter.get_progress(&mut self.parser, &self.last_res) {
                 self.parser.logger.write_buffer("JSON-OUT: ");
@@ -69,7 +69,7 @@ impl Constraint {
     /// - a stop result, indicating that the parser is done
     /// The splice is never returned when ff_tokens are disabled in InferenceCapabilities.
     /// After this returns, commit_token() must be called with the sampled token if any.
-    pub fn compute_mask(&mut self) -> Result<StepResult> {
+    pub fn compute_mask(&mut self) -> Result<&StepResult> {
         if !self.started {
             self.started = true;
             self.parser.start_without_prompt();
@@ -78,8 +78,8 @@ impl Constraint {
         if self.delayed_stop {
             self.delayed_stop = false;
             let stop = StepResult::stop();
-            self.save_progress_and_result(&stop);
-            return Ok(stop);
+            self.save_progress_and_result(stop);
+            return Ok(&self.last_res);
         }
 
         ensure!(!self.last_res.is_stop(), "compute_bias() called after stop");
@@ -89,13 +89,13 @@ impl Constraint {
         );
         let step_arg = self.step_arg.take().unwrap();
         let res = self.parser.mid_process(step_arg);
-        self.save_progress_and_result(&res);
-        Ok(res)
+        self.save_progress_and_result(res);
+        Ok(&self.last_res)
     }
 
     /// This commits the sampled token (if any), and sees if this forces any more tokens
     /// on the output (if ff_tokens are enabled in InferenceCapabilities).
-    pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<StepResult> {
+    pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<&StepResult> {
         ensure!(
             self.step_arg.is_none(),
             "commit_token() called twice or without compute_bias()"
@@ -103,7 +103,7 @@ impl Constraint {
 
         // if last result was to stop or to unconditionally splice, we're done already
         if self.last_res.is_stop() {
-            return Ok(self.last_res.clone());
+            return Ok(&self.last_res);
         }
 
         if let Some(splice) = self.last_res.unconditional_splice() {
@@ -113,7 +113,7 @@ impl Constraint {
 
             // prepare argument for the next step
             self.step_arg = Some(StepArg::from_splice(splice, sampled_token));
-            return Ok(self.last_res.clone());
+            return Ok(&self.last_res);
         }
 
         // otherwise, append the sampled token and see if more tokens can be forced
@@ -139,7 +139,7 @@ impl Constraint {
         if !self.parser.inference_caps.ff_tokens {
             self.step_arg = Some(StepArg::from_sampled_token(sampled_token));
             self.last_res = StepResult::splice(0, vec![sampled_token]);
-            return Ok(self.last_res.clone());
+            return Ok(&self.last_res);
         }
 
         // now, advance the parser with the sampled token - this should be very quick
@@ -150,16 +150,16 @@ impl Constraint {
         });
 
         // save any logs
-        self.save_progress_and_result(&pres);
+        self.save_progress_and_result(pres);
 
         // even if the result here is to stop, we still need to return an
         // unconditional splice with the sampled token, since the caller
         // needs to add it to their output
-        let mut splice = if pres.is_stop() {
+        let mut splice = if self.last_res.is_stop() {
             self.delayed_stop = true;
             Splice::noop()
         } else {
-            let splice = pres.unconditional_splice().unwrap().clone();
+            let splice = self.last_res.unconditional_splice().unwrap().clone();
             // arg for the next step is just this splice, since the sampled token is already consumed
             self.step_arg = Some(StepArg::from_splice(&splice, None));
             splice
@@ -175,7 +175,7 @@ impl Constraint {
         }
 
         self.last_res = StepResult::splice(splice.backtrack, splice.ff_tokens.clone());
-        Ok(self.last_res.clone())
+        Ok(&self.last_res)
     }
 
     /// This returns parser outputs to be passed back to the user.
