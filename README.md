@@ -9,28 +9,33 @@ See how it works in [plan.md](./plan.md).
 This is now available in `main` branch of Guidance.
 Guidance PR: https://github.com/guidance-ai/guidance/pull/951
 
+Grammars are normally [JSON-serialized](./parser/src/api.rs).
+The following libraries produce llguidance grammars:
+
+- [guidance](https://github.com/guidance-ai/guidance) (Python)
+- [guidance.ts](https://github.com/mmoskal/guidance-ts) (TypeScript)
+- hopefully more to come!
+
 ## Building
 
-* [install rust](https://www.rust-lang.org/tools/install); 1.75 or later
-* install python 3.9 or later; very likely you'll need a virtual env/conda
-* run `./scripts/install-deps.sh`
-* to build and after any changes, run `./scripts/test-guidance.sh`
+- [install rust](https://www.rust-lang.org/tools/install); 1.75 or later
+- install python 3.9 or later; very likely you'll need a virtual env/conda
+- run `./scripts/install-deps.sh`
+- to build and after any changes, run `./scripts/test-guidance.sh`
 
-## Guidance implementation notes
+This builds the Python bindings for the library and runs the tests
+(which mostly live in the Guidance repo - it will clone it).
 
-- `gen()` now generates a new node, `Gen`
-- grammar is serialized to JSON, see `ll_serialize()`
+The Rust crate is called `llguidance_parser`.
+For usage see the [README there](./parser/README.md).
 
 ## TODO
 
-- [ ] `substring()` in Guidance needs to be re-implemented (translate to RegexAst)
 - [ ] `to_regex_vec()` in lexerspec.rs - non-contextual keywords
 - [ ] allow byte sequence to fast-forward through grammar at start (grammar derivative)
-- [x] check if env allows for backtracking (if not, don't use it)
 - [ ] return `{when_sampled:[EOS],ff:[]}` as slice when EOS ends gen()
-- [x] check for relevance of intersection and negation in `derivre`
 
-## Lexeme-splitting
+### Lexeme-splitting
 
 See https://github.com/microsoft/llguidance/issues/2
 
@@ -40,7 +45,7 @@ See https://github.com/microsoft/llguidance/issues/2
     check_grammar(g, ["", "a‧b‧Q"]) # doesn't match at all
 ```
 
-## Only valid tokens
+### Only valid tokens
 
 See https://github.com/microsoft/llguidance/issues/1
 
@@ -60,7 +65,7 @@ splice.
 
 ## Contributing
 
-This project welcomes contributions and suggestions.  Most contributions require you to agree to a
+This project welcomes contributions and suggestions. Most contributions require you to agree to a
 Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
 the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.
 
@@ -74,8 +79,8 @@ contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additio
 
 ## Trademarks
 
-This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft 
-trademarks or logos is subject to and must follow 
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
+trademarks or logos is subject to and must follow
 [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
 Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
 Any use of third-party trademarks or logos are subject to those third-party's policies.

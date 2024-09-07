@@ -4,7 +4,7 @@ version = "0.1.8"
 edition = "2021"
 
 [dependencies]
-toktrie = { git = "https://github.com/microsoft/toktrie", rev = "f4370794574a1b186c1bd472c553434fffe4aa36" }
+toktrie = { git = "https://github.com/microsoft/toktrie", rev = "8828701d3b1c743472fe61bdf6dab12cdd726ab4" }
 derivre = { git = "https://github.com/microsoft/derivre", rev = "30bf07f634426121d1cd003187d96a40af387c19" }
 serde = { version = "1.0.192", features = ["derive"] }
 serde_json = "1.0.108"

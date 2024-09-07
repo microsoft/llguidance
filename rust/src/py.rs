@@ -2,7 +2,8 @@ use std::{borrow::Cow, sync::Arc};
 
 use llguidance_parser::earley::ParserLimits;
 use llguidance_parser::toktrie::{
-    self, InferenceCapabilities, StepArg, StepResult, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
+    self, InferenceCapabilities, Splice, StepArg, StepResult, TokRxInfo, TokTrie, TokenId,
+    TokenizerEnv,
 };
 use llguidance_parser::Logger;
 use llguidance_parser::{
@@ -144,18 +145,23 @@ impl LLInterpreter {
         // TODO this may generate progress entries that we should return
         let pres = self.inner.advance_parser(arg);
 
-        if let Some(splice) = pres {
-            self.step_arg = StepArg::from_splice(&splice, sampled_token);
-            if self.step_arg.backtrack > 0 {
-                self.step_arg.backtrack -= 1; // the sampled token was ignored
-            } else {
-                self.step_arg.tokens.insert(0, tok);
-            }
-            Ok((self.step_arg.backtrack, self.step_arg.tokens.clone()))
-        } else {
-            // it's stop, really; let the next mid_process() call handle it
-            Ok((0, vec![]))
+        if pres.is_stop() {
+            // let the next mid_process() call handle it
+            return Ok((0, vec![]));
         }
+
+        let splice = pres
+            .unconditional_splice()
+            .cloned()
+            .unwrap_or_else(|| Splice::noop());
+
+        self.step_arg = StepArg::from_splice(&splice, sampled_token);
+        if self.step_arg.backtrack > 0 {
+            self.step_arg.backtrack -= 1; // the sampled token was ignored
+        } else {
+            self.step_arg.tokens.insert(0, tok);
+        }
+        Ok((self.step_arg.backtrack, self.step_arg.tokens.clone()))
     }
 
     fn post_process(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
