@@ -3,6 +3,9 @@
 set -e
 cd $(dirname $0)/..
 
+echo "Running sample_parser"
+(cd sample_parser && ./run.sh >/dev/null)
+
 pip uninstall -y llguidance || :
 
 if test -z "$CONDA_PREFIX" -a -z "$VIRTUAL_ENV" ; then

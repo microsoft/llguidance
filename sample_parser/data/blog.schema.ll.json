@@ -1,0 +1,828 @@
+{
+"grammars": [
+{
+"nodes": [
+{
+"GenGrammar": {
+"grammar": 1,
+"stop_rx": "",
+"no_initial_skip": true,
+"temperature": 0.0
+}
+}
+],
+"rx_nodes": []
+},
+{
+"greedy_skip_rx": "[\\x20\\x0A\\x0D\\x09]+",
+"nodes": [
+{
+"Join": {
+"sequence": [
+1,
+2
+]
+}
+},
+{
+"Join": {
+"sequence": [
+3,
+4
+]
+}
+},
+{
+"String": {
+"literal": "}"
+}
+},
+{
+"String": {
+"literal": "{"
+}
+},
+{
+"Join": {
+"sequence": [
+5,
+6
+]
+}
+},
+{
+"Join": {
+"sequence": [
+23,
+24
+]
+}
+},
+{
+"Join": {
+"sequence": [
+7,
+8
+]
+}
+},
+{
+"Join": {
+"sequence": [
+9,
+10
+]
+}
+},
+{
+"String": {
+"literal": "]"
+}
+},
+{
+"String": {
+"literal": "["
+}
+},
+{
+"Select": {
+"among": [
+11,
+12
+]
+}
+},
+{
+"Join": {
+"sequence": [
+13
+]
+}
+},
+{
+"String": {
+"literal": ""
+}
+},
+{
+"Join": {
+"sequence": [
+14,
+15
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"Join": {
+"sequence": [
+16,
+17
+]
+}
+},
+{
+"String": {
+"literal": ""
+}
+},
+{
+"Select": {
+"among": [
+18,
+19
+]
+}
+},
+{
+"Join": {
+"sequence": [
+17,
+19
+]
+}
+},
+{
+"Select": {
+"among": [
+20,
+21
+]
+}
+},
+{
+"Join": {
+"sequence": [
+22,
+14
+]
+}
+},
+{
+"String": {
+"literal": ""
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+25,
+26
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+27,
+28
+]
+}
+},
+{
+"String": {
+"literal": "\"tags\""
+}
+},
+{
+"Join": {
+"sequence": [
+29,
+30
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+95,
+96
+]
+}
+},
+{
+"Join": {
+"sequence": [
+31,
+32
+]
+}
+},
+{
+"Join": {
+"sequence": [
+33,
+34
+]
+}
+},
+{
+"String": {
+"literal": "}"
+}
+},
+{
+"String": {
+"literal": "{"
+}
+},
+{
+"Join": {
+"sequence": [
+35,
+36
+]
+}
+},
+{
+"Join": {
+"sequence": [
+53,
+54
+]
+}
+},
+{
+"Join": {
+"sequence": [
+37,
+38
+]
+}
+},
+{
+"Join": {
+"sequence": [
+39,
+40
+]
+}
+},
+{
+"String": {
+"literal": "]"
+}
+},
+{
+"String": {
+"literal": "["
+}
+},
+{
+"Select": {
+"among": [
+41,
+42
+]
+}
+},
+{
+"Join": {
+"sequence": [
+43
+]
+}
+},
+{
+"String": {
+"literal": ""
+}
+},
+{
+"Join": {
+"sequence": [
+44,
+45
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"Join": {
+"sequence": [
+46,
+47
+]
+}
+},
+{
+"String": {
+"literal": ""
+}
+},
+{
+"Select": {
+"among": [
+48,
+49
+]
+}
+},
+{
+"Join": {
+"sequence": [
+47,
+49
+]
+}
+},
+{
+"Select": {
+"among": [
+50,
+51
+]
+}
+},
+{
+"Join": {
+"sequence": [
+52,
+44
+]
+}
+},
+{
+"String": {
+"literal": ""
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+55,
+56
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+57,
+58
+]
+}
+},
+{
+"String": {
+"literal": "\"interests\""
+}
+},
+{
+"Join": {
+"sequence": [
+59,
+60
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+61,
+62
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"Join": {
+"sequence": [
+63,
+64
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+65,
+66
+]
+}
+},
+{
+"String": {
+"literal": "\"location\""
+}
+},
+{
+"Join": {
+"sequence": [
+67,
+68
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+69,
+70
+]
+}
+},
+{
+"Lexeme": {
+"rx": "-?(?:0|[1-9][0-9]*)",
+"contextual": true
+}
+},
+{
+"Join": {
+"sequence": [
+71,
+72
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+73,
+74
+]
+}
+},
+{
+"String": {
+"literal": "\"age\""
+}
+},
+{
+"Join": {
+"sequence": [
+75,
+76
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+77,
+78
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"Join": {
+"sequence": [
+79,
+80
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+81,
+82
+]
+}
+},
+{
+"String": {
+"literal": "\"fullName\""
+}
+},
+{
+"Join": {
+"sequence": [
+83,
+84
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+85,
+86
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"Join": {
+"sequence": [
+87,
+88
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+89,
+90
+]
+}
+},
+{
+"String": {
+"literal": "\"email\""
+}
+},
+{
+"Join": {
+"sequence": [
+91,
+92
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+93,
+94
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"String": {
+"literal": "\"username\""
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+97,
+98
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+99,
+100
+]
+}
+},
+{
+"String": {
+"literal": "\"author\""
+}
+},
+{
+"Join": {
+"sequence": [
+101,
+102
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+103,
+104
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"Join": {
+"sequence": [
+105,
+106
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+107,
+108
+]
+}
+},
+{
+"String": {
+"literal": "\"publishedDate\""
+}
+},
+{
+"Join": {
+"sequence": [
+109,
+110
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+111,
+112
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"Join": {
+"sequence": [
+113,
+114
+]
+}
+},
+{
+"String": {
+"literal": ":"
+}
+},
+{
+"Join": {
+"sequence": [
+115,
+116
+]
+}
+},
+{
+"String": {
+"literal": "\"content\""
+}
+},
+{
+"Join": {
+"sequence": [
+117,
+118
+]
+}
+},
+{
+"String": {
+"literal": ","
+}
+},
+{
+"Join": {
+"sequence": [
+119,
+120
+]
+}
+},
+{
+"Lexeme": {
+"rx": "\"(\\\\([\\\"\\\\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\\\"\\\\\\x00-\\x1F\\x7F]){0,}\"",
+"contextual": true
+}
+},
+{
+"String": {
+"literal": "\"title\""
+}
+},
+{
+"String": {
+"literal": ":"
+}
+}
+],
+"rx_nodes": []
+}
+]
+}
