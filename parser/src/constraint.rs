@@ -1,10 +1,16 @@
 use anyhow::{ensure, Result};
 use toktrie::{Splice, StepArg, StepResult, TokenId};
 
-use crate::{output::Reporter, TokenParser};
+use crate::{
+    output::{ParserOutput, Reporter},
+    TokenParser,
+};
 
+#[derive(Clone)]
 pub struct Constraint {
     pub parser: TokenParser,
+    pub log_json_progress: bool,
+    pub temperature: f32,
     reporter: Reporter,
     step_arg: Option<StepArg>,
     last_res: StepResult,
@@ -23,12 +29,17 @@ impl Constraint {
             last_res: StepResult::noop(),
             delayed_stop: false,
             started: false,
+            log_json_progress: false,
+            temperature: 0.0,
         }
     }
 
     fn save_progress_and_result(&mut self, res: &StepResult) {
+        if let Some(temp) = res.temperature {
+            self.temperature = temp;
+        }
         self.last_res = res.clone();
-        if self.parser.logger.buffer_level() > 0 {
+        if self.log_json_progress {
             for p in self.reporter.get_progress(&mut self.parser, &self.last_res) {
                 self.parser.logger.write_buffer("JSON-OUT: ");
                 self.parser
@@ -66,8 +77,9 @@ impl Constraint {
 
         if self.delayed_stop {
             self.delayed_stop = false;
-            self.last_res = StepResult::stop();
-            return Ok(StepResult::stop());
+            let stop = StepResult::stop();
+            self.save_progress_and_result(&stop);
+            return Ok(stop);
         }
 
         ensure!(!self.last_res.is_stop(), "compute_bias() called after stop");
@@ -164,6 +176,14 @@ impl Constraint {
 
         self.last_res = StepResult::splice(splice.backtrack, splice.ff_tokens.clone());
         Ok(self.last_res.clone())
+    }
+
+    /// This returns parser outputs to be passed back to the user.
+    /// You can use that for structured output, or set log_json_progress to true
+    /// and then use flush_logs() to get a string, from which the user
+    /// can extract the JSON of the outputs.
+    pub fn flush_progress(&mut self) -> Vec<ParserOutput> {
+        self.reporter.get_progress(&mut self.parser, &self.last_res)
     }
 
     /// Logs to be sent to the user.

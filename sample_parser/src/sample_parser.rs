@@ -1,4 +1,4 @@
-use std::{env, fs::File, io::Read, vec};
+use std::{env, fs::File, hint::black_box, io::Read, vec};
 
 use llguidance_parser::{
     api::TopLevelGrammar,
@@ -28,13 +28,16 @@ fn main() {
 
     let tokens = tok_env.tokenize(&obj_str);
 
-    // set to 2 for more output
+    // set to 2 for more output; 1 is warnings only
     let stderr_log_level = 1;
+
+    // typically set to 2, to send info-level output to the user
+    let buffer_log_level = 2;
 
     let parser = TokenParser::from_llguidance_json(
         tok_env.clone(),
         schema,
-        llguidance_parser::Logger::new(2, stderr_log_level),
+        llguidance_parser::Logger::new(buffer_log_level, stderr_log_level),
         InferenceCapabilities {
             ff_tokens: true,  // can the engine append multiple tokens?
             backtrack: false, // can the engine remove generated tokens?
@@ -48,6 +51,9 @@ fn main() {
     .unwrap();
     let mut constraint = Constraint::new(parser);
 
+    // enable sending parser results back via the logs (constraint.flush_logs())
+    constraint.log_json_progress = true;
+
     let trie = tok_env.tok_trie();
 
     eprintln!("Parsing tokens: {}", trie.tokens_dbg(&tokens));
@@ -57,12 +63,16 @@ fn main() {
         let res = constraint.compute_mask().unwrap();
 
         if res.is_stop() {
+            // stop sequence
             break;
         }
 
-        let sampled_token = if let Some(_mask) = &res.sample_mask {
-            // Simulate sampling; normally this would use _mask
+        let sampled_token = if let Some(mask) = &res.sample_mask {
+            // Simulate sampling - it should use the mask and temperature
+            black_box(mask);
+            black_box(constraint.temperature);
             let sampled_token = tokens[idx];
+
             println!(
                 "SAMPLE {}: {} {}",
                 idx,
@@ -78,6 +88,7 @@ fn main() {
 
         let splice = constraint.commit_token(sampled_token).unwrap();
         if splice.is_stop() {
+            // stop sequence
             break;
         }
 

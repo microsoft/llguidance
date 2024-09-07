@@ -1,27 +1,19 @@
+use std::fmt::Display;
 use std::{borrow::Cow, sync::Arc};
 
 use llguidance_parser::earley::ParserLimits;
 use llguidance_parser::toktrie::{
-    self, InferenceCapabilities, Splice, StepArg, StepResult, TokRxInfo, TokTrie, TokenId,
-    TokenizerEnv,
+    self, InferenceCapabilities, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
 };
-use llguidance_parser::Logger;
-use llguidance_parser::{
-    api::TopLevelGrammar,
-    output::{ParserOutput, Reporter},
-    TokenParser,
-};
+use llguidance_parser::{api::TopLevelGrammar, output::ParserOutput, TokenParser};
+use llguidance_parser::{Constraint, Logger};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 #[pyclass]
 struct LLInterpreter {
-    inner: TokenParser,
-    temperature: f32,
-    reporter: Reporter,
-    step_arg: StepArg,
-    last_result: StepResult,
+    inner: Constraint,
     #[pyo3(get, set)]
     log_level: isize,
 }
@@ -44,8 +36,7 @@ impl LLInterpreter {
         log_level: Option<isize>,
     ) -> PyResult<Self> {
         let env = tokenizer.clone();
-        let arg: TopLevelGrammar = serde_json::from_str(llguidance_json)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let arg: TopLevelGrammar = serde_json::from_str(llguidance_json).map_err(val_error)?;
         let log_level = log_level.unwrap_or(1);
         let inference_caps = InferenceCapabilities {
             backtrack: true,
@@ -62,16 +53,9 @@ impl LLInterpreter {
             ParserLimits::default(),
             vec![],
         )
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let reporter = Reporter::new(&inner);
-        Ok(LLInterpreter {
-            inner,
-            reporter,
-            temperature: 0.0,
-            log_level,
-            step_arg: StepArg::empty(),
-            last_result: StepResult::noop(),
-        })
+        .map_err(val_error)?;
+        let inner = Constraint::new(inner);
+        Ok(LLInterpreter { inner, log_level })
     }
 
     fn deep_copy(&self) -> Self {
@@ -79,32 +63,29 @@ impl LLInterpreter {
     }
 
     fn is_accepting(&self) -> bool {
-        self.inner.mid_process_was_accepting()
+        self.inner.parser.mid_process_was_accepting()
     }
 
     fn stop_reason(&self) -> String {
-        self.inner.stop_reason().to_string()
+        self.inner.parser.stop_reason().to_string()
     }
 
     fn process_prompt(&mut self, prompt: Vec<TokenId>) -> Vec<TokenId> {
         self.inner.process_prompt(prompt)
     }
 
-    fn mid_process(&mut self, py: Python<'_>) -> (Option<Cow<[u8]>>, String) {
-        let arg = std::mem::replace(&mut self.step_arg, StepArg::empty());
-        self.last_result = py.allow_threads(|| self.inner.mid_process(arg));
-        let r = &self.last_result;
+    fn mid_process(&mut self, py: Python<'_>) -> PyResult<(Option<Cow<[u8]>>, String)> {
+        let r = py
+            .allow_threads(|| self.inner.compute_mask())
+            .map_err(val_error)?;
         let is_final = r.is_stop();
-        if let Some(t) = r.temperature {
-            self.temperature = t;
-        }
         let res = PyMidProcessResult {
-            progress: self.reporter.get_progress(&mut self.inner, r),
+            progress: self.inner.flush_progress(),
             stop: is_final,
-            temperature: self.temperature,
+            temperature: self.inner.temperature,
         };
         if is_final {
-            (None, serde_json::to_string(&res).unwrap())
+            Ok((None, serde_json::to_string(&res).unwrap()))
         } else {
             let mask = if r.unconditional_splice().is_some() {
                 None
@@ -118,70 +99,24 @@ impl LLInterpreter {
                 Some(Cow::Owned(res))
             };
 
-            (mask, serde_json::to_string(&res).unwrap())
+            Ok((mask, serde_json::to_string(&res).unwrap()))
         }
     }
 
     fn advance_parser(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
-        if !self.step_arg.tokens.is_empty() || !self.step_arg.sampled.is_none() {
-            return Err(PyValueError::new_err("post_process() called twice"));
-        }
-
-        if self.last_result.is_stop() {
-            return Err(PyValueError::new_err("post_process() called after stop"));
-        }
-
-        if let Some(s) = self.last_result.unconditional_splice() {
-            self.step_arg = StepArg::from_splice(s, sampled_token);
-            return Ok((s.backtrack, s.ff_tokens.clone()));
-        }
-
-        let tok = sampled_token.ok_or_else(|| PyValueError::new_err("Expecting sampled token"))?;
-        let arg = StepArg {
-            backtrack: 0,
-            tokens: vec![tok],
-            sampled: sampled_token,
-        };
-        // TODO this may generate progress entries that we should return
-        let pres = self.inner.advance_parser(arg);
+        let pres = self.inner.commit_token(sampled_token).map_err(val_error)?;
 
         if pres.is_stop() {
             // let the next mid_process() call handle it
             return Ok((0, vec![]));
         }
 
-        let splice = pres
-            .unconditional_splice()
-            .cloned()
-            .unwrap_or_else(|| Splice::noop());
-
-        self.step_arg = StepArg::from_splice(&splice, sampled_token);
-        if self.step_arg.backtrack > 0 {
-            self.step_arg.backtrack -= 1; // the sampled token was ignored
-        } else {
-            self.step_arg.tokens.insert(0, tok);
-        }
-        Ok((self.step_arg.backtrack, self.step_arg.tokens.clone()))
+        let splice = pres.unconditional_splice().unwrap();
+        Ok((splice.backtrack, splice.ff_tokens.clone()))
     }
 
     fn post_process(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
-        let splice = if let Some(t) = sampled_token {
-            self.last_result.spliced(t)
-        } else {
-            if let Some(s) = self.last_result.unconditional_splice() {
-                s.clone()
-            } else {
-                return Err(PyValueError::new_err("Expecting sampled token"));
-            }
-        };
-
-        self.step_arg = StepArg {
-            backtrack: splice.backtrack,
-            tokens: splice.ff_tokens.clone(),
-            sampled: sampled_token,
-        };
-
-        Ok((splice.backtrack, splice.ff_tokens))
+        self.advance_parser(sampled_token)
     }
 }
 
@@ -302,4 +237,8 @@ pub(crate) fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LLTokenizer>()?;
     m.add_class::<LLInterpreter>()?;
     Ok(())
+}
+
+fn val_error(e: impl Display) -> PyErr {
+    PyValueError::new_err(format!("{e}"))
 }
