@@ -1,8 +1,7 @@
 use std::{env, fs::File, hint::black_box, io::Read, vec};
 
 use llguidance_parser::{
-    api::TopLevelGrammar,
-    earley::ParserLimits,
+    api::{ParserLimits, TopLevelGrammar},
     toktrie::{InferenceCapabilities, TokEnv},
     Constraint, TokenParser,
 };

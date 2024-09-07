@@ -11,6 +11,7 @@ pub struct TopLevelGrammar {
     pub test_trace: bool,
 }
 
+/// cbindgen:ignore
 pub const DEFAULT_CONTEXTUAL: bool = true;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -286,5 +287,27 @@ impl StopReason {
             .as_str()
             .unwrap()
             .to_string()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[repr(C)]
+pub struct ParserLimits {
+    pub max_items_in_row: usize,
+    pub initial_lexer_fuel: u64,
+    pub step_lexer_fuel: u64,
+    pub max_lexer_states: usize,
+    pub max_grammar_size: usize,
+}
+
+impl Default for ParserLimits {
+    fn default() -> Self {
+        Self {
+            max_items_in_row: 200,
+            initial_lexer_fuel: 1_000_000, // fhir schema => 500k
+            step_lexer_fuel: 500_000,      // 500k => 10ms
+            max_lexer_states: 10_000,      // ?
+            max_grammar_size: 500_000,     // fhir schema => 200k
+        }
     }
 }

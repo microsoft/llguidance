@@ -1,10 +1,9 @@
 use std::fmt::Write;
 use std::{sync::Arc, vec};
 
-use super::ParserLimits;
 use super::{grammar::SymbolProps, lexerspec::LexerSpec, CGrammar, Grammar};
 use crate::api::{
-    GrammarWithLexer, Node, RegexId, RegexNode, RegexSpec, TopLevelGrammar, DEFAULT_CONTEXTUAL,
+    GrammarWithLexer, Node, ParserLimits, RegexId, RegexNode, RegexSpec, TopLevelGrammar, DEFAULT_CONTEXTUAL
 };
 use crate::{loginfo, Logger};
 use anyhow::{bail, ensure, Result};

@@ -1,10 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    api::{GenGrammarOptions, StopReason, TopLevelGrammar},
+    api::{GenGrammarOptions, ParserLimits, StopReason, TopLevelGrammar},
     earley::{
         grammars_from_json, BiasComputer, CGrammar, CSymIdx, DefaultBiasComputer, ModelVariable,
-        Parser, ParserLimits, ParserStats,
+        Parser, ParserStats,
     },
     infoln, warn, Logger,
 };

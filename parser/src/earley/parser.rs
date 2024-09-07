@@ -12,7 +12,7 @@ use derivre::{RegexAst, StateID};
 use serde::{Deserialize, Serialize};
 use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie, TokenId};
 
-use crate::{api::GenGrammarOptions, earley::lexer::Lexer};
+use crate::{api::{GenGrammarOptions, ParserLimits}, earley::lexer::Lexer};
 
 use super::{
     grammar::{CGrammar, CSymIdx, CSymbol, ModelVariable, RuleIdx},
@@ -22,27 +22,6 @@ use super::{
 
 const TRACE: bool = false;
 const DEBUG: bool = true;
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct ParserLimits {
-    pub max_items_in_row: usize,
-    pub initial_lexer_fuel: u64,
-    pub step_lexer_fuel: u64,
-    pub max_lexer_states: usize,
-    pub max_grammar_size: usize,
-}
-
-impl Default for ParserLimits {
-    fn default() -> Self {
-        Self {
-            max_items_in_row: 200,
-            initial_lexer_fuel: 1_000_000, // fhir schema => 500k
-            step_lexer_fuel: 500_000,      // 500k => 10ms
-            max_lexer_states: 10_000,      // ?
-            max_grammar_size: 500_000,     // fhir schema => 200k
-        }
-    }
-}
 
 macro_rules! trace {
     ($($arg:tt)*) => {
