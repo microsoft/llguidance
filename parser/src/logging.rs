@@ -27,6 +27,15 @@ impl Clone for Logger {
 }
 
 impl Logger {
+    // The buffer_level is used to determine the level of messages that are stored
+    // in a buffer in the sequence object. These can be read and sent back to the user
+    // over network etc. Note that some client libraries will look in these logs
+    // for return values from the parser. If you support sending these back, set it to 2.
+    //
+    // The stderr_level is just for printing stuff out on stderr.
+    // 0 - no output
+    // 1 - warnings only
+    // 2 - info output
     pub fn new(buffer_level: u32, stderr_level: u32) -> Self {
         Self {
             buffer_level,

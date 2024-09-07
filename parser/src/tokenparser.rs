@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::Result;
 use serde_json::json;
-use toktrie::{InferenceCapabilities, SimpleVob, Splice, StepArg, StepResult, TokEnv, TokenId};
+use toktrie::{InferenceCapabilities, SimpleVob, StepArg, StepResult, TokEnv, TokenId};
 
 #[derive(Clone)]
 pub struct TokenParser {
@@ -46,6 +46,7 @@ pub struct TokenParser {
     llm_tokens: Vec<TokenId>,
     llm_bytes: Vec<u8>,
     grm_prefix: Vec<u8>,
+    is_fresh: bool,
 }
 
 #[derive(Clone)]
@@ -104,11 +105,16 @@ impl TokenParser {
             max_tokens_total: max_tokens,
             max_tokens_parser: max_tokens,
             last_bias_time: Duration::from_secs(0),
+            is_fresh: true,
         })
     }
 
     pub fn stop_reason(&self) -> StopReason {
         self.stop_reason
+    }
+
+    pub fn is_fresh(&self) -> bool {
+        self.is_fresh
     }
 
     pub fn parser_stats(&self) -> &ParserStats {
@@ -147,10 +153,16 @@ impl TokenParser {
             "initial lexer cost: {} (no prompt)",
             self.parser.lexer_stats()
         );
+
+        assert!(self.is_fresh);
+        self.is_fresh = false;
     }
 
     pub fn process_prompt(&mut self, prompt: Vec<TokenId>) -> Vec<TokenId> {
         infoln!(self, "initial lexer cost: {}", self.parser.lexer_stats());
+
+        assert!(self.is_fresh);
+        self.is_fresh = false;
 
         assert!(self.llm_tokens.is_empty());
 
@@ -234,25 +246,24 @@ impl TokenParser {
         self.error_message.clone()
     }
 
-    pub fn advance_parser(&mut self, arg: StepArg) -> Option<Splice> {
+    // The result here *never* includes a mask.
+    // It's either stop or an unconditional splice (possibly noop).
+    pub fn advance_parser(&mut self, arg: StepArg) -> StepResult {
         assert!(self.inference_caps.ff_tokens);
         assert!(!self.test_trace);
 
         self.no_bias_this_mid_process = true;
         let r = self.mid_process(arg);
         self.no_bias_this_mid_process = false;
-        if r.is_stop() {
-            None
-        } else {
-            Some(r.unconditional_splice().cloned().unwrap_or_else(|| Splice {
-                when_sampled: vec![],
-                backtrack: 0,
-                ff_tokens: vec![],
-            }))
-        }
+
+        assert!(r.sample_mask.is_none());
+
+        r
     }
 
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
+        assert!(self.is_fresh == false, "process_prompt() not called");
+
         self.mid_process_start_time = instant::Instant::now();
         if self.stop_reason != StopReason::NotStopped {
             let trie = self.token_env.tok_trie();
@@ -599,7 +610,9 @@ impl TokenParser {
 
         let pre = instant::Instant::now();
         let pre_stats = self.parser.stats().clone();
-        let mut set = self.parser.compute_bias(&*self.bias_computer, &token_prefix);
+        let mut set = self
+            .parser
+            .compute_bias(&*self.bias_computer, &token_prefix);
         let p_stats = self.parser.stats().delta(&pre_stats);
         if let Some(err) = self.parser.lexer_error() {
             let err = format!("lexer error: {}", err);

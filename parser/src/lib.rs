@@ -5,6 +5,9 @@ pub mod api;
 pub mod output;
 pub use toktrie;
 
+mod constraint;
+pub use constraint::Constraint;
+
 mod logging;
 pub use logging::Logger;
 
