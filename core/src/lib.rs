@@ -69,6 +69,14 @@ impl StepArg {
             sampled,
         }
     }
+
+    pub fn from_sampled_token(tok: TokenId) -> Self {
+        StepArg {
+            backtrack: 0,
+            tokens: vec![tok],
+            sampled: Some(tok),
+        }
+    }
 }
 
 /*
@@ -103,6 +111,24 @@ pub struct Splice {
     pub backtrack: u32,
     /// Append these tokens after backtracking.
     pub ff_tokens: Vec<TokenId>,
+}
+
+impl Splice {
+    pub fn noop() -> Self {
+        Splice {
+            when_sampled: vec![],
+            backtrack: 0,
+            ff_tokens: vec![],
+        }
+    }
+
+    pub fn tokens(ff_tokens: Vec<TokenId>) -> Self {
+        Splice {
+            when_sampled: vec![],
+            backtrack: 0,
+            ff_tokens,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
