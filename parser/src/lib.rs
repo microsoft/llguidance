@@ -17,6 +17,10 @@ pub use derivre;
 
 pub mod ffi;
 
+mod grammar_builder;
+mod json;
+pub use grammar_builder::{GrammarBuilder, NodeRef};
+
 #[macro_export]
 macro_rules! loginfo {
     ($s:expr, $($arg:tt)*) => {

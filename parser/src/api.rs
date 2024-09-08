@@ -14,7 +14,7 @@ pub struct TopLevelGrammar {
 /// cbindgen:ignore
 pub const DEFAULT_CONTEXTUAL: bool = true;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct GrammarWithLexer {
     /// The start symbol is at nodes[0]
     pub nodes: Vec<Node>,
@@ -54,7 +54,7 @@ pub struct GrammarWithLexer {
     pub allow_invalid_utf8: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum Node {
     // Terminals:
     /// Force generation of the specific string.
@@ -134,14 +134,14 @@ pub enum Node {
 }
 
 /// Optional fields allowed on any Node
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
 pub struct NodeProps {
     pub max_tokens: Option<usize>,
     pub name: Option<String>,
     pub capture_name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct GenOptions {
     /// Regular expression matching the body of generation.
     pub body_rx: RegexSpec,
@@ -163,7 +163,7 @@ pub struct GenOptions {
     pub temperature: Option<f32>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct GenGrammarOptions {
     pub grammar: GrammarId,
 
@@ -207,7 +207,7 @@ pub enum RegexNode {
     ByteSet(Vec<u32>),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum RegexSpec {
     RegexId(RegexId),
