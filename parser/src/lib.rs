@@ -20,6 +20,7 @@ pub mod ffi;
 mod grammar_builder;
 mod json;
 pub use grammar_builder::{GrammarBuilder, NodeRef};
+pub use json::JsonCompileOptions;
 
 #[macro_export]
 macro_rules! loginfo {

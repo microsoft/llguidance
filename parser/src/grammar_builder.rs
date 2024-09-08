@@ -1,5 +1,7 @@
 use std::{collections::HashMap, sync::atomic::AtomicU32};
 
+use anyhow::{ensure, Result};
+
 use crate::api::{GrammarWithLexer, Node, NodeId, NodeProps, RegexSpec, TopLevelGrammar};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -156,12 +158,12 @@ impl GrammarBuilder {
         );
     }
 
-    pub fn finalize(&mut self) -> TopLevelGrammar {
+    pub fn finalize(&mut self) -> Result<TopLevelGrammar> {
         for grammar in &self.top_grammar.grammars {
             for node in &grammar.nodes {
-                assert!(node != &self.placeholder, "Unresolved placeholder");
+                ensure!(node != &self.placeholder, "Unresolved placeholder");
             }
         }
-        self.top_grammar.clone()
+        Ok(self.top_grammar.clone())
     }
 }

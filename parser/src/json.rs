@@ -1,23 +1,16 @@
 use anyhow::{anyhow, bail, ensure, Result};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::{collections::HashMap, vec};
 
 use crate::{
-    api::{GrammarWithLexer, RegexSpec},
+    api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
     GrammarBuilder, NodeRef,
 };
 
 #[derive(Debug, Default, Clone)]
-pub struct CompileOptions {
-    compact: bool,
-    validate: bool,
-}
-
-impl CompileOptions {
-    pub fn new(compact: bool, validate: bool) -> Self {
-        Self { compact, validate }
-    }
+pub struct JsonCompileOptions {
+    pub compact: bool,
+    pub validate: bool,
 }
 
 fn to_compact_json(target: &serde_json::Value) -> String {
@@ -48,14 +41,7 @@ const IGNORED_KEYS: [&str; 8] = [
     "discriminator",
 ];
 
-fn looks_like_schema(map: &HashMap<String, serde_json::Value>) -> bool {
-    map.contains_key("type")
-        || map.contains_key("anyOf")
-        || map.contains_key("allOf")
-        || map.contains_key("oneOf")
-        || map.contains_key("enum")
-        || map.contains_key("$ref")
-}
+const CHAR_REGEX: &str = r#""(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])""#;
 
 fn limited_str(node: &Value) -> String {
     let s = node.to_string();
@@ -82,22 +68,44 @@ fn validate_json_node_keys(node: &Value) -> Result<()> {
     Ok(())
 }
 
-pub struct Compiler {
+struct Compiler {
     builder: GrammarBuilder,
-    options: CompileOptions,
+    options: JsonCompileOptions,
     definitions: HashMap<String, NodeRef>,
+
+    any_cache: Option<NodeRef>,
+    lexeme_cache: HashMap<String, NodeRef>,
 }
 
-fn regex(rx: &str) -> RegexSpec {
+macro_rules! cache {
+    ($field:expr, $gen:expr) => {
+        if $field.is_none() {
+            $field = Some($gen);
+        }
+        return $field.unwrap();
+    };
+}
+
+impl JsonCompileOptions {
+    pub fn json_to_llg(&self, schema: &Value) -> Result<TopLevelGrammar> {
+        let mut compiler = Compiler::new(self.clone());
+        compiler.run(schema)?;
+        compiler.builder.finalize()
+    }
+}
+
+fn mk_regex(rx: &str) -> RegexSpec {
     RegexSpec::Regex(rx.to_string())
 }
 
 impl Compiler {
-    pub fn new(options: CompileOptions) -> Self {
+    pub fn new(options: JsonCompileOptions) -> Self {
         Self {
             builder: GrammarBuilder::new(),
             options,
             definitions: HashMap::new(),
+            lexeme_cache: HashMap::new(),
+            any_cache: None,
         }
     }
 
@@ -108,7 +116,7 @@ impl Compiler {
 
         self.builder.add_grammar(GrammarWithLexer {
             greedy_skip_rx: if self.options.compact {
-                Some(regex(r"[\x20\x0A\x0D\x09]+"))
+                Some(mk_regex(r"[\x20\x0A\x0D\x09]+"))
             } else {
                 None
             },
@@ -130,7 +138,8 @@ impl Compiler {
         if let Some(defs_key) = &defs_key {
             for (ref_, _) in schema[defs_key].as_object().unwrap() {
                 let placeholder = self.builder.placeholder();
-                self.definitions.insert(ref_.clone(), placeholder);
+                self.definitions
+                    .insert(format!("#/{}/{}", defs_key, ref_), placeholder);
             }
         }
 
@@ -139,7 +148,8 @@ impl Compiler {
 
         if let Some(defs_key) = &defs_key {
             for (ref_, ref_schema) in schema[defs_key].as_object().unwrap() {
-                let pl = self.definitions[ref_];
+                let ref_ = format!("#/{}/{}", defs_key, ref_);
+                let pl = self.definitions[&ref_];
                 let compiled = self.gen_json(ref_schema)?;
                 self.builder.set_placeholder(pl, compiled);
             }
@@ -161,13 +171,17 @@ impl Compiler {
     fn gen_json(&mut self, json_schema: &Value) -> Result<NodeRef> {
         validate_json_node_keys(json_schema)?;
 
+        // Process anyOf
         if let Some(any_of) = json_schema.get("anyOf") {
             return self.process_any_of(any_of);
         }
-        if let Some(any_of) = json_schema.get("oneOf") {
-            return self.process_any_of(any_of);
+
+        // Process oneOf (same handling as anyOf for now)
+        if let Some(one_of) = json_schema.get("oneOf") {
+            return self.process_any_of(one_of);
         }
 
+        // Process allOf
         if let Some(all_of) = json_schema.get("allOf") {
             let all_of_list = all_of
                 .as_array()
@@ -178,7 +192,325 @@ impl Compiler {
             return self.gen_json(&all_of_list[0]);
         }
 
-        todo!()
+        // Process $ref
+        if let Some(reference) = json_schema.get("$ref") {
+            let ref_str = reference.as_str().ok_or_else(|| {
+                anyhow!("Expected string in $ref, got: {}", limited_str(reference))
+            })?;
+            return self.get_definition(ref_str);
+        }
+
+        // Process const
+        if let Some(const_value) = json_schema.get("const") {
+            let compact_const = to_compact_json(const_value);
+            return Ok(self.builder.string(&compact_const));
+        }
+
+        // Process enum
+        if let Some(enum_values) = json_schema.get("enum") {
+            let enum_array = enum_values.as_array().ok_or_else(|| {
+                anyhow!("Expected array in enum, got: {}", limited_str(enum_values))
+            })?;
+            let options = enum_array
+                .iter()
+                .map(|opt| self.builder.string(&to_compact_json(opt)))
+                .collect::<Vec<_>>();
+            return Ok(self.builder.select(&options));
+        }
+
+        // Process type-specific keywords
+        if let Some(target_type) = json_schema.get("type") {
+            let target_type_str = target_type.as_str().ok_or_else(|| {
+                anyhow!("Expected string in type, got: {}", limited_str(target_type))
+            })?;
+
+            match target_type_str {
+                "null" => return Ok(self.builder.string("null")),
+                "boolean" => return Ok(self.lexeme(r"true|false")),
+                "integer" => return Ok(self.json_int()),
+                "number" => return Ok(self.json_number()),
+                "string" => {
+                    let min_length = json_schema
+                        .get("minLength")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let max_length = json_schema.get("maxLength").and_then(|v| v.as_u64());
+                    let pattern = json_schema.get("pattern").and_then(|v| v.as_str());
+
+                    return self.gen_json_string(min_length, max_length, pattern);
+                }
+                "array" => {
+                    let empty = vec![];
+                    let prefix_items = json_schema
+                        .get("prefixItems")
+                        .and_then(|v| v.as_array())
+                        .unwrap_or(&empty);
+                    let item_schema = json_schema.get("items").unwrap_or(&Value::Bool(true));
+                    let min_items = json_schema
+                        .get("minItems")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let max_items = json_schema.get("maxItems").and_then(|v| v.as_u64());
+
+                    return self.gen_json_array(prefix_items, item_schema, min_items, max_items);
+                }
+                "object" => {
+                    let empty = json!({});
+                    let properties = json_schema
+                        .get("properties")
+                        .and_then(|v| v.as_object())
+                        .unwrap_or(empty.as_object().unwrap());
+                    let additional_properties = json_schema
+                        .get("additionalProperties")
+                        .unwrap_or(&Value::Bool(true));
+                    return self.gen_json_object(properties, additional_properties);
+                }
+                _ => bail!("Unsupported type in schema: {}", target_type_str),
+            }
+        }
+
+        // Fallback to "any" type
+        Ok(self.gen_json_any())
     }
 
+    fn lexeme(&mut self, rx: &str) -> NodeRef {
+        if self.lexeme_cache.contains_key(rx) {
+            return self.lexeme_cache[rx];
+        }
+        let r = self.builder.lexeme(mk_regex(rx), false);
+        self.lexeme_cache.insert(rx.to_string(), r);
+        r
+    }
+
+    fn json_int(&mut self) -> NodeRef {
+        self.lexeme(r"-?(?:0|[1-9][0-9]*)")
+    }
+
+    fn json_number(&mut self) -> NodeRef {
+        self.lexeme(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+    }
+
+    fn json_simple_string(&mut self) -> NodeRef {
+        self.lexeme(&format!("\"{}*\"", CHAR_REGEX))
+    }
+
+    fn get_definition(&mut self, reference: &str) -> Result<NodeRef> {
+        self.definitions
+            .get(reference)
+            .cloned()
+            .ok_or_else(|| anyhow!("Reference not found: {}", reference))
+    }
+
+    fn gen_json_any(&mut self) -> NodeRef {
+        cache!(self.any_cache, {
+            let json_any = self.builder.placeholder();
+            let all_jsons = json!([
+                {"type": "null"},
+                {"type": "boolean"},
+                {"type": "integer"},
+                {"type": "number"},
+                {"type": "string"},
+                {"type": "array", "items": true},
+                {"type": "object", "additionalProperties": true},
+            ]);
+            let ch = all_jsons
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|json_schema| self.gen_json(json_schema))
+                .collect::<Result<Vec<_>>>()
+                .unwrap();
+            let inner = self.builder.select(&ch);
+            self.builder.set_placeholder(json_any, inner);
+            json_any
+        });
+    }
+
+    fn gen_json_object(
+        &mut self,
+        properties: &serde_json::Map<String, Value>,
+        additional_properties: &Value,
+    ) -> Result<NodeRef> {
+        let mut grammars: Vec<NodeRef> = vec![self.builder.string("{")];
+
+        if !properties.is_empty() {
+            grammars.extend(self.process_properties(properties)?);
+            if additional_properties != &Value::Bool(false) {
+                grammars.push(self.builder.string(","));
+            }
+        }
+
+        if additional_properties != &Value::Bool(false) {
+            grammars.push(self.process_additional_properties(additional_properties)?);
+        }
+
+        grammars.push(self.builder.string("}"));
+        Ok(self.builder.join(&grammars))
+    }
+
+    fn process_properties(
+        &mut self,
+        properties: &serde_json::Map<String, Value>,
+    ) -> Result<Vec<NodeRef>> {
+        let mut result = vec![];
+        let mut properties_added = 0;
+
+        for (name, property_schema) in properties {
+            result.push(self.builder.string(&format!("\"{}\"", name)));
+            result.push(self.builder.string(":"));
+            result.push(self.gen_json(property_schema)?);
+            properties_added += 1;
+            if properties_added < properties.len() {
+                result.push(self.builder.string(","));
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn process_additional_properties(&mut self, additional_properties: &Value) -> Result<NodeRef> {
+        let str = self.json_simple_string();
+        let colon = self.builder.string(":");
+        let the_rest = self.gen_json(additional_properties)?;
+        let item = self.builder.join(&[str, colon, the_rest]);
+        let inner = self.sequence(item);
+        Ok(self.builder.optional(inner))
+    }
+
+    fn sequence(&mut self, item: NodeRef) -> NodeRef {
+        let comma = self.builder.string(",");
+        let item_comma = self.builder.join(&[item, comma]);
+        let item_comma_star = self.builder.zero_or_more(item_comma);
+        self.builder.join(&[item_comma_star, item])
+    }
+
+    fn gen_json_string(
+        &mut self,
+        min_length: u64,
+        max_length: Option<u64>,
+        regex: Option<&str>,
+    ) -> Result<NodeRef> {
+        if min_length == 0 && max_length.is_none() && regex.is_none() {
+            return Ok(self.json_simple_string());
+        }
+
+        if let Some(regex) = regex {
+            if min_length > 0 || max_length.is_some() {
+                bail!("If a pattern is specified, minLength and maxLength must be unspecified.");
+            }
+            // the regex has implicit ^...$ anyways
+            let regex = regex.trim_start_matches('^').trim_end_matches('$');
+            let node = self.builder.lexeme(mk_regex(regex), true);
+            Ok(node)
+        } else {
+            Ok(self.lexeme(&format!(
+                "\"{}{{{},{}}}\"",
+                CHAR_REGEX,
+                min_length,
+                max_length.map_or("".to_string(), |v| v.to_string())
+            )))
+        }
+    }
+
+    fn gen_json_array(
+        &mut self,
+        prefix_items: &[Value],
+        item_schema: &Value,
+        min_items: u64,
+        max_items: Option<u64>,
+    ) -> Result<NodeRef> {
+        let anything_goes = json!({});
+        let item_schema = if item_schema.as_bool() == Some(true) {
+            &anything_goes
+        } else {
+            item_schema
+        };
+        let item_schema_is_false = item_schema.as_bool() == Some(false);
+
+        if item_schema_is_false && prefix_items.len() < min_items as usize {
+            bail!(
+                "PrefixItems has too few elements ({}) to satisfy minItems ({}) but no extra items were allowed",
+                prefix_items.len(),
+                min_items
+            );
+        }
+
+        if let Some(max_items_value) = max_items {
+            if max_items_value < min_items {
+                bail!(
+                    "maxItems ({}) can't be less than minItems ({})",
+                    max_items_value,
+                    min_items
+                );
+            }
+        }
+
+        let mut required_items = vec![];
+        let mut optional_items = vec![];
+
+        // If max_items is None, we can add an infinite tail of items later
+        let n_to_add = max_items.map_or(prefix_items.len().max(min_items as usize), |max| {
+            max as usize
+        });
+
+        let item_schema_compiled = if item_schema_is_false {
+            None
+        } else {
+            Some(self.gen_json(item_schema)?)
+        };
+
+        for i in 0..n_to_add {
+            let item = if i < prefix_items.len() {
+                self.gen_json(&prefix_items[i])?
+            } else if let Some(compiled) = &item_schema_compiled {
+                compiled.clone()
+            } else {
+                break;
+            };
+
+            if i < min_items as usize {
+                required_items.push(item);
+            } else {
+                optional_items.push(item);
+            }
+        }
+
+        if max_items.is_none() && !item_schema_is_false {
+            // Add an infinite tail of items
+            optional_items.push(self.sequence(item_schema_compiled.unwrap()));
+        }
+
+        let mut grammars: Vec<NodeRef> = vec![self.builder.string("[")];
+        let comma = self.builder.string(",");
+
+        if !required_items.is_empty() {
+            grammars.push(required_items[0]);
+            for item in &required_items[1..] {
+                grammars.push(comma);
+                grammars.push(*item);
+            }
+        }
+
+        if !optional_items.is_empty() {
+            let first = optional_items[0];
+            let tail = optional_items
+                .into_iter()
+                .skip(1)
+                .rev()
+                .fold(first, |acc, item| {
+                    let j = self.builder.join(&[comma, item, acc]);
+                    self.builder.optional(j)
+                });
+
+            if !required_items.is_empty() {
+                let j = self.builder.join(&[comma, tail]);
+                grammars.push(self.builder.optional(j));
+            } else {
+                grammars.push(self.builder.optional(tail));
+            }
+        }
+
+        grammars.push(self.builder.string("]"));
+        Ok(self.builder.join(&grammars))
+    }
 }
