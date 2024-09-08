@@ -293,10 +293,25 @@ impl StopReason {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[repr(C)]
 pub struct ParserLimits {
+    /// For non-ambiguous grammars, this is the maximum "branching factor" of the grammar.
+    /// For ambiguous grammars, this might get hit much quicker.
+    /// Default: 200
     pub max_items_in_row: usize,
+
+    /// How much "fuel" are we willing to spend to build initial lexer regex AST nodes.
+    /// Default: 1_000_000 (~20ms)
     pub initial_lexer_fuel: u64,
+
+    /// Maximum lexer fuel for computation of the whole token mask.
+    /// Default: 500_000 (~10ms)
     pub step_lexer_fuel: u64,
+
+    /// Maximum number of lexer states.
+    /// Default: 10_000
     pub max_lexer_states: usize,
+
+    /// Maximum size of the grammar (symbols in productions)
+    /// Default: 500_000 (a few megabytes of JSON)
     pub max_grammar_size: usize,
 }
 
