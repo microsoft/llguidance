@@ -3,7 +3,7 @@ use std::{env, fs::File, hint::black_box, io::Read, vec};
 use llguidance_parser::{
     api::{ParserLimits, TopLevelGrammar},
     toktrie::{InferenceCapabilities, TokEnv},
-    Constraint, TokenParser,
+    Constraint, JsonCompileOptions, TokenParser,
 };
 
 fn main() {
@@ -14,8 +14,19 @@ fn main() {
     }
 
     let schema_file = read_file_to_string(&args[1]);
-    let schema: TopLevelGrammar =
-        serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
+    let schema: TopLevelGrammar = if args[1].ends_with(".ll.json") {
+        serde_json::from_str(&schema_file).expect("Invalid JSON in schema")
+    } else if args[1].ends_with(".schema.json") {
+        let opts = JsonCompileOptions {
+            compact: false,
+            validate: true,
+        };
+        let val = serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
+        opts.json_to_llg(&val)
+            .expect("Failed to convert JSON to LLG")
+    } else {
+        panic!("Unknown schema file extension")
+    };
     let obj_str = read_file_to_string(&args[2]);
 
     // you can implement TokEnv yourself, if you have the tokenizer
@@ -99,10 +110,13 @@ fn main() {
         // in InferenceCaps) that the parser wants to append to the output.
 
         // if this fails, our test data is broken
-        assert!(
-            tokens[idx..idx + splice.ff_tokens.len()] == splice.ff_tokens,
-            "BAD TEST: ff_tokens mismatch"
-        );
+        if tokens[idx..idx + splice.ff_tokens.len()] != splice.ff_tokens {
+            panic!(
+                "BAD TEST: ff_tokens mismatch:\n{}\n{}",
+                trie.tokens_dbg(&tokens[idx..idx + splice.ff_tokens.len()]),
+                trie.tokens_dbg(&splice.ff_tokens)
+            );
+        }
 
         if splice.ff_tokens.len() > 1 {
             println!("FF: {}", trie.tokens_dbg(&splice.ff_tokens));

@@ -40,18 +40,31 @@ impl GrammarBuilder {
         }
     }
 
+    fn shift_nodes(&mut self) {
+        if self.top_grammar.grammars.len() == 0 {
+            assert!(self.nodes.is_empty(), "nodes added before add_grammar()");
+        } else {
+            let nodes = std::mem::take(&mut self.nodes);
+            assert!(
+                nodes.len() > 0,
+                "no nodes added before add_grammar() or finalize()"
+            );
+            self.top_grammar.grammars.last_mut().unwrap().nodes = nodes;
+        }
+    }
+
     pub fn add_grammar(&mut self, grammar: GrammarWithLexer) {
         assert!(grammar.nodes.is_empty(), "Grammar already has nodes");
-        if self.top_grammar.grammars.len() == 0 {
-            assert!(self.nodes.is_empty());
-        } else {
-            self.top_grammar.grammars.last_mut().unwrap().nodes = std::mem::take(&mut self.nodes);
-        }
+        self.shift_nodes();
 
         static COUNTER: AtomicU32 = AtomicU32::new(1);
         self.curr_grammar_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.top_grammar.grammars.push(grammar);
         self.strings.clear();
+
+        // add root node
+        let id = self.placeholder();
+        assert!(id.idx == 0);
     }
 
     fn add_node(&mut self, node: Node) -> NodeRef {
@@ -136,12 +149,17 @@ impl GrammarBuilder {
 
     pub fn is_placeholder(&self, node: NodeRef) -> bool {
         assert!(node.grammar_id == self.curr_grammar_id);
-        &self.nodes[node.idx] == &self.placeholder
+        self.nodes[node.idx] == self.placeholder
     }
 
     pub fn set_placeholder(&mut self, placeholder: NodeRef, node: NodeRef) {
         let ch = self.child_nodes(&[placeholder, node]); // validate
-        assert!(self.is_placeholder(placeholder), "placeholder already set");
+        if !self.is_placeholder(placeholder) {
+            panic!(
+                "placeholder already set at {} to {:?}",
+                placeholder.idx, self.nodes[placeholder.idx]
+            );
+        }
         self.nodes[placeholder.idx] = Node::Join {
             sequence: vec![ch[1]],
             props: NodeProps::default(),
@@ -158,7 +176,12 @@ impl GrammarBuilder {
         );
     }
 
-    pub fn finalize(&mut self) -> Result<TopLevelGrammar> {
+    pub fn finalize(mut self) -> Result<TopLevelGrammar> {
+        ensure!(
+            self.top_grammar.grammars.len() > 0,
+            "No grammars added to the top level grammar"
+        );
+        self.shift_nodes();
         for grammar in &self.top_grammar.grammars {
             for node in &grammar.nodes {
                 ensure!(node != &self.placeholder, "Unresolved placeholder");

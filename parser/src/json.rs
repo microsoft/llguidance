@@ -30,18 +30,23 @@ const KEYWORDS: [&str; 10] = [
     "maxLength",
 ];
 const DEFS_KEYS: [&str; 2] = ["$defs", "definitions"];
-const IGNORED_KEYS: [&str; 8] = [
+const IGNORED_KEYS: [&str; 10] = [
     "$schema",
     "$id",
+    "id",
     "$comment",
     "title",
     "description",
     "default",
     "examples",
-    "discriminator",
+    "discriminator", // we hope it's part of the grammar anyways
+    "required",      // TODO: implement and remove from ignored list
 ];
 
-const CHAR_REGEX: &str = r#""(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])""#;
+const ARRAY_KEYS: [&str; 4] = ["items", "prefixItems", "minItems", "maxItems"];
+const OBJECT_KEYS: [&str; 2] = ["properties", "additionalProperties"];
+
+const CHAR_REGEX: &str = r#"(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])"#;
 
 fn limited_str(node: &Value) -> String {
     let s = node.to_string();
@@ -57,9 +62,17 @@ fn validate_json_node_keys(node: &Value) -> Result<()> {
         .as_object()
         .ok_or_else(|| anyhow!("Expected object as json schema, got: {}", limited_str(node)))?;
 
+    let typ = node.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
     for key in node.keys() {
         let key = &key.as_str();
         if KEYWORDS.contains(key) || IGNORED_KEYS.contains(key) || DEFS_KEYS.contains(key) {
+            continue;
+        }
+        if typ == "array" && ARRAY_KEYS.contains(key) {
+            continue;
+        }
+        if typ == "object" && OBJECT_KEYS.contains(key) {
             continue;
         }
         bail!("Unknown key in JSON schema: {:?}", key);
@@ -186,9 +199,9 @@ impl Compiler {
 
         self.builder.add_grammar(GrammarWithLexer {
             greedy_skip_rx: if self.options.compact {
-                Some(mk_regex(r"[\x20\x0A\x0D\x09]+"))
-            } else {
                 None
+            } else {
+                Some(mk_regex(r"[\x20\x0A\x0D\x09]+"))
             },
             ..GrammarWithLexer::default()
         });

@@ -3,7 +3,8 @@ use std::{sync::Arc, vec};
 
 use super::{grammar::SymbolProps, lexerspec::LexerSpec, CGrammar, Grammar};
 use crate::api::{
-    GrammarWithLexer, Node, ParserLimits, RegexId, RegexNode, RegexSpec, TopLevelGrammar, DEFAULT_CONTEXTUAL
+    GrammarWithLexer, Node, ParserLimits, RegexId, RegexNode, RegexSpec, TopLevelGrammar,
+    DEFAULT_CONTEXTUAL,
 };
 use crate::{loginfo, Logger};
 use anyhow::{bail, ensure, Result};
@@ -83,6 +84,8 @@ fn grammar_from_json(
     limits: &mut ParserLimits,
     input: GrammarWithLexer,
 ) -> Result<(LexerSpec, Grammar)> {
+    ensure!(input.nodes.len() > 0, "empty grammar");
+
     let (builder, rx_nodes) = map_rx_nodes(limits, input.rx_nodes, input.allow_invalid_utf8)?;
 
     let skip = match input.greedy_skip_rx {
