@@ -60,7 +60,8 @@ fn limited_str(node: &Value) -> String {
 fn validate_json_node_keys(node: &Value) -> Result<()> {
     let node = node
         .as_object()
-        .ok_or_else(|| anyhow!("Expected object as json schema, got: {}", limited_str(node)))?;
+        .ok_or_else(|| anyhow!("Expected object as json schema, got: {}", limited_str(node)))
+        .unwrap();
 
     let typ = node.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -268,6 +269,11 @@ impl Compiler {
     }
 
     fn gen_json(&mut self, json_schema: &Value) -> Result<NodeRef> {
+        if json_schema.as_bool() == Some(true) {
+            return Ok(self.gen_json_any());
+        }
+
+        // eprintln!("gen_json: {}", limited_str(json_schema));
         validate_json_node_keys(json_schema)?;
 
         // Process anyOf
@@ -379,6 +385,7 @@ impl Compiler {
     fn gen_json_any(&mut self) -> NodeRef {
         cache!(self.any_cache, {
             let json_any = self.builder.placeholder();
+            self.any_cache = Some(json_any); // avoid infinite recursion
             let all_jsons = json!([
                 {"type": "null"},
                 {"type": "boolean"},
@@ -528,31 +535,37 @@ impl Compiler {
             max as usize
         });
 
-        let item_schema_compiled = if item_schema_is_false {
-            None
+        if let Some(item_arr) = item_schema.as_array() {
+            for item in item_arr {
+                required_items.push(self.gen_json(item)?);
+            }
         } else {
-            Some(self.gen_json(item_schema)?)
-        };
-
-        for i in 0..n_to_add {
-            let item = if i < prefix_items.len() {
-                self.gen_json(&prefix_items[i])?
-            } else if let Some(compiled) = &item_schema_compiled {
-                compiled.clone()
+            let item_schema_compiled = if item_schema_is_false {
+                None
             } else {
-                break;
+                Some(self.gen_json(item_schema)?)
             };
 
-            if i < min_items as usize {
-                required_items.push(item);
-            } else {
-                optional_items.push(item);
-            }
-        }
+            for i in 0..n_to_add {
+                let item = if i < prefix_items.len() {
+                    self.gen_json(&prefix_items[i])?
+                } else if let Some(compiled) = &item_schema_compiled {
+                    compiled.clone()
+                } else {
+                    break;
+                };
 
-        if max_items.is_none() && !item_schema_is_false {
-            // Add an infinite tail of items
-            optional_items.push(self.sequence(item_schema_compiled.unwrap()));
+                if i < min_items as usize {
+                    required_items.push(item);
+                } else {
+                    optional_items.push(item);
+                }
+            }
+
+            if max_items.is_none() && !item_schema_is_false {
+                // Add an infinite tail of items
+                optional_items.push(self.sequence(item_schema_compiled.unwrap()));
+            }
         }
 
         let mut grammars: Vec<NodeRef> = vec![self.builder.string("[")];

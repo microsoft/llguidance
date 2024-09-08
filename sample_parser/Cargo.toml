@@ -2,6 +2,7 @@
 name = "sample_parser"
 version = "0.1.0"
 edition = "2021"
+default-run = "sample_parser"
 
 [dependencies]
 llguidance_parser = { path = "../parser" }
@@ -12,3 +13,7 @@ anyhow = "1.0.87"
 [[bin]]
 name = "sample_parser"
 path = "src/sample_parser.rs"
+
+[[bin]]
+name = "schema_tester"
+path = "src/schema_tester.rs"
