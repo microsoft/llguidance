@@ -1,4 +1,6 @@
+/// cbindgen:ignore
 pub mod earley;
+
 mod tokenparser;
 pub use tokenparser::TokenParser;
 pub mod api;
@@ -12,6 +14,8 @@ mod logging;
 pub use logging::Logger;
 
 pub use derivre;
+
+pub mod ffi;
 
 #[macro_export]
 macro_rules! loginfo {

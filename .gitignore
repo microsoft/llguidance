@@ -15,3 +15,4 @@ dist
 *.egg-info
 build
 .intentionally-empty-file.o
+parser/llguidance.h
