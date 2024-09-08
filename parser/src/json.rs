@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, ensure, Result};
 use serde_json::{json, Value};
-use std::{collections::HashMap, vec};
+use std::{collections::HashMap, sync::Arc, vec};
 
 use crate::{
     api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
@@ -181,6 +181,18 @@ impl OptionalField for Value {
     }
 }
 
+struct DummyResolver {}
+impl jsonschema::SchemaResolver for DummyResolver {
+    fn resolve(
+        &self,
+        _root_schema: &Value,
+        url: &url::Url,
+        _original_reference: &str,
+    ) -> Result<Arc<Value>> {
+        Err(anyhow!("external resolver disabled (url: {})", url).into())
+    }
+}
+
 impl Compiler {
     pub fn new(options: JsonCompileOptions) -> Self {
         Self {
@@ -194,7 +206,11 @@ impl Compiler {
 
     pub fn run(&mut self, schema: &Value) -> Result<()> {
         if self.options.validate {
-            // validate schema using some JSON schema validation library
+            let _ = jsonschema::JSONSchema::options()
+                .with_draft(jsonschema::Draft::Draft7)
+                .with_resolver(DummyResolver {})
+                .compile(schema)
+                .map_err(|e| anyhow!("Schema validation error: {}", e))?;
         }
 
         self.builder.add_grammar(GrammarWithLexer {

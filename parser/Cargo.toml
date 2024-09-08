@@ -11,7 +11,8 @@ serde_json = { version = "1.0.108", features = ["preserve_order"] }
 anyhow = "1.0.75"
 rustc-hash = "2.0.0"
 instant = "0.1.13"
-jsonschema = "0.18.1"
+jsonschema = { version = "0.18.1", default-features = false }
+url = "2.5.2"
 
 [features]
 default = []
