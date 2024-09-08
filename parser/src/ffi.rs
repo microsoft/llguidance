@@ -183,20 +183,6 @@ fn new_constraint(init: &ConstraintInit, grammar_json: *const c_char) -> Result<
     let grammar: TopLevelGrammar = serde_json::from_str(grammar_json)
         .map_err(|e| anyhow::anyhow!("Invalid JSON in grammar_json: {e}"))?;
 
-    let mut limits = ParserLimits::default();
-    macro_rules! set_limit {
-        ($field:ident) => {
-            if init.limits.$field != 0 {
-                limits.$field = init.limits.$field;
-            }
-        };
-    }
-    set_limit!(max_items_in_row);
-    set_limit!(initial_lexer_fuel);
-    set_limit!(step_lexer_fuel);
-    set_limit!(max_lexer_states);
-    set_limit!(max_grammar_size);
-
     let tok_env = unsafe { (&*init.tokenizer).to_env() };
     let tok_parser = TokenParser::from_llguidance_json(
         tok_env,
@@ -208,7 +194,7 @@ fn new_constraint(init: &ConstraintInit, grammar_json: *const c_char) -> Result<
             conditional_ff_tokens: false,
             fork: false,
         },
-        limits,
+        init.limits.clone(),
         vec![],
     )?;
 
@@ -235,6 +221,22 @@ impl CConstraint {
         self.constraint = None;
         self.local_error = Some(format!("{e}\0"));
     }
+}
+
+/// Set the default values for the ConstraintInit
+/// Disables ff_tokens and backtracking, enables warnings on stderr
+/// and all logging to the buffer (get with llg_flush_logs()).
+/// You need to set the tokenizer field manually.
+#[no_mangle]
+pub extern "C" fn llg_constraint_init_set_defaults(init: &mut ConstraintInit) {
+    *init = ConstraintInit {
+        tokenizer: std::ptr::null(),
+        log_buffer_level: 2,
+        log_stderr_level: 1,
+        ff_tokens_ok: false,
+        backtrack_ok: false,
+        limits: ParserLimits::default(),
+    };
 }
 
 /// Create a new constraint from a grammar JSON string
