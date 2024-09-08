@@ -98,6 +98,76 @@ fn mk_regex(rx: &str) -> RegexSpec {
     RegexSpec::Regex(rx.to_string())
 }
 
+trait OptionalField {
+    fn opt_u64(&self, key: &str) -> Result<Option<u64>>;
+    fn opt_str(&self, key: &str) -> Result<Option<&str>>;
+    fn opt_array(&self, key: &str) -> Result<Option<&Vec<Value>>>;
+    #[allow(dead_code)]
+    fn opt_bool(&self, key: &str) -> Result<Option<bool>>;
+    fn opt_object(&self, key: &str) -> Result<Option<&serde_json::Map<String, Value>>>;
+}
+
+fn expected_err(key: &str, val: &Value, expected: &str) -> anyhow::Error {
+    anyhow!(
+        "Expected {} for field {:?}, got: {}",
+        expected,
+        key,
+        limited_str(val)
+    )
+}
+
+impl OptionalField for Value {
+    fn opt_u64(&self, key: &str) -> Result<Option<u64>> {
+        if let Some(val) = self.get(key) {
+            val.as_u64()
+                .ok_or_else(|| expected_err(key, val, "unsigned integer"))
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn opt_str(&self, key: &str) -> Result<Option<&str>> {
+        if let Some(val) = self.get(key) {
+            val.as_str()
+                .ok_or_else(|| expected_err(key, val, "string"))
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn opt_array(&self, key: &str) -> Result<Option<&Vec<Value>>> {
+        if let Some(val) = self.get(key) {
+            val.as_array()
+                .ok_or_else(|| expected_err(key, val, "array"))
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn opt_bool(&self, key: &str) -> Result<Option<bool>> {
+        if let Some(val) = self.get(key) {
+            val.as_bool()
+                .ok_or_else(|| expected_err(key, val, "boolean"))
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn opt_object(&self, key: &str) -> Result<Option<&serde_json::Map<String, Value>>> {
+        if let Some(val) = self.get(key) {
+            val.as_object()
+                .ok_or_else(|| expected_err(key, val, "object"))
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 impl Compiler {
     pub fn new(options: JsonCompileOptions) -> Self {
         Self {
@@ -182,10 +252,7 @@ impl Compiler {
         }
 
         // Process allOf
-        if let Some(all_of) = json_schema.get("allOf") {
-            let all_of_list = all_of
-                .as_array()
-                .ok_or_else(|| anyhow!("Expected array in allOf, got: {}", limited_str(all_of)))?;
+        if let Some(all_of_list) = json_schema.opt_array("allOf")? {
             if all_of_list.len() != 1 {
                 bail!("Only support allOf with exactly one item");
             }
@@ -207,10 +274,7 @@ impl Compiler {
         }
 
         // Process enum
-        if let Some(enum_values) = json_schema.get("enum") {
-            let enum_array = enum_values.as_array().ok_or_else(|| {
-                anyhow!("Expected array in enum, got: {}", limited_str(enum_values))
-            })?;
+        if let Some(enum_array) = json_schema.opt_array("enum")? {
             let options = enum_array
                 .iter()
                 .map(|opt| self.builder.string(&to_compact_json(opt)))
@@ -219,47 +283,29 @@ impl Compiler {
         }
 
         // Process type-specific keywords
-        if let Some(target_type) = json_schema.get("type") {
-            let target_type_str = target_type.as_str().ok_or_else(|| {
-                anyhow!("Expected string in type, got: {}", limited_str(target_type))
-            })?;
-
+        if let Some(target_type_str) = json_schema.opt_str("type")? {
             match target_type_str {
                 "null" => return Ok(self.builder.string("null")),
                 "boolean" => return Ok(self.lexeme(r"true|false")),
                 "integer" => return Ok(self.json_int()),
                 "number" => return Ok(self.json_number()),
                 "string" => {
-                    let min_length = json_schema
-                        .get("minLength")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    let max_length = json_schema.get("maxLength").and_then(|v| v.as_u64());
-                    let pattern = json_schema.get("pattern").and_then(|v| v.as_str());
-
+                    let min_length = json_schema.opt_u64("minLength")?.unwrap_or(0);
+                    let max_length = json_schema.opt_u64("maxLength")?;
+                    let pattern = json_schema.opt_str("pattern")?;
                     return self.gen_json_string(min_length, max_length, pattern);
                 }
                 "array" => {
                     let empty = vec![];
-                    let prefix_items = json_schema
-                        .get("prefixItems")
-                        .and_then(|v| v.as_array())
-                        .unwrap_or(&empty);
+                    let prefix_items = json_schema.opt_array("prefixItems")?.unwrap_or(&empty);
                     let item_schema = json_schema.get("items").unwrap_or(&Value::Bool(true));
-                    let min_items = json_schema
-                        .get("minItems")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
-                    let max_items = json_schema.get("maxItems").and_then(|v| v.as_u64());
-
+                    let min_items = json_schema.opt_u64("minItems")?.unwrap_or(0);
+                    let max_items = json_schema.opt_u64("maxItems")?;
                     return self.gen_json_array(prefix_items, item_schema, min_items, max_items);
                 }
                 "object" => {
-                    let empty = json!({});
-                    let properties = json_schema
-                        .get("properties")
-                        .and_then(|v| v.as_object())
-                        .unwrap_or(empty.as_object().unwrap());
+                    let empty = serde_json::Map::default();
+                    let properties = json_schema.opt_object("properties")?.unwrap_or(&empty);
                     let additional_properties = json_schema
                         .get("additionalProperties")
                         .unwrap_or(&Value::Bool(true));
