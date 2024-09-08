@@ -149,6 +149,7 @@ pub struct ConstraintInit {
 
 pub struct CConstraint {
     local_error: Option<String>,
+    last_logs: String,
     constraint: Option<Constraint>,
 }
 
@@ -222,6 +223,14 @@ impl CConstraint {
         }
     }
 
+    fn get_error_code(&self) -> i32 {
+        if self.local_error.is_some() {
+            -1
+        } else {
+            0
+        }
+    }
+
     fn set_error(&mut self, e: &str) {
         self.constraint = None;
         self.local_error = Some(format!("{e}\0"));
@@ -238,6 +247,7 @@ pub extern "C" fn llg_new_constraint(
     let mut res = CConstraint {
         local_error: None,
         constraint: None,
+        last_logs: "\x00".to_string(),
     };
 
     match new_constraint(init, grammar_json) {
@@ -248,7 +258,9 @@ pub extern "C" fn llg_new_constraint(
     Box::into_raw(Box::new(res))
 }
 
-/// Get the error message from the constraint or null if there is no error
+/// Get the error message from the constraint or null if there is no error.
+/// After it returns a non-null value, it will always return it until the constraint is freed
+/// using llg_free_constraint() (at which point the pointer will be invalid).
 #[no_mangle]
 pub extern "C" fn llg_get_error(cc: &CConstraint) -> *const c_char {
     cc.get_error()
@@ -256,10 +268,10 @@ pub extern "C" fn llg_get_error(cc: &CConstraint) -> *const c_char {
 
 /// Compute mask for the next token sampling
 /// It typically takes up to a millisecond for a 100k tokenizer, so should be called in background.
-/// Returns null on success, or an error message on failure (use llg_get_error() to get it again if needed).
-/// When null is returned, the result is written to *res_p.
+/// Returns 0 on success and -1 on error (use llg_get_error() to get the exact error).
+/// When 0 is returned, the result is written to *res_p.
 #[no_mangle]
-pub extern "C" fn llg_compute_mask(cc: &mut CConstraint, res_p: *mut CMaskResult) -> *const c_char {
+pub extern "C" fn llg_compute_mask(cc: &mut CConstraint, res_p: *mut CMaskResult) -> i32 {
     if let Some(constraint) = &mut cc.constraint {
         match constraint.compute_mask() {
             Ok(r) => {
@@ -271,27 +283,24 @@ pub extern "C" fn llg_compute_mask(cc: &mut CConstraint, res_p: *mut CMaskResult
                     is_stop: r.is_stop(),
                     temperature: constraint.temperature,
                 };
-                unsafe {
-                    *res_p = r;
-                }
-                return std::ptr::null();
+                unsafe { *res_p = r };
             }
             Err(e) => cc.set_error(&e.to_string()),
         }
     }
-    cc.get_error()
+    cc.get_error_code()
 }
 
 /// Commit the token sampled with the mask returned from llg_compute_mask().
 /// Can be run on the critical path of sampling (is fast).
-/// Returns null on success, or an error message on failure (use llg_get_error() to get it again if needed).
-/// When null is returned, the result is written to *res_p.
+/// Returns 0 on success and -1 on error (use llg_get_error() to get the exact error).
+/// When 0 is returned, the result is written to *res_p.
 #[no_mangle]
 pub extern "C" fn llg_commit_token(
     cc: &mut CConstraint,
     token: TokenId,
     res_p: *mut CCommitResult,
-) -> *const c_char {
+) -> i32 {
     if let Some(constraint) = &mut cc.constraint {
         let trie = constraint.parser.token_env.tok_trie();
         let token = if token < trie.vocab_size() as TokenId {
@@ -314,13 +323,12 @@ pub extern "C" fn llg_commit_token(
                         is_stop: r.is_stop(),
                     }
                 };
-                unsafe { *res_p = res }
-                return std::ptr::null();
+                unsafe { *res_p = res };
             }
             Err(e) => cc.set_error(&e.to_string()),
         }
     }
-    cc.get_error()
+    cc.get_error_code()
 }
 
 /// Construct a new tokenizer from the given TokenizerInit
@@ -344,4 +352,17 @@ pub extern "C" fn llg_free_constraint(cc: *mut CConstraint) {
     unsafe {
         drop(Box::from_raw(cc));
     }
+}
+
+/// Get the logs from the constraint, since last call to this function.
+/// The logs are null-terminated.
+/// The logs are kept in the constraint until the next call to this function
+/// or until the constraint is freed.
+#[no_mangle]
+pub extern "C" fn llg_flush_logs(cc: &mut CConstraint) -> *const c_char {
+    if let Some(constraint) = &mut cc.constraint {
+        cc.last_logs = constraint.flush_logs();
+        cc.last_logs.push('\0');
+    }
+    cc.last_logs.as_ptr() as *const c_char
 }

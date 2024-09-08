@@ -10,6 +10,8 @@ fn main() {
     config.cpp_compat = true;
     config.usize_is_size_t = true; // not exposed as .with_*() method
 
+    println!("cargo:rerun-if-changed=src/ffi.rs");
+
     cbindgen::Builder::new()
         .with_config(config)
         .with_include_guard("LLGUIDANCE_H")
