@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, ensure, Result};
+use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Arc, vec};
 
@@ -6,6 +6,10 @@ use crate::{
     api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
     GrammarBuilder, NodeRef,
 };
+
+// TODO: grammar size limit
+// TODO: array maxItems etc limits
+// TODO: schemastore/src/schemas/json/BizTalkServerApplicationSchema.json - this breaks 1M fuel on lexer, why?!
 
 #[derive(Debug, Default, Clone)]
 pub struct JsonCompileOptions {
@@ -29,8 +33,7 @@ const KEYWORDS: [&str; 10] = [
     "minLength",
     "maxLength",
 ];
-const DEFS_KEYS: [&str; 2] = ["$defs", "definitions"];
-const IGNORED_KEYS: [&str; 10] = [
+const IGNORED_KEYS: [&str; 19] = [
     "$schema",
     "$id",
     "id",
@@ -39,9 +42,20 @@ const IGNORED_KEYS: [&str; 10] = [
     "description",
     "default",
     "examples",
+    "authors",
+    "deprecationMessage",
+    "enumDescriptions",
+    "example",
+    "postActions",
+    "readOnly",
+    "markdownDescription",
+    "deprecated",
+    "dependencies",
     "discriminator", // we hope it's part of the grammar anyways
     "required",      // TODO: implement and remove from ignored list
 ];
+// these are also just ignored
+const DEFS_KEYS: [&str; 4] = ["$defs", "definitions", "defs", "refs"];
 
 const ARRAY_KEYS: [&str; 4] = ["items", "prefixItems", "minItems", "maxItems"];
 const OBJECT_KEYS: [&str; 2] = ["properties", "additionalProperties"];
@@ -76,6 +90,9 @@ fn validate_json_node_keys(node: &Value) -> Result<()> {
         if typ == "object" && OBJECT_KEYS.contains(key) {
             continue;
         }
+        if key.starts_with("x-") || key.starts_with("$xsd-") {
+            continue;
+        }
         bail!("Unknown key in JSON schema: {:?}", key);
     }
 
@@ -86,6 +103,7 @@ struct Compiler {
     builder: GrammarBuilder,
     options: JsonCompileOptions,
     definitions: HashMap<String, NodeRef>,
+    pending_definitions: Vec<(String, NodeRef)>,
 
     any_cache: Option<NodeRef>,
     lexeme_cache: HashMap<String, NodeRef>,
@@ -200,6 +218,7 @@ impl Compiler {
             builder: GrammarBuilder::new(),
             options,
             definitions: HashMap::new(),
+            pending_definitions: vec![],
             lexeme_cache: HashMap::new(),
             any_cache: None,
         }
@@ -223,36 +242,23 @@ impl Compiler {
             ..GrammarWithLexer::default()
         });
 
-        let mut defs_key = None;
-
-        for dk in DEFS_KEYS {
-            if schema[dk].is_object() {
-                ensure!(
-                    defs_key.is_none(),
-                    "Multiple definitions sections found in schema"
-                );
-                defs_key = Some(dk.to_string());
-            }
-        }
-
-        if let Some(defs_key) = &defs_key {
-            for (ref_, _) in schema[defs_key].as_object().unwrap() {
-                let placeholder = self.builder.placeholder();
-                self.definitions
-                    .insert(format!("#/{}/{}", defs_key, ref_), placeholder);
-            }
-        }
-
         let root = self.gen_json(schema)?;
         self.builder.set_start_node(root);
 
-        if let Some(defs_key) = &defs_key {
-            for (ref_, ref_schema) in schema[defs_key].as_object().unwrap() {
-                let ref_ = format!("#/{}/{}", defs_key, ref_);
-                let pl = self.definitions[&ref_];
-                let compiled = self.gen_json(ref_schema)?;
-                self.builder.set_placeholder(pl, compiled);
+        while let Some((path0, pl)) = self.pending_definitions.pop() {
+            // path is #/foo/bar/baz, first split into elements
+            let path = path0.trim_start_matches("#/");
+            let path = path.split('/').collect::<Vec<_>>();
+            let mut node = schema;
+            for elem in path {
+                node = &node[elem];
             }
+            if node.is_null() {
+                bail!("Definition not found: {}", path0);
+            }
+
+            let compiled = self.gen_json(node)?;
+            self.builder.set_placeholder(pl, compiled);
         }
 
         Ok(())
@@ -271,6 +277,10 @@ impl Compiler {
     fn gen_json(&mut self, json_schema: &Value) -> Result<NodeRef> {
         if json_schema.as_bool() == Some(true) {
             return Ok(self.gen_json_any());
+        }
+
+        if json_schema.as_bool() == Some(false) {
+            bail!("'false' not supported as schema here");
         }
 
         // eprintln!("gen_json: {}", limited_str(json_schema));
@@ -318,40 +328,57 @@ impl Compiler {
         }
 
         // Process type-specific keywords
+        if let Some(arr) = json_schema["type"].as_array() {
+            let nodes = arr
+                .iter()
+                .map(|v| {
+                    let tp = v.as_str().ok_or_else(|| {
+                        anyhow!("Expected string in type list, got: {}", limited_str(v))
+                    })?;
+                    self.gen_json_type(tp, json_schema)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(self.builder.select(&nodes));
+        }
+
         if let Some(target_type_str) = json_schema.opt_str("type")? {
-            match target_type_str {
-                "null" => return Ok(self.builder.string("null")),
-                "boolean" => return Ok(self.lexeme(r"true|false")),
-                "integer" => return Ok(self.json_int()),
-                "number" => return Ok(self.json_number()),
-                "string" => {
-                    let min_length = json_schema.opt_u64("minLength")?.unwrap_or(0);
-                    let max_length = json_schema.opt_u64("maxLength")?;
-                    let pattern = json_schema.opt_str("pattern")?;
-                    return self.gen_json_string(min_length, max_length, pattern);
-                }
-                "array" => {
-                    let empty = vec![];
-                    let prefix_items = json_schema.opt_array("prefixItems")?.unwrap_or(&empty);
-                    let item_schema = json_schema.get("items").unwrap_or(&Value::Bool(true));
-                    let min_items = json_schema.opt_u64("minItems")?.unwrap_or(0);
-                    let max_items = json_schema.opt_u64("maxItems")?;
-                    return self.gen_json_array(prefix_items, item_schema, min_items, max_items);
-                }
-                "object" => {
-                    let empty = serde_json::Map::default();
-                    let properties = json_schema.opt_object("properties")?.unwrap_or(&empty);
-                    let additional_properties = json_schema
-                        .get("additionalProperties")
-                        .unwrap_or(&Value::Bool(true));
-                    return self.gen_json_object(properties, additional_properties);
-                }
-                _ => bail!("Unsupported type in schema: {}", target_type_str),
-            }
+            return self.gen_json_type(target_type_str, json_schema);
         }
 
         // Fallback to "any" type
         Ok(self.gen_json_any())
+    }
+
+    fn gen_json_type(&mut self, target_type_str: &str, json_schema: &Value) -> Result<NodeRef> {
+        match target_type_str {
+            "null" => return Ok(self.builder.string("null")),
+            "boolean" => return Ok(self.lexeme(r"true|false")),
+            "integer" => return Ok(self.json_int()),
+            "number" => return Ok(self.json_number()),
+            "string" => {
+                let min_length = json_schema.opt_u64("minLength")?.unwrap_or(0);
+                let max_length = json_schema.opt_u64("maxLength")?;
+                let pattern = json_schema.opt_str("pattern")?;
+                return self.gen_json_string(min_length, max_length, pattern);
+            }
+            "array" => {
+                let empty = vec![];
+                let prefix_items = json_schema.opt_array("prefixItems")?.unwrap_or(&empty);
+                let item_schema = json_schema.get("items").unwrap_or(&Value::Bool(true));
+                let min_items = json_schema.opt_u64("minItems")?.unwrap_or(0);
+                let max_items = json_schema.opt_u64("maxItems")?;
+                return self.gen_json_array(prefix_items, item_schema, min_items, max_items);
+            }
+            "object" => {
+                let empty = serde_json::Map::default();
+                let properties = json_schema.opt_object("properties")?.unwrap_or(&empty);
+                let additional_properties = json_schema
+                    .get("additionalProperties")
+                    .unwrap_or(&Value::Bool(true));
+                return self.gen_json_object(properties, additional_properties);
+            }
+            _ => bail!("Unsupported type in schema: {}", target_type_str),
+        }
     }
 
     fn lexeme(&mut self, rx: &str) -> NodeRef {
@@ -376,10 +403,13 @@ impl Compiler {
     }
 
     fn get_definition(&mut self, reference: &str) -> Result<NodeRef> {
-        self.definitions
-            .get(reference)
-            .cloned()
-            .ok_or_else(|| anyhow!("Reference not found: {}", reference))
+        if let Some(definition) = self.definitions.get(reference) {
+            return Ok(*definition);
+        }
+        let r = self.builder.placeholder();
+        self.definitions.insert(reference.to_string(), r);
+        self.pending_definitions.push((reference.to_string(), r));
+        Ok(r)
     }
 
     fn gen_json_any(&mut self) -> NodeRef {
