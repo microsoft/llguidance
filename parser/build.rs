@@ -16,6 +16,7 @@ fn main() {
         .with_config(config)
         .with_include_guard("LLGUIDANCE_H")
         .with_crate(crate_dir)
+        .rename_item("ParserLimits", "LlgParserLimits")
         .generate()
         .map_or_else(
             |error| match error {
