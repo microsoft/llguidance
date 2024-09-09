@@ -1,4 +1,6 @@
 use anyhow::{anyhow, bail, Result};
+use jsonschema::JSONSchema;
+use lazy_static::lazy_static;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Arc, vec};
 
@@ -212,6 +214,19 @@ impl jsonschema::SchemaResolver for DummyResolver {
     }
 }
 
+lazy_static! {
+    static ref SCHEMA_VALIDATOR: JSONSchema = {
+        jsonschema::JSONSchema::options()
+            .with_draft(jsonschema::Draft::Draft7)
+            .with_resolver(DummyResolver {})
+            .with_meta_schemas()
+            .compile(&json!({
+                "$ref": "http://json-schema.org/draft-07/schema"
+            }))
+            .unwrap()
+    };
+}
+
 impl Compiler {
     pub fn new(options: JsonCompileOptions) -> Self {
         Self {
@@ -226,11 +241,8 @@ impl Compiler {
 
     pub fn run(&mut self, schema: &Value) -> Result<()> {
         if self.options.validate {
-            let _ = jsonschema::JSONSchema::options()
-                .with_draft(jsonschema::Draft::Draft7)
-                .with_resolver(DummyResolver {})
-                .compile(schema)
-                .map_err(|e| anyhow!("Schema validation error: {}", e))?;
+            SCHEMA_VALIDATOR.validate(schema)
+                .map_err(|mut e| anyhow!("Invalid schema: {}", e.next().unwrap()))?;
         }
 
         self.builder.add_grammar(GrammarWithLexer {
