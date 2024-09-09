@@ -28,13 +28,14 @@ if test -f ../guidance/tests/unit/test_ll.py ; then
 else
     mkdir -p tmp
     cd tmp
-    if test -f guidance/tests/unit/test_ll.py ; then
-    echo "Guidance clone OK"
     PYTEST_FLAGS=-v
+    if test -f guidance/tests/unit/test_ll.py ; then
+        echo "Guidance clone OK"
     else
-        git clone -b lazy_grammars https://github.com/hudson-ai/guidance
+        git clone -b main https://github.com/guidance-ai/guidance
     fi
     cd guidance
+    echo "Branch: $(git branch --show-current), Remote URL: $(git remote get-url origin), HEAD: $(git rev-parse HEAD)"
 fi
 
 python -m pytest $PYTEST_FLAGS tests/unit/test_ll.py # main test
