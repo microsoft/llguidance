@@ -219,7 +219,6 @@ lazy_static! {
         jsonschema::JSONSchema::options()
             .with_draft(jsonschema::Draft::Draft7)
             .with_resolver(DummyResolver {})
-            .with_meta_schemas()
             .compile(&json!({
                 "$ref": "http://json-schema.org/draft-07/schema"
             }))
