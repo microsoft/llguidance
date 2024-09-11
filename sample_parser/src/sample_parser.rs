@@ -97,12 +97,10 @@ fn main() {
         };
 
         let splice = constraint.commit_token(sampled_token).unwrap();
-        if splice.is_stop() {
+        if splice.stop {
             // stop sequence
             break;
         }
-
-        let splice = splice.unconditional_splice().unwrap();
 
         assert!(splice.backtrack == 0); // we didn't allow backtracking in InferenceCaps
 
