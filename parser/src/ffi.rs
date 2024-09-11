@@ -8,7 +8,7 @@ use toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenizerEnv};
 
 use crate::{
     api::{ParserLimits, TopLevelGrammar},
-    Constraint, Logger, TokenParser,
+    CommitResult, Constraint, Logger, TokenParser,
 };
 
 struct CTokenizerInner {
@@ -151,6 +151,7 @@ pub struct LlgConstraint {
     local_error: Option<String>,
     last_logs: String,
     constraint: Option<Constraint>,
+    last_commit_result: CommitResult,
 }
 
 #[repr(C)]
@@ -174,6 +175,21 @@ pub struct LlgCommitResult {
     pub n_tokens: u32,
     /// Should the sequence stop?
     pub is_stop: bool,
+}
+
+impl LlgCommitResult {
+    pub fn from_commit_result(r: &CommitResult) -> Self {
+        let len = r.ff_tokens.len() as u32;
+        LlgCommitResult {
+            tokens: if len == 0 {
+                std::ptr::null()
+            } else {
+                r.ff_tokens.as_ptr()
+            },
+            n_tokens: len,
+            is_stop: r.stop,
+        }
+    }
 }
 
 fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Result<Constraint> {
@@ -250,6 +266,7 @@ pub extern "C" fn llg_new_constraint(
         local_error: None,
         constraint: None,
         last_logs: "\x00".to_string(),
+        last_commit_result: CommitResult::default(),
     };
 
     match new_constraint(init, grammar_json) {
@@ -312,19 +329,9 @@ pub extern "C" fn llg_commit_token(
         };
         match constraint.commit_token(token) {
             Ok(r) => {
-                let res = if let Some(s) = r.unconditional_splice() {
-                    LlgCommitResult {
-                        tokens: s.ff_tokens.as_ptr(),
-                        n_tokens: s.ff_tokens.len() as u32,
-                        is_stop: r.is_stop(),
-                    }
-                } else {
-                    LlgCommitResult {
-                        tokens: std::ptr::null(),
-                        n_tokens: 0,
-                        is_stop: r.is_stop(),
-                    }
-                };
+                // store it, so it survives until the next call to llg_*()
+                cc.last_commit_result = r;
+                let res = LlgCommitResult::from_commit_result(&cc.last_commit_result);
                 unsafe { *res_p = res };
             }
             Err(e) => cc.set_error(&e.to_string()),

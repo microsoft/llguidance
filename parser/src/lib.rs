@@ -8,7 +8,7 @@ pub mod output;
 pub use toktrie;
 
 mod constraint;
-pub use constraint::Constraint;
+pub use constraint::{CommitResult, Constraint};
 
 mod logging;
 pub use logging::Logger;

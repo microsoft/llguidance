@@ -107,13 +107,12 @@ impl LLInterpreter {
     fn advance_parser(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
         let pres = self.inner.commit_token(sampled_token).map_err(val_error)?;
 
-        if pres.is_stop() {
+        if pres.stop {
             // let the next mid_process() call handle it
             return Ok((0, vec![]));
         }
 
-        let splice = pres.unconditional_splice().unwrap();
-        Ok((splice.backtrack, splice.ff_tokens.clone()))
+        Ok((pres.backtrack, pres.ff_tokens))
     }
 
     fn post_process(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {

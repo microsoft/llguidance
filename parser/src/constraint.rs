@@ -18,6 +18,36 @@ pub struct Constraint {
     started: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct CommitResult {
+    pub stop: bool,
+    pub backtrack: u32,
+    pub ff_tokens: Vec<TokenId>,
+}
+
+impl CommitResult {
+    pub fn stop() -> Self {
+        Self {
+            stop: true,
+            backtrack: 0,
+            ff_tokens: vec![],
+        }
+    }
+
+    pub fn from_step_result(res: &StepResult) -> Self {
+        let mut r = CommitResult {
+            stop: res.is_stop(),
+            backtrack: 0,
+            ff_tokens: vec![],
+        };
+        if let Some(s) = res.unconditional_splice() {
+            r.backtrack = s.backtrack;
+            r.ff_tokens = s.ff_tokens.clone();
+        }
+        r
+    }
+}
+
 impl Constraint {
     /// Construct a state machine for a sequence constraint.
     pub fn new(parser: TokenParser) -> Self {
@@ -60,6 +90,21 @@ impl Constraint {
         self.parser.process_prompt(prompt)
     }
 
+    /// This can be called before the first get_mask() to walk forward the
+    /// parser with tokens generated in some previous run.
+    pub fn force_tokens(&mut self, tokens: &[TokenId]) -> Result<()> {
+        ensure!(
+            self.step_arg.is_none() || self.step_arg.as_ref().unwrap().tokens.is_empty(),
+            "force_tokens() called twice"
+        );
+        self.step_arg = Some(StepArg {
+            backtrack: 0,
+            tokens: tokens.to_vec(),
+            sampled: None,
+        });
+        Ok(())
+    }
+
     /// This computes token sampling mask.
     /// It typically takes up to a millisecond for a 100k tokenizer.
     /// It will return an error when the order of calls is violated.
@@ -93,9 +138,17 @@ impl Constraint {
         Ok(&self.last_res)
     }
 
+    pub fn step_result(&self) -> &StepResult {
+        &self.last_res
+    }
+
+    fn res_commit_result(&mut self) -> Result<CommitResult> {
+        Ok(CommitResult::from_step_result(&self.last_res))
+    }
+
     /// This commits the sampled token (if any), and sees if this forces any more tokens
     /// on the output (if ff_tokens are enabled in InferenceCapabilities).
-    pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<&StepResult> {
+    pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<CommitResult> {
         ensure!(
             self.step_arg.is_none(),
             "commit_token() called twice or without compute_bias()"
@@ -103,7 +156,7 @@ impl Constraint {
 
         // if last result was to stop or to unconditionally splice, we're done already
         if self.last_res.is_stop() {
-            return Ok(&self.last_res);
+            return self.res_commit_result();
         }
 
         if let Some(splice) = self.last_res.unconditional_splice() {
@@ -113,7 +166,7 @@ impl Constraint {
 
             // prepare argument for the next step
             self.step_arg = Some(StepArg::from_splice(splice, sampled_token));
-            return Ok(&self.last_res);
+            return self.res_commit_result();
         }
 
         // otherwise, append the sampled token and see if more tokens can be forced
@@ -139,7 +192,7 @@ impl Constraint {
         if !self.parser.inference_caps.ff_tokens {
             self.step_arg = Some(StepArg::from_sampled_token(sampled_token));
             self.last_res = StepResult::splice(0, vec![sampled_token]);
-            return Ok(&self.last_res);
+            return self.res_commit_result();
         }
 
         // now, advance the parser with the sampled token - this should be very quick
@@ -175,7 +228,7 @@ impl Constraint {
         }
 
         self.last_res = StepResult::splice(splice.backtrack, splice.ff_tokens.clone());
-        Ok(&self.last_res)
+        return self.res_commit_result();
     }
 
     /// This returns parser outputs to be passed back to the user.
@@ -189,5 +242,11 @@ impl Constraint {
     /// Logs to be sent to the user.
     pub fn flush_logs(&mut self) -> String {
         self.parser.logger.get_and_clear_logs()
+    }
+
+    // Utility functions
+
+    pub fn tok_trie(&self) -> &toktrie::TokTrie {
+        self.parser.token_env.tok_trie()
     }
 }
