@@ -2,6 +2,7 @@ use anyhow::{ensure, Result};
 use toktrie::{Splice, StepArg, StepResult, TokenId};
 
 use crate::{
+    loginfo,
     output::{ParserOutput, Reporter},
     TokenParser,
 };
@@ -115,6 +116,16 @@ impl Constraint {
     /// The splice is never returned when ff_tokens are disabled in InferenceCapabilities.
     /// After this returns, commit_token() must be called with the sampled token if any.
     pub fn compute_mask(&mut self) -> Result<&StepResult> {
+        loginfo!(
+            self.parser.logger,
+            "\ncompute_mask() {}",
+            if self.delayed_stop {
+                "delayed stop"
+            } else {
+                ""
+            }
+        );
+
         if !self.started {
             self.started = true;
             self.parser.start_without_prompt();
@@ -149,6 +160,8 @@ impl Constraint {
     /// This commits the sampled token (if any), and sees if this forces any more tokens
     /// on the output (if ff_tokens are enabled in InferenceCapabilities).
     pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<CommitResult> {
+        loginfo!(self.parser.logger, "\ncommit_token({:?})", sampled_token);
+
         ensure!(
             self.step_arg.is_none(),
             "commit_token() called twice or without compute_bias()"

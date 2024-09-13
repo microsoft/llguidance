@@ -306,8 +306,6 @@ impl TokenParser {
             None
         };
 
-        infoln!(self, "\n");
-
         let r = self.mid_process_inner(arg);
 
         if self.test_trace {
@@ -361,7 +359,12 @@ impl TokenParser {
 
         infoln!(
             self,
-            "post tokens: bt={} {}",
+            "{}: bt={} {}",
+            if self.no_bias_this_mid_process {
+                "commit_token"
+            } else {
+                "compute_mask"
+            },
             arg.backtrack,
             trie.tokens_dbg(&arg.tokens)
         );
