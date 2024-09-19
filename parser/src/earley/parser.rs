@@ -102,6 +102,9 @@ impl ParserStats {
     }
 }
 
+// In this, code a "Row" is what is usually called an Earley set in the literature an Earley set.
+// The term "row" comes from Kallemeyer 2018, which uses a chart parsing algorithm
+// in which the rows are Earley sets.
 #[derive(Clone)]
 struct Row {
     first_item: usize,
@@ -115,6 +118,8 @@ impl Row {
     }
 }
 
+// In this code, an "Item" is what is called in the literature, an
+// "Earley item".
 impl Item {
     #[allow(dead_code)]
     const NULL: Self = Item { data: 0 };
