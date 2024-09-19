@@ -102,7 +102,7 @@ impl ParserStats {
     }
 }
 
-// In this, code a "Row" is what is usually called an Earley set in the literature an Earley set.
+// In this, code a "Row" is what is usually called an Earley set in the literature.
 // The term "row" comes from Kallemeyer 2018, which uses a chart parsing algorithm
 // in which the rows are Earley sets.
 #[derive(Clone)]
