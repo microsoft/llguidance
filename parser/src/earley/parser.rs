@@ -145,6 +145,7 @@ impl Item {
     }
 }
 
+// This structure implements the Earley table.
 #[derive(Clone)]
 struct Scratch {
     grammar: Arc<CGrammar>,
@@ -256,6 +257,8 @@ impl Scratch {
         }
     }
 
+    // Make sure there is enough space in the Earley table,
+    // usually in preparation for adding Earley items.
     #[inline(always)]
     fn ensure_items(&mut self, n: usize) {
         if self.items.len() < n {
@@ -320,6 +323,9 @@ impl Scratch {
         );
     }
 
+    // Ensure that Earley table 'self' contains
+    // Earley item 'item'.  That is, look for 'item' in 'self',
+    // and add 'item' to 'self' if it is not there already.
     #[inline(always)]
     fn add_unique(&mut self, item: Item, origin_item_idx: usize, info: &str) {
         if let Some(idx) = self.find_item(item) {
