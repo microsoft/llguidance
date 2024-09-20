@@ -266,6 +266,11 @@ impl Scratch {
         self.item_props[target_item_idx].merge(origin);
     }
 
+    // Add an Earley item to the Earley table.  It is "just" added in the sense
+    // that no checks are performed, except the one that ensures there is enough
+    // space in the table.  The other checks are assumed to be unnecessary
+    // or to have been performed.  For example, it is assumed the caller knows
+    // that this Earley item will be unique.
     #[inline(always)]
     fn just_add(&mut self, item: Item, origin_item_idx: usize, info: &str) {
         self.ensure_items(self.row_end + 1);
