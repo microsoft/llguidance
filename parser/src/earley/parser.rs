@@ -1,3 +1,9 @@
+// In this file, "Kallmeyer 2018" refers to the
+// slides for "Parsing: Earley parsing", Winter 2017/2018,
+// Laura Kallmeyer, Heinrich Heine Universitaet, Dusseldorf,
+// https://user.phil-fak.uni-duesseldorf.de/~kallmeyer/Parsing/earley.pdf
+// (Retrieved 18 Sep 2024).
+
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
@@ -1117,12 +1123,7 @@ impl ParserState {
         true
     }
     
-    // scan() implements the version of Earley described in the
-    // slides for "Parsing: Earley parsing", Winter 2017/2018,
-    // Laura Kallmeyer, Heinrich Heine Universitaet, Dusseldorf,
-    // https://user.phil-fak.uni-duesseldorf.de/~kallmeyer/Parsing/earley.pdf
-    // (Retrieved 18 Sep 2024).
-
+    // scan() implements the version of Earley described in Kallmeyer 2018.
     // An important difference between the algorithm implemented here
     // and Kallmeyer's is that in scan(), the token scan is performed
     // first, while in Kallmeyer it is performed last.
