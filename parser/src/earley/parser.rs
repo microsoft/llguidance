@@ -1177,7 +1177,7 @@ impl ParserState {
         // table (aka chart) also adds an item to the agenda, no duplicate
         // agenda items are added.  Agenda items are never removed --
         // instead 'agenda_ptr' is advanced through the combined agenda/chart.
-        // Only one pass is made
+        // Only one pass is made.
         while agenda_ptr < self.scratch.row_end {
             let item_idx = agenda_ptr;
             let item = self.scratch.items[agenda_ptr];
@@ -1189,7 +1189,7 @@ impl ParserState {
             let rule = item.rule_idx();
             let after_dot = self.grammar.sym_idx_dot(rule);
 
-            // If 'rule' is a complete Earley item
+            // If 'rule' is a complete Earley item ...
             if after_dot == CSymIdx::NULL {
                 let flags = self.grammar.sym_flags_lhs(rule);
                 let lhs = self.grammar.sym_idx_lhs(rule);
