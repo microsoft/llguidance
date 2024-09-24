@@ -1146,6 +1146,11 @@ impl ParserState {
             );
         }
 
+        // This loop performs the scan inference rule
+        // (slide 21 of Kallmeyer 2018).  It is an
+        // initialization inference rule, performed "just
+        // in time" at the beginning of the creation of
+        // each row
         while i < last {
             let item = self.scratch.items[i];
             let sym = self.grammar.sym_data_dot(item.rule_idx());
@@ -1157,12 +1162,22 @@ impl ParserState {
         self.push_row(self.num_rows(), self.scratch.row_start, lexeme)
     }
 
+    // push_row() does the agenda processing.  There is an agenda for
+    // each Earley set (aka row).
+    
     // lexeme only used for captures (in definitive mode)
     #[inline(always)]
     fn push_row(&mut self, curr_idx: usize, mut agenda_ptr: usize, lexeme: &Lexeme) -> bool {
         let mut allowed_lexemes = self.lexer_spec().alloc_lexeme_set();
         let mut max_tokens = vec![];
 
+        // Agenda retrieval is a simplication of Kallmeyer 2018.
+        // There is no separate data structure for the agenda --
+        // the Earley table is used, so that adding to the Earley
+        // table (aka chart) also adds an item to the agenda, no duplicate
+        // agenda items are added.  Agenda items are never removed --
+        // instead 'agenda_ptr' is advanced through the combined agenda/chart.
+        // Only one pass is made
         while agenda_ptr < self.scratch.row_end {
             let item_idx = agenda_ptr;
             let item = self.scratch.items[agenda_ptr];
@@ -1174,6 +1189,7 @@ impl ParserState {
             let rule = item.rule_idx();
             let after_dot = self.grammar.sym_idx_dot(rule);
 
+            // If 'rule' is a complete Earley item
             if after_dot == CSymIdx::NULL {
                 let flags = self.grammar.sym_flags_lhs(rule);
                 let lhs = self.grammar.sym_idx_lhs(rule);
@@ -1218,6 +1234,8 @@ impl ParserState {
 
                 if item.start_pos() < curr_idx {
                     // if item.start_pos() == curr_idx, then we handled it below in the nullable check
+
+                    // The main completion inference rule (slide 21 in Kallmeyer 2018)
                     for i in self.rows[item.start_pos()].item_indices() {
                         let item = self.scratch.items[i];
                         if self.grammar.sym_idx_dot(item.rule_idx()) == lhs {
@@ -1233,6 +1251,9 @@ impl ParserState {
                         max_tokens.push((lx, sym_data.props.max_tokens));
                     }
                 }
+
+                // The comletion inference rule for nullable symbols
+                // (slide 20 in Kallmeyer 2018).
                 if sym_data.is_nullable {
                     self.scratch
                         .add_unique(item.advance_dot(), item_idx, "null");
@@ -1243,10 +1264,14 @@ impl ParserState {
                         self.captures.push((var_name.clone(), vec![]));
                     }
                 }
+
+                // The top-down, or prediction, inference rule.
+                // (slide 20 in Kallmeyer 2018)
                 for rule in &sym_data.rules {
                     let new_item = Item::new(*rule, curr_idx);
                     self.scratch.add_unique(new_item, item_idx, "predict");
                 }
+                
                 // TODO the hidden stuff is no longer used
                 if self.scratch.definitive && sym_data.props.hidden {
                     for rule in &sym_data.rules {
