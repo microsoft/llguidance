@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// This represents a collection of grammars, with a designated
 /// "start" grammar at first position.
 /// Grammars can refer to each other via GrammarRef nodes.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TopLevelGrammar {
     pub grammars: Vec<GrammarWithLexer>,
     pub max_tokens: Option<usize>,
@@ -54,6 +54,12 @@ pub struct GrammarWithLexer {
     /// Any Unicode regex will cause an error.
     #[serde(default)]
     pub allow_invalid_utf8: bool,
+}
+
+impl Debug for GrammarWithLexer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GrammarWithLexer [{} nodes]", self.nodes.len())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
