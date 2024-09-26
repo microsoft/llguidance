@@ -117,6 +117,31 @@ pub trait TokenizerEnv: Send {
 
 pub type TokEnv = Arc<dyn TokenizerEnv + Sync + 'static>;
 
+pub struct TokEnvWithTrie {
+    base_env: TokEnv,
+    tok_trie: TokTrie,
+}
+
+impl TokEnvWithTrie {
+    pub fn new(base_env: TokEnv, tok_trie: TokTrie) -> Self {
+        Self { base_env, tok_trie }
+    }
+}
+
+impl TokenizerEnv for TokEnvWithTrie {
+    fn tok_trie(&self) -> &TokTrie {
+        &self.tok_trie
+    }
+
+    fn stop(&self) -> ! {
+        self.base_env.stop()
+    }
+
+    fn tokenize_bytes(&self, s: &[u8]) -> Vec<TokenId> {
+        self.base_env.tokenize_bytes(s)
+    }
+}
+
 #[derive(Clone)]
 pub struct TokTrie {
     info: TokRxInfo,
@@ -220,12 +245,14 @@ impl TokTrie {
         r
     }
 
-    pub fn build_chat_mode_trie(&self) -> Self {
+    pub fn with_eos_token(&self, eos_token: TokenId) -> Self {
         let mut r = self.clone();
-        if let Some(t) = self.info.tok_end_of_turn {
-            r.info.tok_eos = t;
-        }
+        r.info.tok_eos = eos_token;
         r
+    }
+
+    pub fn build_chat_mode_trie(&self) -> Self {
+        self.with_eos_token(self.info.tok_end_of_turn.unwrap_or(self.info.tok_eos))
     }
 
     fn finalize_ctor(&mut self) {
