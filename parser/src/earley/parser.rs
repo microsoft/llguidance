@@ -246,7 +246,7 @@ impl Scratch {
         }
     }
 
-    // Set current working Earley set to the single item
+    // Set current working Earley to empty set
     // The set backing data is at `pos`
     fn new_row(&mut self, pos: usize) {
         self.row_start = pos;
