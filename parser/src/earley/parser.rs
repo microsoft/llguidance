@@ -155,6 +155,11 @@ impl Item {
 #[derive(Clone)]
 struct Scratch {
     grammar: Arc<CGrammar>,
+
+    // The current row (Earley set).  'row_start' is the index of its first
+    // item (if it exists), and 'row_end" the index after the last item.
+    // It follows that the Earley set is empty if 'row_start == row_end'
+    // For a non-empty row, the index of the last item is 'row_end - 1'.
     row_start: usize,
     row_end: usize,
     items: Vec<Item>,
