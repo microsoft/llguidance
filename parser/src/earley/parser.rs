@@ -246,11 +246,14 @@ impl Scratch {
         }
     }
 
+    // Set current working Earley set to the single item
+    // at 'pos' in the Earley table.
     fn new_row(&mut self, pos: usize) {
         self.row_start = pos;
         self.row_end = pos;
     }
 
+    // Number of items in the current working Earley set
     fn row_len(&self) -> usize {
         self.row_end - self.row_start
     }
@@ -480,6 +483,9 @@ impl ParserState {
         self.curr_row_bytes().len() > 0
     }
 
+    // Does the parse succeed in this Earley set?
+    // That is, does this Earley set contain a completed
+    // start rule?
     fn row_is_accepting(&self) -> bool {
         for pos in self.after_dots() {
             let after_dot = self.grammar.sym_idx_dot(pos);
@@ -540,6 +546,8 @@ impl ParserState {
         self.lexer_stack[self.lexer_stack.len() - 1]
     }
 
+    // Current size of the Earley table --
+    // that is, the number of Earley sets.
     #[inline(always)]
     pub fn num_rows(&self) -> usize {
         self.lexer_state().row_idx as usize + 1
@@ -1175,7 +1183,7 @@ impl ParserState {
         // Agenda retrieval is a simplication of Kallmeyer 2018.
         // There is no separate data structure for the agenda --
         // the Earley table is used, so that adding to the Earley
-        // table (aka chart) also adds an item to the agenda, no duplicate
+        // table (aka chart) also adds an item to the agenda.  No duplicate
         // agenda items are added.  Agenda items are never removed --
         // instead 'agenda_ptr' is advanced through the combined agenda/chart.
         // Only one pass is made.
@@ -1244,7 +1252,7 @@ impl ParserState {
                         }
                     }
                 }
-            } else {
+            } else { // ... if 'rule' is an incompletion
                 let sym_data = self.grammar.sym_data(after_dot);
                 if let Some(lx) = sym_data.lexeme {
                     allowed_lexemes.set(lx.as_usize(), true);
