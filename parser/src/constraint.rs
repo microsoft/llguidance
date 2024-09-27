@@ -88,7 +88,9 @@ impl Constraint {
     pub fn process_prompt(&mut self, prompt: Vec<TokenId>) -> Vec<TokenId> {
         assert!(!self.started);
         self.started = true;
-        self.parser.process_prompt(prompt)
+        let r = self.parser.process_prompt(prompt);
+        self.temperature = self.parser.parser.temperature();
+        r
     }
 
     /// This can be called before the first get_mask() to walk forward the
@@ -129,6 +131,7 @@ impl Constraint {
         if !self.started {
             self.started = true;
             self.parser.start_without_prompt();
+            self.temperature = self.parser.parser.temperature();
         }
 
         if self.delayed_stop {
