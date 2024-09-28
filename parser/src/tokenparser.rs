@@ -679,7 +679,7 @@ impl TokenParser {
             return self.stop("", StopReason::NoExtensionBias);
         }
 
-        return StepResult::sample(set, Some(self.parser.temperature()));
+        return StepResult::sample(set, self.parser.temperature());
     }
 
     fn maybe_push_parser(&mut self) -> Result<()> {

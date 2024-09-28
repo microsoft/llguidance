@@ -66,9 +66,6 @@ impl Constraint {
     }
 
     fn save_progress_and_result(&mut self, res: StepResult) {
-        if let Some(temp) = res.temperature {
-            self.temperature = temp;
-        }
         self.last_res = res;
         if self.log_json_progress {
             for p in self.reporter.get_progress(&mut self.parser, &self.last_res) {
@@ -78,6 +75,13 @@ impl Constraint {
                     .write_buffer(&serde_json::to_string(&p).unwrap());
                 self.parser.logger.write_buffer("\n");
             }
+        }
+        self.save_temperature();
+    }
+
+    fn save_temperature(&mut self) {
+        if let Some(temp) = self.parser.parser.temperature() {
+            self.temperature = temp;
         }
     }
 
@@ -89,7 +93,7 @@ impl Constraint {
         assert!(!self.started);
         self.started = true;
         let r = self.parser.process_prompt(prompt);
-        self.temperature = self.parser.parser.temperature();
+        self.save_temperature();
         r
     }
 
@@ -131,7 +135,7 @@ impl Constraint {
         if !self.started {
             self.started = true;
             self.parser.start_without_prompt();
-            self.temperature = self.parser.parser.temperature();
+            self.save_temperature();
         }
 
         if self.delayed_stop {

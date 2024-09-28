@@ -18,7 +18,10 @@ use derivre::{RegexAst, StateID};
 use serde::{Deserialize, Serialize};
 use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie, TokenId};
 
-use crate::{api::{GenGrammarOptions, ParserLimits}, earley::lexer::Lexer};
+use crate::{
+    api::{GenGrammarOptions, ParserLimits},
+    earley::lexer::Lexer,
+};
 
 use super::{
     grammar::{CGrammar, CSymIdx, CSymbol, ModelVariable, RuleIdx},
@@ -620,17 +623,21 @@ impl ParserState {
         prefix_len + last_lexeme_visible_len
     }
 
-    pub fn temperature(&self) -> f32 {
-        let mut temp = 0.0f32;
+    pub fn temperature(&self) -> Option<f32> {
+        let mut temp = -1000.0f32;
         for data in self.after_dots_symdata() {
             if data.is_terminal {
                 temp = temp.max(data.props.temperature);
             }
         }
-        if self.options.temperature.is_some() {
-            temp = temp.max(self.options.temperature.unwrap());
+        if let Some(t) = self.options.temperature {
+            temp = temp.max(t);
         }
-        temp
+        if temp < 0.00000001 {
+            None
+        } else {
+            Some(temp)
+        }
     }
 
     pub fn apply_tokens(
@@ -1130,12 +1137,12 @@ impl ParserState {
         }
         true
     }
-    
+
     // scan() implements the version of Earley described in Kallmeyer 2018.
     // An important difference between the algorithm implemented here
     // and Kallmeyer's is that in scan(), the token scan is performed
     // first, while in Kallmeyer it is performed last.
-    
+
     // lexeme body only used for captures (in definitive mode)
     // and debugging (lexeme.idx used always)
     fn scan(&mut self, lexeme: &Lexeme) -> bool {
@@ -1173,7 +1180,7 @@ impl ParserState {
 
     // push_row() does the agenda processing.  There is an agenda for
     // each Earley set (aka row).
-    
+
     // lexeme only used for captures (in definitive mode)
     #[inline(always)]
     fn push_row(&mut self, curr_idx: usize, mut agenda_ptr: usize, lexeme: &Lexeme) -> bool {
@@ -1252,7 +1259,8 @@ impl ParserState {
                         }
                     }
                 }
-            } else { // ... if 'rule' is an incompletion
+            } else {
+                // ... if 'rule' is an incompletion
                 let sym_data = self.grammar.sym_data(after_dot);
                 if let Some(lx) = sym_data.lexeme {
                     allowed_lexemes.set(lx.as_usize(), true);
@@ -1280,7 +1288,7 @@ impl ParserState {
                     let new_item = Item::new(*rule, curr_idx);
                     self.scratch.add_unique(new_item, item_idx, "predict");
                 }
-                
+
                 // TODO the hidden stuff is no longer used
                 if self.scratch.definitive && sym_data.props.hidden {
                     for rule in &sym_data.rules {
@@ -1825,7 +1833,7 @@ impl Parser {
         self.state.can_advance()
     }
 
-    pub fn temperature(&self) -> f32 {
+    pub fn temperature(&self) -> Option<f32> {
         self.state.temperature()
     }
 
