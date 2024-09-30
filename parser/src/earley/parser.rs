@@ -116,8 +116,14 @@ impl ParserStats {
 // in which the rows are Earley sets.
 #[derive(Clone)]
 struct Row {
+    // The location of the "working row"
     first_item: usize,
     last_item: usize,
+
+    // The "allowed lexemes".  The allowed lexemes (aka acceptable
+    // lexemes, aka relevant lexemes) are those which the recognizer
+    // will accept in the next row.  They are all and only those lexemes
+    // which can lead to a successful parse.
     allowed_lexemes: SimpleVob,
 }
 
