@@ -118,6 +118,11 @@ impl ParserStats {
 struct Row {
     first_item: usize,
     last_item: usize,
+
+    // The "allowed lexemes".  The allowed lexemes (aka acceptable
+    // lexemes, aka relevant lexemes) are those which the recognizer
+    // will accept in the next row.  They are all and only those lexemes
+    // which can lead to a successful parse.
     allowed_lexemes: SimpleVob,
 }
 
@@ -158,8 +163,11 @@ impl Item {
 #[derive(Clone)]
 struct Scratch {
     grammar: Arc<CGrammar>,
+
+    // The current "working row"
     row_start: usize,
     row_end: usize,
+
     items: Vec<Item>,
     item_props: Vec<ItemProps>,
     definitive: bool,
