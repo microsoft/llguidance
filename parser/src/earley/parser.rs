@@ -1325,6 +1325,7 @@ impl ParserState {
                 );
             }
 
+            // Add the working row to the parser state
             let idx = self.num_rows();
             let row = self.scratch.work_row(allowed_lexemes);
             if self.rows.len() == 0 || self.rows.len() == idx {
