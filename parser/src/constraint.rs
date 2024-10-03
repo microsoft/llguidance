@@ -65,6 +65,12 @@ impl Constraint {
         }
     }
 
+    pub fn deep_clone(&self) -> Self {
+        let mut copy = self.clone();
+        copy.parser = self.parser.deep_clone();
+        copy
+    }
+
     fn save_progress_and_result(&mut self, res: StepResult) {
         self.last_res = res;
         if self.log_json_progress {

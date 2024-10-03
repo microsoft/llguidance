@@ -109,6 +109,13 @@ impl TokenParser {
         })
     }
 
+    // regular .clone() uses a shared lexer state
+    pub fn deep_clone(&self) -> Self {
+        let mut copy = self.clone();
+        copy.parser = self.parser.deep_clone();
+        copy
+    }
+
     pub fn stop_reason(&self) -> StopReason {
         self.stop_reason
     }

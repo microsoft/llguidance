@@ -1855,4 +1855,11 @@ impl Parser {
         let mut shared = self.shared.lock().unwrap();
         self.state.model_variables(&mut shared)
     }
+
+    pub fn deep_clone(&self) -> Self {
+        let mut copy = self.clone();
+        let shared = self.shared.lock().unwrap();
+        copy.shared = Arc::new(Mutex::new(shared.clone()));
+        copy
+    }
 }
