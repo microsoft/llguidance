@@ -303,6 +303,16 @@ impl StopReason {
             .unwrap()
             .to_string()
     }
+
+    pub fn is_ok(&self) -> bool {
+        matches!(
+            self,
+            StopReason::NotStopped
+                | StopReason::EndOfSentence
+                | StopReason::NoExtension
+                | StopReason::NoExtensionBias
+        )
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
