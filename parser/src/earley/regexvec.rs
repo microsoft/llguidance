@@ -1,9 +1,11 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use derivre::raw::{DerivCache, ExprSet, NextByteCache, RelevanceCache, VecHashCons};
 use std::{fmt::Debug, u64};
 use toktrie::SimpleVob;
 
 pub use derivre::{AlphabetInfo, ExprRef, NextByte, StateID};
+
+use crate::api::ParserLimits;
 
 #[derive(Clone)]
 pub struct RegexVec {
@@ -59,7 +61,10 @@ impl RegexVec {
     pub fn initial_state(&mut self, selected: &SimpleVob) -> StateID {
         let mut vec_desc = vec![];
         for idx in selected.iter() {
-            Self::push_rx(&mut vec_desc, idx as usize, self.rx_list[idx as usize]);
+            let rx = self.rx_list[idx as usize];
+            if rx != ExprRef::NO_MATCH {
+                Self::push_rx(&mut vec_desc, idx as usize, rx);
+            }
         }
         self.insert_state(vec_desc)
     }
@@ -333,16 +338,41 @@ impl RegexVec {
         exprset: &ExprSet,
         rx_list: &[ExprRef],
         lazy: Option<SimpleVob>,
-    ) -> Self {
-        let (alpha, exprset, rx_list) = AlphabetInfo::from_exprset(exprset, rx_list);
+        limits: &mut ParserLimits,
+    ) -> Result<Self> {
+        let (alpha, mut exprset, mut rx_list) = AlphabetInfo::from_exprset(exprset, rx_list);
         let num_ast_nodes = exprset.len();
 
-        let rx_sets = StateID::new_hash_cons();
+        let fuel0 = limits.initial_lexer_fuel;
+        let mut relevance = RelevanceCache::new();
+        for idx in 0..rx_list.len() {
+            let c0 = exprset.cost();
+            match relevance.is_non_empty_limited(
+                &mut exprset,
+                rx_list[idx],
+                limits.initial_lexer_fuel,
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    rx_list[idx] = ExprRef::NO_MATCH;
+                }
+                Err(_) => {
+                    bail!(
+                        "fuel exhausted when checking relevance of lexemes ({})",
+                        fuel0
+                    );
+                }
+            }
+            limits.initial_lexer_fuel = limits
+                .initial_lexer_fuel
+                .saturating_sub(exprset.cost() - c0);
+        }
 
+        let rx_sets = StateID::new_hash_cons();
         let mut r = RegexVec {
             deriv: DerivCache::new(),
             next_byte: NextByteCache::new(),
-            relevance: RelevanceCache::new(),
+            relevance,
             lazy: lazy.unwrap_or_else(|| SimpleVob::alloc(rx_list.len())),
             exprs: exprset,
             alpha,
@@ -364,7 +394,7 @@ impl RegexVec {
         // in fact, transition from MISSING and DEAD should both lead to DEAD
         r.state_table.fill(StateID::DEAD);
         assert!(r.alpha.len() > 0);
-        r
+        Ok(r)
     }
 
     fn append_state(&mut self, state_desc: StateDesc) {
@@ -439,6 +469,20 @@ impl RegexVec {
 
         for (idx, e) in iter_state(&self.rx_sets, state) {
             let d = self.deriv.derivative(&mut self.exprs, e, b);
+
+            let fuel = self.fuel.saturating_sub(self.exprs.cost() - c0);
+            let d = match self
+                .relevance
+                .is_non_empty_limited(&mut self.exprs, d, fuel)
+            {
+                Ok(true) => d,
+                Ok(false) => ExprRef::NO_MATCH,
+                Err(_) => {
+                    self.fuel = 0; // just in case
+                    break;
+                }
+            };
+
             state_size += 1;
             if d != ExprRef::NO_MATCH {
                 Self::push_rx(&mut vec_desc, idx, d);

@@ -378,10 +378,10 @@ impl ParserState {
     fn new(
         grammar: Arc<CGrammar>,
         options: GenGrammarOptions,
-        limits: ParserLimits,
+        mut limits: ParserLimits,
     ) -> Result<(Self, Lexer)> {
         let start = grammar.start();
-        let mut lexer = Lexer::from(grammar.lexer_spec())?;
+        let mut lexer = Lexer::from(grammar.lexer_spec(), &mut limits)?;
         let scratch = Scratch::new(Arc::clone(&grammar));
         let lexer_state = lexer.a_dead_state(); // placeholder
         let mut r = ParserState {

@@ -218,7 +218,7 @@ dependencies = [
 [[package]]
 name = "derivre"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/derivre?rev=424ec3bd1f711add6aeab1711108b63abe856d0c#424ec3bd1f711add6aeab1711108b63abe856d0c"
+source = "git+https://github.com/microsoft/derivre?rev=02ee497e6e404a0b402b4f68a9abf599d22ed2ed#02ee497e6e404a0b402b4f68a9abf599d22ed2ed"
 dependencies = [
  "ahash",
  "anyhow",
@@ -908,7 +908,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "toktrie"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/toktrie?rev=8828701d3b1c743472fe61bdf6dab12cdd726ab4#8828701d3b1c743472fe61bdf6dab12cdd726ab4"
+source = "git+https://github.com/microsoft/toktrie?rev=5e7013ad05081e918809d4ecebb33db7c4aabc69#5e7013ad05081e918809d4ecebb33db7c4aabc69"
 dependencies = [
  "anyhow",
  "bytemuck",

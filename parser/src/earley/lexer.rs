@@ -2,6 +2,8 @@ use anyhow::Result;
 use std::fmt::Debug;
 use toktrie::SimpleVob;
 
+use crate::api::ParserLimits;
+
 use super::{
     lexerspec::{LexemeIdx, LexerSpec},
     regexvec::{NextByte, RegexVec, StateDesc},
@@ -41,8 +43,8 @@ pub enum LexerResult {
 }
 
 impl Lexer {
-    pub fn from(spec: &LexerSpec) -> Result<Self> {
-        let dfa = spec.to_regex_vec();
+    pub fn from(spec: &LexerSpec, limits: &mut ParserLimits) -> Result<Self> {
+        let dfa = spec.to_regex_vec(limits)?;
 
         debug!("lexer: {:?}\n  ==> dfa: {:?}", spec, dfa);
 

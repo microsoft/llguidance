@@ -3,6 +3,8 @@ use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use std::{fmt::Debug, hash::Hash};
 use toktrie::{bytes::limit_str, SimpleVob};
 
+use crate::api::ParserLimits;
+
 use super::regexvec::RegexVec;
 
 #[derive(Clone)]
@@ -115,7 +117,7 @@ impl LexerSpec {
             .is_nullable(self.lexemes[idx.0].compiled_rx)
     }
 
-    pub fn to_regex_vec(&self) -> RegexVec {
+    pub fn to_regex_vec(&self, limits: &mut ParserLimits) -> Result<RegexVec> {
         // TODO
         // Find all non-contextual lexemes that are literals (we call them 'keywords')
         // This assumes that this is the only possible conflict in the lexer that we want to catch.
@@ -127,6 +129,7 @@ impl LexerSpec {
             self.regex_builder.exprset(),
             &rx_list,
             Some(self.lazy_lexemes()),
+            limits,
         )
     }
 
