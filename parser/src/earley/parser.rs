@@ -170,6 +170,12 @@ struct Scratch {
 
     items: Vec<Item>,
     item_props: Vec<ItemProps>,
+
+    // Is this Earley table in "definitive" mode?
+    // 'definitive' is set when the LLM is adding new tokens --
+    // when new tokens are being 'defined'.  The opposite of
+    // definitive mode is "speculative" mode, which is used
+    // for computing the token mask.
     definitive: bool,
 }
 
@@ -179,6 +185,12 @@ struct RowInfo {
     lexeme: Lexeme,
     token_idx_start: usize,
     token_idx_stop: usize,
+
+    // A hash whose key is a symbol index, and whose value is
+    // the maximum tokens allowed for that symbol.  Undefined hash
+    // keys allow an unlimited number of tokens.  That the number
+    // of tokens is unlimited can be indicated explicitly by setting
+    // the value of the hash entry to usize::MAX.
     max_tokens: Arc<HashMap<LexemeIdx, usize>>,
 }
 
@@ -1273,6 +1285,8 @@ impl ParserState {
                 if let Some(lx) = sym_data.lexeme {
                     allowed_lexemes.set(lx.as_usize(), true);
                     if self.scratch.definitive {
+                        // In definitive mode, set 'maxtokens' for
+                        // the postdot symbol.
                         max_tokens.push((lx, sym_data.props.max_tokens));
                     }
                 }
@@ -1335,10 +1349,21 @@ impl ParserState {
             }
 
             if self.scratch.definitive {
+
+                // Clear all row info data after the
+                // working row.
                 if self.row_infos.len() > idx {
                     self.row_infos.drain(idx..);
                 }
+
+                // We collect and prune the information in
+                // 'max_tokens' into a new hash, 'max_tokens_map',
+                // which will replace 'max_tokens'.
                 let mut max_tokens_map = HashMap::default();
+
+                // If a lexeme allowed twice, set its value in the
+                // 'max_tokens_map' to the maximum of the max_tokens
+                // values specified.
                 for (lx, mx) in max_tokens {
                     if let Some(ex) = max_tokens_map.get(&lx) {
                         if *ex < mx {
@@ -1348,6 +1373,13 @@ impl ParserState {
                         max_tokens_map.insert(lx, mx);
                     }
                 }
+
+                // Some entries in 'max_tokens_map' will
+                // explicitly indicate that the number of tokens is
+                // unlimited with a value of usize::MAX.  Since this
+                // is the default for non-existent hash entries, we
+                // save space by removing entries whose value is
+                // usize::MAX.
                 let mut to_remove = vec![];
                 for (lx, mx) in max_tokens_map.iter() {
                     if *mx == usize::MAX {
@@ -1357,6 +1389,7 @@ impl ParserState {
                 for lx in to_remove {
                     max_tokens_map.remove(&lx);
                 }
+
                 self.row_infos.push(RowInfo {
                     lexeme: Lexeme::bogus(),
                     token_idx_start: self.token_idx,
