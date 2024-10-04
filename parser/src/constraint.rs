@@ -211,7 +211,8 @@ impl Constraint {
         // check if token is allowed
         ensure!(
             mask.is_allowed(sampled_token),
-            "sampled_token was not allowed by the mask"
+            "{} was not allowed by the mask",
+            self.tok_trie().token_dbg(sampled_token)
         );
 
         // if ff_tokens are not supported, just commit the sampled token
