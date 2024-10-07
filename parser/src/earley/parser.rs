@@ -1162,6 +1162,8 @@ impl ParserState {
     // An important difference between the algorithm implemented here
     // and Kallmeyer's is that in scan(), the token scan is performed
     // first, while in Kallmeyer it is performed last.
+    
+    // Returns false if the parse is exhausted, true otherwise.
 
     // lexeme body only used for captures (in definitive mode)
     // and debugging (lexeme.idx used always)
@@ -1195,12 +1197,17 @@ impl ParserState {
             }
             i += 1;
         }
+        
+        // Perform the other inference rules on this Earley set.
         self.push_row(self.num_rows(), self.scratch.row_start, lexeme)
     }
 
     // push_row() does the agenda processing.  There is an agenda for
     // each Earley set (aka row).
 
+    // Returns false if an empty Earley set is added (and therefore
+    // the parse is exhausted); and true otherwise.
+    
     // lexeme only used for captures (in definitive mode)
     #[inline(always)]
     fn push_row(&mut self, curr_idx: usize, mut agenda_ptr: usize, lexeme: &Lexeme) -> bool {
