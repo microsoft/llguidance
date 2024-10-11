@@ -62,6 +62,7 @@ struct ItemProps {
 
 impl Display for ItemProps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // hidden feature is deprecated in the parser
         if self.hidden_start == usize::MAX {
             write!(f, "")
         } else {
@@ -73,6 +74,7 @@ impl Display for ItemProps {
 impl Default for ItemProps {
     fn default() -> Self {
         ItemProps {
+            // hidden feature is deprecated in the parser
             hidden_start: usize::MAX,
         }
     }
@@ -80,6 +82,7 @@ impl Default for ItemProps {
 
 impl ItemProps {
     fn merge(&mut self, other: ItemProps) {
+        // hidden feature is deprecated in the parser
         self.hidden_start = self.hidden_start.min(other.hidden_start);
     }
 }
@@ -92,7 +95,10 @@ pub struct ParserStats {
     pub num_lex_errors: usize,
     pub num_lexemes: usize,
     pub all_items: usize,
+
+    // hidden feature is deprecated in the parser
     pub hidden_bytes: usize,
+
     pub lexer_cost: u64,
 }
 
@@ -105,7 +111,10 @@ impl ParserStats {
             num_lexemes: self.num_lexemes - previous.num_lexemes,
             num_lex_errors: self.num_lex_errors - previous.num_lex_errors,
             all_items: self.all_items - previous.all_items,
+
+            // hidden feature is deprecated in the parser
             hidden_bytes: self.hidden_bytes - previous.hidden_bytes,
+
             lexer_cost: self.lexer_cost - previous.lexer_cost,
         }
     }
@@ -344,6 +353,7 @@ impl Scratch {
             .map(|x| x + self.row_start)
     }
 
+    // hidden feature is deprecated in the parser
     fn set_hidden_start(&mut self, item: Item, hidden_start: usize) {
         let idx = self.find_item(item).unwrap();
         self.item_props[idx].hidden_start =
@@ -631,6 +641,7 @@ impl ParserState {
         self.grammar.sym_data(self.item_lhs(item))
     }
 
+    // hidden feature is deprecated in the parser
     fn hidden_start(&self, shared: &mut SharedState) -> usize {
         let hidden_len = shared
             .lexer
@@ -1238,6 +1249,8 @@ impl ParserState {
                         .stop_capture_name
                         .as_ref()
                         .unwrap();
+
+                    // hidden feature is deprecated in the parser
                     let bytes = lexeme.hidden_bytes();
                     self.captures.push((var_name.clone(), bytes.to_vec()));
                 }
@@ -1430,6 +1443,8 @@ impl ParserState {
         if byte.is_some() {
             bytes.push(byte.unwrap());
         }
+
+        // hidden feature is deprecated in the parser
         Lexeme::new(pre_lexeme.idx, bytes, pre_lexeme.hidden_len)
     }
 
@@ -1466,11 +1481,14 @@ impl ParserState {
         // so the last added row is at self.num_rows(), and not self.num_rows() - 1
         let added_row = self.num_rows();
         let added_row_lexemes = &self.rows[added_row].allowed_lexemes;
+
+        // hidden feature is deprecated in the parser
         let no_hidden = LexerState {
             row_idx: added_row as u32,
             lexer_state: shared.lexer.start_state(added_row_lexemes, transition_byte),
             byte: transition_byte,
         };
+
         if self.scratch.definitive {
             // save lexeme at the last row, before we mess with the stack
             self.row_infos[added_row - 1].lexeme = lexeme;
@@ -1481,9 +1499,13 @@ impl ParserState {
                 self.lexer_spec().dbg_lexeme_set(added_row_lexemes)
             );
         }
+        
+        // hidden feature is deprecated in the parser
         no_hidden
     }
 
+
+    // hidden feature is deprecated in the parser
     #[inline(always)]
     fn handle_hidden_bytes(
         &mut self,
@@ -1590,9 +1612,11 @@ impl ParserState {
         };
 
         if scan_res {
+            // hidden feature is deprecated in the parser
             let mut no_hidden = self.lexer_state_for_added_row(shared, lexeme, transition_byte);
 
             if pre_lexeme.hidden_len > 0 {
+                // hidden feature is deprecated in the parser
                 self.handle_hidden_bytes(shared, no_hidden, lexeme_byte, pre_lexeme);
             } else {
                 if pre_lexeme.byte_next_row && no_hidden.lexer_state.is_dead() {
@@ -1799,6 +1823,7 @@ impl Parser {
         self.state.captures = std::mem::take(&mut other.state.captures);
     }
 
+    // hidden feature is deprecated in the parser
     pub fn hidden_start(&self) -> usize {
         let mut shared = self.shared.lock().unwrap();
         self.state.hidden_start(&mut shared)
