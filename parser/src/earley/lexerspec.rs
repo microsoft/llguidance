@@ -32,6 +32,10 @@ pub struct LexemeSpec {
 pub struct LexemeIdx(usize);
 
 impl LexemeIdx {
+    // SKIP is a pseudo-lexeme, a "no-op" which it is sometimes
+    // convenient to insert in the lexeme stream.  As the name
+    // suggests, it is skipped in parsing.
+    // It is typically used for skipping whitespace.
     pub const SKIP: LexemeIdx = LexemeIdx(0);
 
     pub fn new(idx: usize) -> Self {

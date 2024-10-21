@@ -1350,6 +1350,7 @@ impl ParserState {
         } else {
             self.stats.all_items += row_len;
 
+            // Always accept a SKIP lexeme
             allowed_lexemes.set(LexemeIdx::SKIP.as_usize(), true);
 
             if self.scratch.definitive {
@@ -1613,8 +1614,11 @@ impl ParserState {
         };
 
         let scan_res = if lexeme.idx == LexemeIdx::SKIP {
+            // If this is the SKIP lexeme, then skip it
             self.scan_skip_lexeme(&lexeme)
         } else {
+            // For all but the SKIP lexeme, process this lexeme
+            // with the parser
             self.scan(&lexeme)
         };
 
