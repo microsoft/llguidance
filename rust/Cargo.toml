@@ -5,10 +5,10 @@ edition = "2021"
 
 [dependencies]
 llguidance_parser = { path = "../parser" }
-bytemuck = "1.16.0"
+bytemuck = "1.19.0"
 pyo3 = {version = "0.21.2", features = ["extension-module", "abi3-py39"]}
-serde = { version = "1.0.192", features = ["derive"] }
-serde_json = "1.0.108"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.132"
 
 [lib]
 # See https://github.com/PyO3/pyo3 for details

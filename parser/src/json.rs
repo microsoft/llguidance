@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Result};
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use lazy_static::lazy_static;
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::Arc, vec};
+use std::{collections::HashMap, vec};
 
 use crate::{
     api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
@@ -203,23 +203,21 @@ impl OptionalField for Value {
 }
 
 struct DummyResolver {}
-impl jsonschema::SchemaResolver for DummyResolver {
-    fn resolve(
+impl jsonschema::Retrieve for DummyResolver {
+    fn retrieve(
         &self,
-        _root_schema: &Value,
-        url: &url::Url,
-        _original_reference: &str,
-    ) -> Result<Arc<Value>> {
-        Err(anyhow!("external resolver disabled (url: {})", url).into())
+        uri: &jsonschema::Uri<&str>,
+    ) -> std::result::Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+        Err(anyhow!("external resolver disabled (url: {})", uri).into())
     }
 }
 
 lazy_static! {
-    static ref SCHEMA_VALIDATOR: JSONSchema = {
-        jsonschema::JSONSchema::options()
+    static ref SCHEMA_VALIDATOR: Validator = {
+        Validator::options()
             .with_draft(jsonschema::Draft::Draft7)
-            .with_resolver(DummyResolver {})
-            .compile(&json!({
+            .with_retriever(DummyResolver {})
+            .build(&json!({
                 "$ref": "http://json-schema.org/draft-07/schema"
             }))
             .unwrap()
@@ -240,7 +238,8 @@ impl Compiler {
 
     pub fn run(&mut self, schema: &Value) -> Result<()> {
         if self.options.validate {
-            SCHEMA_VALIDATOR.validate(schema)
+            SCHEMA_VALIDATOR
+                .validate(schema)
                 .map_err(|mut e| anyhow!("Invalid schema: {}", e.next().unwrap()))?;
         }
 
