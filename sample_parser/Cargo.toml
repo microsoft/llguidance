@@ -17,3 +17,7 @@ path = "src/sample_parser.rs"
 [[bin]]
 name = "schema_tester"
 path = "src/schema_tester.rs"
+
+[[bin]]
+name = "minimal"
+path = "src/minimal.rs"

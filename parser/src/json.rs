@@ -16,7 +16,6 @@ use crate::{
 #[derive(Debug, Default, Clone)]
 pub struct JsonCompileOptions {
     pub compact: bool,
-    pub validate: bool,
 }
 
 fn to_compact_json(target: &serde_json::Value) -> String {
@@ -123,7 +122,14 @@ macro_rules! cache {
 impl JsonCompileOptions {
     pub fn json_to_llg(&self, schema: &Value) -> Result<TopLevelGrammar> {
         let mut compiler = Compiler::new(self.clone());
-        compiler.run(schema)?;
+        compiler.validate(schema)?;
+        compiler.execute(schema)?;
+        compiler.builder.finalize()
+    }
+
+    pub fn json_to_llg_no_validate(&self, schema: &Value) -> Result<TopLevelGrammar> {
+        let mut compiler = Compiler::new(self.clone());
+        compiler.execute(schema)?;
         compiler.builder.finalize()
     }
 }
@@ -236,13 +242,13 @@ impl Compiler {
         }
     }
 
-    pub fn run(&mut self, schema: &Value) -> Result<()> {
-        if self.options.validate {
-            SCHEMA_VALIDATOR
-                .validate(schema)
-                .map_err(|mut e| anyhow!("Invalid schema: {}", e.next().unwrap()))?;
-        }
+    pub fn validate(&mut self, schema: &Value) -> Result<()> {
+        SCHEMA_VALIDATOR
+            .validate(schema)
+            .map_err(|mut e| anyhow!("Invalid schema: {}", e.next().unwrap()))
+    }
 
+    pub fn execute(&mut self, schema: &Value) -> Result<()> {
         self.builder.add_grammar(GrammarWithLexer {
             greedy_skip_rx: if self.options.compact {
                 None

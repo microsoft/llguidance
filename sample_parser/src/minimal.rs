@@ -1,10 +1,49 @@
-use std::{env, fs::File, hint::black_box, io::Read, vec};
+use std::{env, fs::File, hint::black_box, io::Read, sync::Arc, vec};
 
 use llguidance_parser::{
     api::{ParserLimits, TopLevelGrammar},
-    toktrie::{InferenceCapabilities, TokEnv},
+    toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenId, TokenizerEnv},
     Constraint, JsonCompileOptions, TokenParser,
 };
+
+struct SingleByteTokenizer {
+    tok_trie: TokTrie,
+}
+
+impl SingleByteTokenizer {
+    fn new() -> Self {
+        let mut words = (0..=255).map(|x| vec![x]).collect::<Vec<_>>();
+        words.push("<eos>".as_bytes().to_vec());
+        let info = TokRxInfo {
+            vocab_size: words.len() as u32,
+            tok_eos: words.len() as u32 - 1,
+            tok_bos: None,
+            tok_pad: None,
+            tok_unk: None,
+            tok_end_of_turn: None,
+        };
+        let tok_trie = TokTrie::from(&info, &words);
+        SingleByteTokenizer { tok_trie }
+    }
+
+    fn to_env(self) -> TokEnv {
+        Arc::new(self)
+    }
+}
+
+impl TokenizerEnv for SingleByteTokenizer {
+    fn stop(&self) -> ! {
+        panic!("stop called")
+    }
+
+    fn tok_trie(&self) -> &TokTrie {
+        &self.tok_trie
+    }
+
+    fn tokenize_bytes(&self, s: &[u8]) -> Vec<TokenId> {
+        self.tok_trie.greedy_tokenize(s)
+    }
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -21,19 +60,14 @@ fn main() {
             compact: false,
         };
         let val = serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
-        opts.json_to_llg(&val)
+        opts.json_to_llg_no_validate(&val)
             .expect("Failed to convert JSON to LLG")
     } else {
         panic!("Unknown schema file extension")
     };
     let obj_str = read_file_to_string(&args[2]);
 
-    // you can implement TokEnv yourself, if you have the tokenizer
-    // see the ByteTokenizerEnv for an example
-    let tok_env: TokEnv =
-        toktrie_hf_tokenizers::ByteTokenizerEnv::from_name("microsoft/Phi-3.5-mini-instruct", None)
-            .unwrap()
-            .to_env();
+    let tok_env: TokEnv = SingleByteTokenizer::new().to_env();
 
     let tokens = tok_env.tokenize(&obj_str);
 
