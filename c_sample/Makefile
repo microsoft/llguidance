@@ -1,5 +1,5 @@
 ifeq ($(wildcard ../../target),)
-    TARGET = ../target/release
+    TARGET = ../parser/target/release
 else
     TARGET = ../../target/release
 endif
