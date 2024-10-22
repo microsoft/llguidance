@@ -6,6 +6,15 @@ It reads a Guidance grammar from a JSON file as well as the text that we
 pretend the LLM has generated and then makes sure the text conforms to the
 grammar.
 
+## Building
+
+- [install rust](https://www.rust-lang.org/tools/install); 1.75 or later
+- clone the repository
+- `cd c_sample`
+- `make`
+
+## Making it real
+
 For a real integration:
 
 - replace `bogus_tokenize()` with a real tokenizer for your LLM
