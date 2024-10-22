@@ -112,8 +112,10 @@ typedef struct LlgCommitResult {
  * Tokenization function
  * Will not write more than output_tokens_len tokens (which can be 0)
  * Returns the total number of tokens (which can be more than output_tokens_len)
+ * This function has to be thread-safe!
  */
-typedef size_t (*LlgTokenizeFn)(const uint8_t *bytes,
+typedef size_t (*LlgTokenizeFn)(const void *user_data,
+                                const uint8_t *bytes,
                                 size_t bytes_len,
                                 uint32_t *output_tokens,
                                 size_t output_tokens_len);
@@ -144,13 +146,17 @@ typedef struct LlgTokenizerInit {
    */
   bool tokenize_assumes_string;
   /**
-   * Tokenization function, see TokenizeFn docs.
+   * Tokenization function, see LlgTokenizeFn docs.
    * It should only tokenize the bytes and not add
    * any <BOS> etc. It should also work on any byte sequence, including
    * invalid UTF-8. If this is not the case, set tokenize_assumes_string to true.
    * Either way, this function has to be thread-safe!
    */
   LlgTokenizeFn tokenize_fn;
+  /**
+   * User data to pass to the tokenize_fn
+   */
+  const void *tokenize_user_data;
 } LlgTokenizerInit;
 
 #ifdef __cplusplus
@@ -163,7 +169,8 @@ extern "C" {
  * and all logging to the buffer (get with llg_flush_logs()).
  * You need to set the tokenizer field manually.
  */
-void llg_constraint_init_set_defaults(struct LlgConstraintInit *init);
+void llg_constraint_init_set_defaults(struct LlgConstraintInit *init,
+                                      const struct LlgTokenizer *tokenizer);
 
 /**
  * Create a new constraint from a grammar JSON string

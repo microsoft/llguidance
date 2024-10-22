@@ -1,9 +1,9 @@
 use std::{
-    ffi::{c_char, CStr},
+    ffi::{c_char, c_void, CStr},
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenizerEnv};
 
 use crate::{
@@ -14,17 +14,32 @@ use crate::{
 struct CTokenizerInner {
     trie: TokTrie,
     tokenize_fn: LlgTokenizeFn,
+    tokenize_user_data: *const c_void,
     tokenize_assumes_string: bool,
 }
+unsafe impl Send for CTokenizerInner {}
+unsafe impl Sync for CTokenizerInner {}
 
 impl CTokenizerInner {
     fn raw_tokenize(&self, s: &[u8]) -> Vec<toktrie::TokenId> {
         let mut res_toks = vec![0; s.len() / 4 + 5];
-        let n_toks = (self.tokenize_fn)(s.as_ptr(), s.len(), res_toks.as_mut_ptr(), res_toks.len());
+        let n_toks = (self.tokenize_fn)(
+            self.tokenize_user_data,
+            s.as_ptr(),
+            s.len(),
+            res_toks.as_mut_ptr(),
+            res_toks.len(),
+        );
 
         if n_toks > res_toks.len() {
             res_toks.resize(n_toks, 0);
-            (self.tokenize_fn)(s.as_ptr(), s.len(), res_toks.as_mut_ptr(), res_toks.len());
+            (self.tokenize_fn)(
+                self.tokenize_user_data,
+                s.as_ptr(),
+                s.len(),
+                res_toks.as_mut_ptr(),
+                res_toks.len(),
+            );
         }
 
         res_toks.truncate(n_toks);
@@ -77,6 +92,7 @@ impl LlgTokenizer {
                 trie,
                 tokenize_assumes_string: init.tokenize_assumes_string,
                 tokenize_fn: init.tokenize_fn,
+                tokenize_user_data: init.tokenize_user_data,
             }),
         }
     }
@@ -91,7 +107,9 @@ pub type LlgToken = u32;
 /// Tokenization function
 /// Will not write more than output_tokens_len tokens (which can be 0)
 /// Returns the total number of tokens (which can be more than output_tokens_len)
+/// This function has to be thread-safe!
 pub type LlgTokenizeFn = extern "C" fn(
+    user_data: *const c_void,
     bytes: *const u8,
     bytes_len: usize,
     output_tokens: *mut u32,
@@ -119,12 +137,15 @@ pub struct LlgTokenizerInit {
     /// TODO: the <BOS> bit not implemented yet
     pub tokenize_assumes_string: bool,
 
-    /// Tokenization function, see TokenizeFn docs.
+    /// Tokenization function, see LlgTokenizeFn docs.
     /// It should only tokenize the bytes and not add
     /// any <BOS> etc. It should also work on any byte sequence, including
     /// invalid UTF-8. If this is not the case, set tokenize_assumes_string to true.
     /// Either way, this function has to be thread-safe!
     pub tokenize_fn: LlgTokenizeFn,
+
+    /// User data to pass to the tokenize_fn
+    pub tokenize_user_data: *const c_void,
 }
 
 #[repr(C)]
@@ -193,6 +214,10 @@ impl LlgCommitResult {
 }
 
 fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Result<Constraint> {
+    if init.tokenizer.is_null() {
+        bail!("Tokenizer is null");
+    }
+
     let grammar_json = unsafe { CStr::from_ptr(grammar_json) }
         .to_str()
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in grammar_json"))?;
@@ -244,10 +269,13 @@ impl LlgConstraint {
 /// and all logging to the buffer (get with llg_flush_logs()).
 /// You need to set the tokenizer field manually.
 #[no_mangle]
-pub extern "C" fn llg_constraint_init_set_defaults(init: &mut LlgConstraintInit) {
+pub extern "C" fn llg_constraint_init_set_defaults(
+    init: &mut LlgConstraintInit,
+    tokenizer: *const LlgTokenizer,
+) {
     *init = LlgConstraintInit {
-        tokenizer: std::ptr::null(),
-        log_buffer_level: 2,
+        tokenizer,
+        log_buffer_level: 0,
         log_stderr_level: 1,
         ff_tokens_ok: false,
         backtrack_ok: false,
