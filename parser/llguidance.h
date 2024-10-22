@@ -180,6 +180,20 @@ struct LlgConstraint *llg_new_constraint(const struct LlgConstraintInit *init,
                                          const char *grammar_json);
 
 /**
+ * Create a new constraint from a given regular expression
+ * Always returns a non-null value. Call llg_get_error() on the result to check for errors.
+ */
+struct LlgConstraint *llg_new_constraint_regex(const struct LlgConstraintInit *init,
+                                               const char *regex);
+
+/**
+ * Create a new constraint from a given JSON schema
+ * Always returns a non-null value. Call llg_get_error() on the result to check for errors.
+ */
+struct LlgConstraint *llg_new_constraint_json(const struct LlgConstraintInit *init,
+                                              const char *json_schema);
+
+/**
  * Get the error message from the constraint or null if there is no error.
  * After it returns a non-null value, it will always return it until the constraint is freed
  * using llg_free_constraint() (at which point the pointer will be invalid).

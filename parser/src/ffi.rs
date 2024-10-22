@@ -7,8 +7,8 @@ use anyhow::{bail, Result};
 use toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenizerEnv};
 
 use crate::{
-    api::{ParserLimits, TopLevelGrammar},
-    CommitResult, Constraint, Logger, TokenParser,
+    api::{ParserLimits, RegexNode, TopLevelGrammar},
+    CommitResult, Constraint, JsonCompileOptions, Logger, TokenParser,
 };
 
 struct CTokenizerInner {
@@ -175,6 +175,17 @@ pub struct LlgConstraint {
     last_commit_result: CommitResult,
 }
 
+impl Default for LlgConstraint {
+    fn default() -> Self {
+        LlgConstraint {
+            local_error: None,
+            last_logs: "\x00".to_string(),
+            constraint: None,
+            last_commit_result: CommitResult::default(),
+        }
+    }
+}
+
 #[repr(C)]
 pub struct LlgMaskResult {
     /// One bit per vocab token
@@ -213,16 +224,38 @@ impl LlgCommitResult {
     }
 }
 
-fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Result<Constraint> {
-    if init.tokenizer.is_null() {
-        bail!("Tokenizer is null");
-    }
+fn new_constraint_regex(init: &LlgConstraintInit, regex: *const c_char) -> Result<Constraint> {
+    let regex = unsafe { CStr::from_ptr(regex) }
+        .to_str()
+        .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in regex"))?;
+    let grammar = TopLevelGrammar::from_regex(RegexNode::Regex(regex.to_string()));
+    new_constraint_core(init, grammar)
+}
 
+fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> Result<Constraint> {
+    let json_schema = unsafe { CStr::from_ptr(json_schema) }
+        .to_str()
+        .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in json_schema"))?;
+    let json_schema = serde_json::from_str(json_schema)
+        .map_err(|e| anyhow::anyhow!("Invalid JSON in json_schema: {e}"))?;
+    let opts = JsonCompileOptions { compact: false };
+    let grammar = opts.json_to_llg_no_validate(&json_schema)?;
+    new_constraint_core(init, grammar)
+}
+
+fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Result<Constraint> {
     let grammar_json = unsafe { CStr::from_ptr(grammar_json) }
         .to_str()
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in grammar_json"))?;
     let grammar: TopLevelGrammar = serde_json::from_str(grammar_json)
         .map_err(|e| anyhow::anyhow!("Invalid JSON in grammar_json: {e}"))?;
+    new_constraint_core(init, grammar)
+}
+
+fn new_constraint_core(init: &LlgConstraintInit, grammar: TopLevelGrammar) -> Result<Constraint> {
+    if init.tokenizer.is_null() {
+        bail!("Tokenizer is null");
+    }
 
     let tok_env = unsafe { (&*init.tokenizer).to_env() };
     let tok_parser = TokenParser::from_llguidance_json(
@@ -283,6 +316,17 @@ pub extern "C" fn llg_constraint_init_set_defaults(
     };
 }
 
+fn return_constraint(c: Result<Constraint>) -> *mut LlgConstraint {
+    let mut res = LlgConstraint::default();
+
+    match c {
+        Ok(constraint) => res.constraint = Some(constraint),
+        Err(e) => res.set_error(&e.to_string()),
+    };
+
+    Box::into_raw(Box::new(res))
+}
+
 /// Create a new constraint from a grammar JSON string
 /// Always returns a non-null value. Call llg_get_error() on the result to check for errors.
 #[no_mangle]
@@ -290,19 +334,27 @@ pub extern "C" fn llg_new_constraint(
     init: &LlgConstraintInit,
     grammar_json: *const c_char,
 ) -> *mut LlgConstraint {
-    let mut res = LlgConstraint {
-        local_error: None,
-        constraint: None,
-        last_logs: "\x00".to_string(),
-        last_commit_result: CommitResult::default(),
-    };
+    return_constraint(new_constraint(init, grammar_json))
+}
 
-    match new_constraint(init, grammar_json) {
-        Ok(constraint) => res.constraint = Some(constraint),
-        Err(e) => res.set_error(&e.to_string()),
-    };
+/// Create a new constraint from a given regular expression
+/// Always returns a non-null value. Call llg_get_error() on the result to check for errors.
+#[no_mangle]
+pub extern "C" fn llg_new_constraint_regex(
+    init: &LlgConstraintInit,
+    regex: *const c_char,
+) -> *mut LlgConstraint {
+    return_constraint(new_constraint_regex(init, regex))
+}
 
-    Box::into_raw(Box::new(res))
+/// Create a new constraint from a given JSON schema
+/// Always returns a non-null value. Call llg_get_error() on the result to check for errors.
+#[no_mangle]
+pub extern "C" fn llg_new_constraint_json(
+    init: &LlgConstraintInit,
+    json_schema: *const c_char,
+) -> *mut LlgConstraint {
+    return_constraint(new_constraint_json(init, json_schema))
 }
 
 /// Get the error message from the constraint or null if there is no error.

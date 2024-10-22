@@ -351,3 +351,30 @@ impl Default for ParserLimits {
         }
     }
 }
+
+impl TopLevelGrammar {
+    pub fn from_regex(rx: RegexNode) -> Self {
+        TopLevelGrammar {
+            grammars: vec![GrammarWithLexer {
+                nodes: vec![Node::Lexeme {
+                    rx: RegexSpec::RegexId(RegexId(0)),
+                    contextual: None,
+                    temperature: None,
+                    props: NodeProps::default(),
+                    json_string: None,
+                    json_allowed_escapes: None,
+                    json_raw: None,
+                }],
+                greedy_lexer: true,
+                greedy_skip_rx: None,
+                contextual: None,
+                rx_nodes: vec![rx],
+                no_forcing: false,
+                allow_initial_skip: false,
+                allow_invalid_utf8: false,
+            }],
+            max_tokens: None,
+            test_trace: false,
+        }
+    }
+}
