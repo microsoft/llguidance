@@ -246,8 +246,15 @@ impl TokTrie {
     }
 
     pub fn with_eos_token(&self, eos_token: TokenId) -> Self {
+        self.with_info(TokRxInfo {
+            tok_eos: eos_token,
+            ..self.info.clone()
+        })
+    }
+
+    pub fn with_info(&self, info: TokRxInfo) -> Self {
         let mut r = self.clone();
-        r.info.tok_eos = eos_token;
+        r.info = info.clone();
         r
     }
 
