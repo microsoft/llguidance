@@ -232,7 +232,7 @@ impl RowInfo {
 #[derive(Clone, Copy)]
 struct LexerState {
     row_idx: u32,
-    lexer_state: StateID, // state after consuming byte
+    lexer_state: StateID, // state after consuming 'byte'
     byte: Option<u8>,
 }
 
@@ -868,6 +868,8 @@ impl ParserState {
         bytes
     }
 
+    // Advance the parser or the lexer, depending on whether 'lex_result'
+    // is a pre-lexeme or not.
     #[inline(always)]
     fn advance_lexer_or_parser(
         &mut self,
@@ -918,6 +920,9 @@ impl ParserState {
         self.run_speculative(|s| s.flush_lexer(shared) && s.row_is_accepting())
     }
 
+    // try_push_byte_definitive() attempts to 'push' a byte (that is advance
+    // the parse with 'byte') into the parse in definitive mode.
+    // Returns 'false' if this is not possible.
     pub fn try_push_byte_definitive(&mut self, shared: &mut SharedState, byte: Option<u8>) -> bool {
         assert!(self.scratch.definitive);
 
