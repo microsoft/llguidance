@@ -6,9 +6,10 @@ use llguidance_parser::toktrie::{
     self, InferenceCapabilities, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
 };
 use llguidance_parser::{api::TopLevelGrammar, output::ParserOutput, TokenParser};
-use llguidance_parser::{Constraint, Logger};
+use llguidance_parser::{Constraint, JsonCompileOptions, Logger};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Clone)]
 #[pyclass]
@@ -240,9 +241,36 @@ impl TokenizerEnv for LLTokenizer {
     }
 }
 
+#[derive(Clone)]
+#[pyclass]
+struct JsonCompiler {
+    #[pyo3(get, set)]
+    compact: bool,
+}
+
+#[pymethods]
+impl JsonCompiler {
+    #[new]
+    fn py_new(compact: Option<bool>) -> Self {
+        JsonCompiler {
+            compact: compact.unwrap_or(false),
+        }
+    }
+    fn compile(&self, schema: &str) -> PyResult<String> {
+        let schema: Value = serde_json::from_str(schema).map_err(val_error)?;
+        let compile_options = JsonCompileOptions {
+            compact: self.compact,
+        };
+        let grammar = compile_options.json_to_llg(&schema).map_err(val_error)?;
+        Ok(serde_json::to_string(&grammar).map_err(val_error)?)
+    }
+
+}
+
 pub(crate) fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LLTokenizer>()?;
     m.add_class::<LLInterpreter>()?;
+    m.add_class::<JsonCompiler>()?;
     Ok(())
 }
 
