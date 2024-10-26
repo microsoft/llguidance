@@ -10,6 +10,7 @@ use crate::{loginfo, Logger};
 use anyhow::{bail, ensure, Result};
 use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use instant::Instant;
+use toktrie::TokEnv;
 
 fn resolve_rx(rx_refs: &[ExprRef], node: &RegexSpec) -> Result<RegexAst> {
     match node {
@@ -81,6 +82,7 @@ fn map_rx_nodes(
 }
 
 fn grammar_from_json(
+    tok_env: &TokEnv,
     limits: &mut ParserLimits,
     input: GrammarWithLexer,
 ) -> Result<(LexerSpec, Grammar)> {
@@ -233,6 +235,19 @@ fn grammar_from_json(
                 data.max_tokens_grm = props.max_tokens.unwrap_or(usize::MAX);
                 grm.make_gen_grammar(lhs, data)?;
             }
+            Node::SpecialToken { token, .. } => {
+                let trie = tok_env.tok_trie();
+                if trie.get_special_token(token).is_none() {
+                    let spec = trie.get_special_tokens();
+                    bail!(
+                        "unknown special token: {:?}; following special tokens are available: {}",
+                        token,
+                        trie.tokens_dbg(&spec)
+                    );
+                }
+                let idx = lexer_spec.add_special_token(token.clone())?;
+                grm.make_terminal(lhs, idx, &lexer_spec)?;
+            }
         }
 
         ensure!(
@@ -256,6 +271,7 @@ fn grammar_from_json(
 
 pub fn grammars_from_json(
     input: TopLevelGrammar,
+    tok_env: &TokEnv,
     logger: &mut Logger,
     mut limits: ParserLimits,
     extra_lexemes: Vec<String>,
@@ -264,7 +280,7 @@ pub fn grammars_from_json(
     let grammars = input
         .grammars
         .into_iter()
-        .map(|g| grammar_from_json(&mut limits, g))
+        .map(|g| grammar_from_json(tok_env, &mut limits, g))
         .collect::<Result<Vec<_>>>()?;
 
     for (_, g) in &grammars {

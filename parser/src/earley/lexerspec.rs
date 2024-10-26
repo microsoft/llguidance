@@ -1,7 +1,7 @@
 use anyhow::Result;
 use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use std::{fmt::Debug, hash::Hash};
-use toktrie::{bytes::limit_str, SimpleVob};
+use toktrie::{bytes::limit_str, SimpleVob, TokTrie};
 
 use crate::api::ParserLimits;
 
@@ -202,6 +202,18 @@ impl LexerSpec {
             name,
             rx: RegexAst::Literal(literal.to_string()),
             contextual,
+            ..self.empty_spec()
+        })
+    }
+
+    pub fn add_special_token(&mut self, name: String) -> Result<LexemeIdx> {
+        let rx = RegexAst::Concat(vec![
+            RegexAst::Byte(TokTrie::SPECIAL_TOKEN_PREFIX_BYTE),
+            RegexAst::Literal(name.clone()),
+        ]);
+        self.add_lexeme_spec(LexemeSpec {
+            name,
+            rx,
             ..self.empty_spec()
         })
     }

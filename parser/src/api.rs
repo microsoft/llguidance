@@ -123,6 +123,13 @@ pub enum Node {
         #[serde(flatten)]
         props: NodeProps,
     },
+    /// Used for special tokens.
+    SpecialToken {
+        token: String,
+
+        #[serde(flatten)]
+        props: NodeProps,
+    },
 
     // Non-terminals:
     /// Generate one of the options.
@@ -259,6 +266,7 @@ impl Node {
             Node::GenGrammar { props, .. } => props,
             Node::Select { props, .. } => props,
             Node::Join { props, .. } => props,
+            Node::SpecialToken { props, .. } => props,
         }
     }
 }

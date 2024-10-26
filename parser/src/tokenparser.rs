@@ -72,8 +72,13 @@ impl TokenParser {
         let mid_process_start_time = instant::Instant::now();
         let test_trace = top_grammar.test_trace;
         let max_tokens = top_grammar.max_tokens.unwrap_or(usize::MAX);
-        let compiled_grammars =
-            grammars_from_json(top_grammar, &mut logger, limits.clone(), extra_lexemes)?;
+        let compiled_grammars = grammars_from_json(
+            top_grammar,
+            &token_env,
+            &mut logger,
+            limits.clone(),
+            extra_lexemes,
+        )?;
         let parser = Parser::new(
             Arc::clone(&compiled_grammars[0]),
             GenGrammarOptions::default(),
@@ -175,11 +180,11 @@ impl TokenParser {
 
         let trie = self.token_env.tok_trie();
         infoln!(self, "prompt: {}", trie.tokens_dbg(&prompt));
-        let mut prompt_bytes = trie.decode(&prompt);
+        let mut prompt_bytes = trie.decode_raw(&prompt);
         self.parser.force_bytes();
         let grm_bytes = self.parser.get_bytes();
         prompt_bytes.extend_from_slice(&grm_bytes);
-        let tokens = self.token_env.tokenize_bytes(&prompt_bytes);
+        let tokens = self.token_env.tokenize_bytes_prefix(&prompt_bytes);
         infoln!(self, "prompt+grm: {}", trie.tokens_dbg(&tokens));
         let (chop_tokens, chop_bytes) = self
             .parser
@@ -189,8 +194,8 @@ impl TokenParser {
         // if we moved a bunch of grammar to the prompt, update llm_tokens to reflect that
         if chop_bytes <= grm_bytes.len() {
             self.llm_bytes = grm_bytes[0..grm_bytes.len() - chop_bytes].to_vec();
-            self.llm_tokens = self.token_env.tokenize_bytes(&self.llm_bytes);
-            let decoded = self.token_env.tok_trie().decode(&self.llm_tokens);
+            self.llm_tokens = self.token_env.tokenize_bytes_prefix(&self.llm_bytes);
+            let decoded = self.token_env.tok_trie().decode_raw(&self.llm_tokens);
             if self.llm_bytes.len() > 0
                 && decoded.len() > 0
                 && &decoded[1..] == &self.llm_bytes
@@ -397,7 +402,7 @@ impl TokenParser {
 
         if arg.tokens.contains(&trie.eos_token()) {
             assert!(arg.tokens.len() == 1);
-            if self.parser.scan_model_variable(ModelVariable::eos_token()) {
+            if self.parser.scan_model_variable(ModelVariable::eos_token(trie)) {
                 // it got scanned correctly, so we remove it
                 infoln!(self, "scanned eos_token");
                 arg.tokens.clear();
@@ -410,7 +415,7 @@ impl TokenParser {
             arg.save_tokens(&mut self.llm_tokens);
         }
 
-        let new_bytes = trie.decode(&arg.tokens);
+        let new_bytes = trie.decode_raw(&arg.tokens);
         self.llm_bytes.extend_from_slice(&new_bytes);
 
         // eprintln!(
@@ -421,11 +426,11 @@ impl TokenParser {
         // );
 
         // TODO maybe remove in future
-        if self.llm_bytes != trie.decode(&self.llm_tokens) {
+        if self.llm_bytes != trie.decode_raw(&self.llm_tokens) {
             panic!(
                 "llm_bytes mismatch:\n    {:?}\n    {:?}",
                 String::from_utf8_lossy(&self.llm_bytes),
-                String::from_utf8_lossy(&trie.decode(&self.llm_tokens))
+                String::from_utf8_lossy(&trie.decode_raw(&self.llm_tokens))
             );
         }
 
@@ -504,7 +509,7 @@ impl TokenParser {
         let do_force = new_forced.len() > 0 && !self.parser.grammar().lexer_spec().no_forcing;
 
         if do_force || backtrack > 0 {
-            let mut grm_tokens = self.token_env.tokenize_bytes(&new_forced);
+            let mut grm_tokens = self.token_env.tokenize_bytes_prefix(&new_forced);
             infoln!(
                 self,
                 "forced: {} bytes:{:?} tokens:{:?}",

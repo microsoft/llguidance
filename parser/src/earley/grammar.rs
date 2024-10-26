@@ -1,7 +1,7 @@
 use std::{fmt::Debug, hash::Hash};
 
-use anyhow::{bail, ensure, Result};
-use toktrie::SpecialToken;
+use anyhow::{anyhow, bail, ensure, Result};
+use toktrie::{TokEnv, TokTrie, TokenId};
 
 use crate::api::GenGrammarOptions;
 
@@ -33,37 +33,55 @@ impl Symbol {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ModelVariable {
-    SpecialToken(SpecialToken),
-    ActiveRoleEnd,
-    Other(String),
+pub struct ModelVariable {
+    pub name: String,
+    pub token_id: TokenId,
 }
 
 impl ModelVariable {
-    pub fn eos_token() -> Self {
-        ModelVariable::SpecialToken(SpecialToken::EndOfSentence)
+    pub fn eos_token(trie: &TokTrie) -> Self {
+        ModelVariable {
+            name: "eos_token".to_string(),
+            token_id: trie.eos_token(),
+        }
+    }
+
+    pub fn is_eos(&self) -> bool {
+        self.name == "eos_token"
     }
 
     #[allow(dead_code)]
     pub fn to_string(&self) -> String {
-        match self {
-            ModelVariable::ActiveRoleEnd => "active_role_end".to_string(),
-            ModelVariable::SpecialToken(SpecialToken::EndOfSentence) => "eos_token".to_string(),
-            ModelVariable::SpecialToken(SpecialToken::BeginningOfSentence) => {
-                "bos_token".to_string()
-            }
-            ModelVariable::SpecialToken(s) => format!("{:?}", s),
-            ModelVariable::Other(s) => s.clone(),
-        }
+        format!("MV:{}:{}", self.name, self.token_id)
     }
 
-    pub fn from_string(s: &str) -> Self {
-        match s {
-            "active_role_end" => ModelVariable::ActiveRoleEnd,
-            "eos_token" => ModelVariable::SpecialToken(SpecialToken::EndOfSentence),
-            "bos_token" => ModelVariable::SpecialToken(SpecialToken::BeginningOfSentence),
-            _ => ModelVariable::Other(s.to_string()),
-        }
+    pub fn from_string(name: String, trie: &TokTrie) -> Result<Self> {
+        let info = trie.info();
+        let tok_id = match name.as_str() {
+            "active_role_end" => info.tok_end_of_turn.unwrap_or(info.tok_eos),
+            "eos_token" => info.tok_eos,
+            "bos_token" => info
+                .tok_bos
+                .ok_or_else(|| anyhow!("ModelVariable: this model has no bos_token"))?,
+            _ => {
+                let mut bytes = name.as_bytes().to_vec();
+                bytes.insert(0, TokTrie::SPECIAL_TOKEN_PREFIX_BYTE);
+                let toks = trie.greedy_tokenize(&bytes);
+                if toks.len() == 1 {
+                    toks[0]
+                } else {
+                    bail!(
+                        "ModelVariable: tokenizing {:?} produced more than one token: {}",
+                        name,
+                        trie.tokens_dbg(&toks)
+                    )
+                }
+            }
+        };
+        Ok(ModelVariable {
+            name,
+            token_id: tok_id,
+        })
     }
 }
 
@@ -249,17 +267,19 @@ impl Grammar {
         &mut self.sym_data_mut(sym).props
     }
 
-    pub fn model_variable(&mut self, name: &str) -> SymIdx {
-        match self.model_variables.get(name) {
+    pub fn model_variable(&mut self, tok_env: &TokEnv, name: &str) -> Result<SymIdx> {
+        Ok(match self.model_variables.get(name) {
             Some(sym) => *sym,
             None => {
                 let sym = self.fresh_symbol(format!("M:{}", name).as_str());
-                self.sym_data_mut(sym).props.model_variable =
-                    Some(ModelVariable::from_string(name));
+                self.sym_data_mut(sym).props.model_variable = Some(ModelVariable::from_string(
+                    name.to_string(),
+                    tok_env.tok_trie(),
+                )?);
                 self.model_variables.insert(name.to_string(), sym);
                 sym
             }
-        }
+        })
     }
 
     pub fn sym_name(&self, sym: SymIdx) -> &str {

@@ -471,6 +471,11 @@ impl ParserState {
 
         self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
 
+        // The SPECIAL_TOKEN_PREFIX_BYTE should never be allowed by itself
+        let toks = computer.trie().greedy_tokenize(&[TokTrie::SPECIAL_TOKEN_PREFIX_BYTE]);
+        assert!(toks.len() == 1);
+        set.disallow_token(toks[0]);
+
         computer.trie().apply_duplicates(&mut set);
 
         if set.is_zero() {
@@ -1109,7 +1114,7 @@ impl ParserState {
 
         debug!("  flush_lexer() OK");
 
-        if mv == ModelVariable::eos_token() {
+        if mv.is_eos() {
             if lexer_eos {
                 return true;
             }
@@ -1178,7 +1183,7 @@ impl ParserState {
     // An important difference between the algorithm implemented here
     // and Kallmeyer's is that in scan(), the token scan is performed
     // first, while in Kallmeyer it is performed last.
-    
+
     // Returns false if the parse is exhausted, true otherwise.
 
     // lexeme body only used for captures (in definitive mode)
@@ -1213,7 +1218,7 @@ impl ParserState {
             }
             i += 1;
         }
-        
+
         // Perform the other inference rules on this Earley set.
         self.push_row(self.num_rows(), self.scratch.row_start, lexeme)
     }
@@ -1223,7 +1228,7 @@ impl ParserState {
 
     // Returns false if an empty Earley set is added (and therefore
     // the parse is exhausted); and true otherwise.
-    
+
     // lexeme only used for captures (in definitive mode)
     #[inline(always)]
     fn push_row(&mut self, curr_idx: usize, mut agenda_ptr: usize, lexeme: &Lexeme) -> bool {
@@ -1375,7 +1380,6 @@ impl ParserState {
             }
 
             if self.scratch.definitive {
-
                 // Clear all row info data after the
                 // working row.
                 if self.row_infos.len() > idx {
@@ -1512,11 +1516,10 @@ impl ParserState {
                 self.lexer_spec().dbg_lexeme_set(added_row_lexemes)
             );
         }
-        
+
         // hidden feature is deprecated in the parser
         no_hidden
     }
-
 
     // hidden feature is deprecated in the parser
     #[inline(always)]

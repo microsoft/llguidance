@@ -19,6 +19,18 @@ pub struct GrammarBuilder {
 }
 
 impl GrammarBuilder {
+    pub fn from_grammar(grammar: TopLevelGrammar) -> (Self, NodeRef) {
+        assert!(grammar.grammars.len() == 1);
+        let mut builder = Self::new();
+        builder.top_grammar = grammar;
+        builder.nodes = std::mem::take(&mut builder.top_grammar.grammars[0].nodes);
+        builder.next_grammar_id();
+        let prev_root = builder.nodes[0].clone();
+        builder.nodes[0] = builder.placeholder.clone();
+        let prev_root = builder.add_node(prev_root);
+        (builder, prev_root)
+    }
+
     pub fn new() -> Self {
         Self {
             top_grammar: TopLevelGrammar {
@@ -53,12 +65,16 @@ impl GrammarBuilder {
         }
     }
 
+    fn next_grammar_id(&mut self) {
+        static COUNTER: AtomicU32 = AtomicU32::new(1);
+        self.curr_grammar_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn add_grammar(&mut self, grammar: GrammarWithLexer) {
         assert!(grammar.nodes.is_empty(), "Grammar already has nodes");
         self.shift_nodes();
 
-        static COUNTER: AtomicU32 = AtomicU32::new(1);
-        self.curr_grammar_id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.next_grammar_id();
         self.top_grammar.grammars.push(grammar);
         self.strings.clear();
 
@@ -86,6 +102,13 @@ impl GrammarBuilder {
         });
         self.strings.insert(s.to_string(), r);
         r
+    }
+
+    pub fn special_token(&mut self, name: &str) -> NodeRef {
+        self.add_node(Node::SpecialToken {
+            token: name.to_string(),
+            props: NodeProps::default(),
+        })
     }
 
     pub fn lexeme(&mut self, rx: RegexSpec, json_quoted: bool) -> NodeRef {
