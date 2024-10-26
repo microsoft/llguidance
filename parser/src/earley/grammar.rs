@@ -1,7 +1,6 @@
 use std::{fmt::Debug, hash::Hash};
 
-use anyhow::{anyhow, bail, ensure, Result};
-use toktrie::{TokEnv, TokTrie, TokenId};
+use anyhow::{bail, ensure, Result};
 
 use crate::api::GenGrammarOptions;
 
@@ -19,69 +18,13 @@ impl SymIdx {
 
 impl Symbol {
     fn is_terminal(&self) -> bool {
-        self.is_lexeme_terminal() || self.is_model_variable() || self.is_grammar_ref()
+        self.is_lexeme_terminal() || self.is_grammar_ref()
     }
     fn is_lexeme_terminal(&self) -> bool {
         self.lexeme.is_some()
     }
-    fn is_model_variable(&self) -> bool {
-        self.props.model_variable.is_some()
-    }
     fn is_grammar_ref(&self) -> bool {
         self.gen_grammar.is_some()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ModelVariable {
-    pub name: String,
-    pub token_id: TokenId,
-}
-
-impl ModelVariable {
-    pub fn eos_token(trie: &TokTrie) -> Self {
-        ModelVariable {
-            name: "eos_token".to_string(),
-            token_id: trie.eos_token(),
-        }
-    }
-
-    pub fn is_eos(&self) -> bool {
-        self.name == "eos_token"
-    }
-
-    #[allow(dead_code)]
-    pub fn to_string(&self) -> String {
-        format!("MV:{}:{}", self.name, self.token_id)
-    }
-
-    pub fn from_string(name: String, trie: &TokTrie) -> Result<Self> {
-        let info = trie.info();
-        let tok_id = match name.as_str() {
-            "active_role_end" => info.tok_end_of_turn.unwrap_or(info.tok_eos),
-            "eos_token" => info.tok_eos,
-            "bos_token" => info
-                .tok_bos
-                .ok_or_else(|| anyhow!("ModelVariable: this model has no bos_token"))?,
-            _ => {
-                let mut bytes = name.as_bytes().to_vec();
-                bytes.insert(0, TokTrie::SPECIAL_TOKEN_PREFIX_BYTE);
-                let toks = trie.greedy_tokenize(&bytes);
-                if toks.len() == 1 {
-                    toks[0]
-                } else {
-                    bail!(
-                        "ModelVariable: tokenizing {:?} produced more than one token: {}",
-                        name,
-                        trie.tokens_dbg(&toks)
-                    )
-                }
-            }
-        };
-        Ok(ModelVariable {
-            name,
-            token_id: tok_id,
-        })
     }
 }
 
@@ -92,7 +35,6 @@ pub struct SymbolProps {
     pub capture_name: Option<String>,
     pub stop_capture_name: Option<String>,
     pub hidden: bool,
-    pub model_variable: Option<ModelVariable>,
     pub temperature: f32,
 }
 
@@ -102,7 +44,6 @@ impl Default for SymbolProps {
             commit_point: false,
             hidden: false,
             max_tokens: usize::MAX,
-            model_variable: None,
             capture_name: None,
             stop_capture_name: None,
             temperature: 0.0,
@@ -125,7 +66,6 @@ impl SymbolProps {
             commit_point: false,
             hidden: self.hidden,
             max_tokens: self.max_tokens,
-            model_variable: None,
             capture_name: None,
             stop_capture_name: None,
             temperature: self.temperature,
@@ -188,7 +128,6 @@ impl Rule {
 pub struct Grammar {
     symbols: Vec<Symbol>,
     symbol_by_name: FxHashMap<String, SymIdx>,
-    model_variables: FxHashMap<String, SymIdx>,
 }
 
 impl Grammar {
@@ -196,7 +135,6 @@ impl Grammar {
         Grammar {
             symbols: vec![],
             symbol_by_name: FxHashMap::default(),
-            model_variables: FxHashMap::default(),
         }
     }
 
@@ -265,21 +203,6 @@ impl Grammar {
 
     pub fn sym_props_mut(&mut self, sym: SymIdx) -> &mut SymbolProps {
         &mut self.sym_data_mut(sym).props
-    }
-
-    pub fn model_variable(&mut self, tok_env: &TokEnv, name: &str) -> Result<SymIdx> {
-        Ok(match self.model_variables.get(name) {
-            Some(sym) => *sym,
-            None => {
-                let sym = self.fresh_symbol(format!("M:{}", name).as_str());
-                self.sym_data_mut(sym).props.model_variable = Some(ModelVariable::from_string(
-                    name.to_string(),
-                    tok_env.tok_trie(),
-                )?);
-                self.model_variables.insert(name.to_string(), sym);
-                sym
-            }
-        })
     }
 
     pub fn sym_name(&self, sym: SymIdx) -> &str {
@@ -465,10 +388,8 @@ impl Grammar {
         Ok(())
     }
 
-    pub fn apply_props(&mut self, sym: SymIdx, mut props: SymbolProps) {
+    pub fn apply_props(&mut self, sym: SymIdx, props: SymbolProps) {
         let sym = self.sym_data_mut(sym);
-        assert!(props.model_variable.is_none());
-        props.model_variable = sym.props.model_variable.clone();
         if props.is_special() {
             assert!(!sym.is_terminal(), "special terminal");
         }

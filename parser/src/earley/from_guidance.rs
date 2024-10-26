@@ -119,7 +119,6 @@ fn grammar_from_json(
                 commit_point: false,
                 hidden: false,
                 max_tokens: props.max_tokens.unwrap_or(usize::MAX),
-                model_variable: None,
                 capture_name: props.capture_name.clone(),
                 temperature: 0.0,
                 stop_capture_name: None,

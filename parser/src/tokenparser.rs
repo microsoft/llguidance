@@ -3,8 +3,8 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     api::{GenGrammarOptions, ParserLimits, StopReason, TopLevelGrammar},
     earley::{
-        grammars_from_json, BiasComputer, CGrammar, CSymIdx, DefaultBiasComputer, ModelVariable,
-        Parser, ParserStats,
+        grammars_from_json, BiasComputer, CGrammar, CSymIdx, DefaultBiasComputer, Parser,
+        ParserStats,
     },
     infoln, warn, Logger,
 };
@@ -402,7 +402,7 @@ impl TokenParser {
 
         if arg.tokens.contains(&trie.eos_token()) {
             assert!(arg.tokens.len() == 1);
-            if self.parser.scan_model_variable(ModelVariable::eos_token(trie)) {
+            if self.parser.scan_eos() {
                 // it got scanned correctly, so we remove it
                 infoln!(self, "scanned eos_token");
                 arg.tokens.clear();

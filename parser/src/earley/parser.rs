@@ -24,7 +24,7 @@ use crate::{
 };
 
 use super::{
-    grammar::{CGrammar, CSymIdx, CSymbol, ModelVariable, RuleIdx},
+    grammar::{CGrammar, CSymIdx, CSymbol, RuleIdx},
     lexer::{LexerResult, PreLexeme},
     lexerspec::{Lexeme, LexemeIdx, LexerSpec},
 };
@@ -472,7 +472,9 @@ impl ParserState {
         self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
 
         // The SPECIAL_TOKEN_PREFIX_BYTE should never be allowed by itself
-        let toks = computer.trie().greedy_tokenize(&[TokTrie::SPECIAL_TOKEN_PREFIX_BYTE]);
+        let toks = computer
+            .trie()
+            .greedy_tokenize(&[TokTrie::SPECIAL_TOKEN_PREFIX_BYTE]);
         assert!(toks.len() == 1);
         set.disallow_token(toks[0]);
 
@@ -964,22 +966,6 @@ impl ParserState {
         &self.rows[self.lexer_state().row_idx as usize]
     }
 
-    pub fn model_variables(&mut self, shared: &mut SharedState) -> Vec<ModelVariable> {
-        self.run_speculative(|s| {
-            let mut vars = vec![];
-            if s.flush_lexer(shared) {
-                for sym_data in s.after_dots_symdata() {
-                    if let Some(ref mv) = sym_data.props.model_variable {
-                        if !vars.contains(mv) {
-                            vars.push(mv.clone());
-                        }
-                    }
-                }
-            }
-            vars
-        })
-    }
-
     fn forced_byte(&mut self, shared: &mut SharedState) -> Option<u8> {
         if self.is_accepting(shared) {
             debug!("  in accept state, not forcing");
@@ -1100,12 +1086,12 @@ impl ParserState {
         }
     }
 
-    pub fn scan_model_variable(&mut self, shared: &mut SharedState, mv: ModelVariable) -> bool {
+    pub fn scan_eos(&mut self, shared: &mut SharedState) -> bool {
         self.assert_definitive(); // ???
 
         let lexer_eos = self.lexer_allows_eos(shared);
 
-        debug!("  scan mv: {:?}; lexer_eos={}", mv, lexer_eos);
+        debug!("  scan eos: lexer_eos={}", lexer_eos);
 
         if !self.flush_lexer(shared) {
             debug!("  flush_lexer() failed");
@@ -1114,38 +1100,16 @@ impl ParserState {
 
         debug!("  flush_lexer() OK");
 
-        if mv.is_eos() {
-            if lexer_eos {
-                return true;
-            }
-            // This is really for EOS tokens in the middle of the grammar
-            // that need to be eaten; so don't check for accepting state here
-            // if self.is_accepting() {
-            //     return true;
-            // }
+        if lexer_eos {
+            return true;
         }
+        // This is really for EOS tokens in the middle of the grammar
+        // that need to be eaten; so don't check for accepting state here
+        // if self.is_accepting() {
+        //     return true;
+        // }
 
-        self.scratch.new_row(self.curr_row().last_item);
-
-        for idx in self.curr_row().item_indices() {
-            let item = self.scratch.items[idx];
-            let sym_data = self.grammar.sym_data_dot(item.rule_idx());
-            if let Some(ref mv2) = sym_data.props.model_variable {
-                if mv == *mv2 {
-                    self.scratch
-                        .add_unique(item.advance_dot(), idx, "scan_model_variable");
-                }
-            }
-        }
-
-        if self.scratch.row_len() == 0 {
-            debug!("  scan_model_variable: no items");
-            false
-        } else {
-            let r = self.push_row(self.num_rows(), self.scratch.row_start, &Lexeme::bogus());
-            debug!("  scan_model_variable: {}", r);
-            r
-        }
+        return false;
     }
 
     // this just copies current row
@@ -1747,17 +1711,6 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
     fn special_allowed(&mut self, _tok: SpecialToken) -> bool {
         // handle EOS logic outside
         unreachable!("special_allowed")
-
-        // if self
-        //     .model_variables()
-        //     .contains(&ModelVariable::SpecialToken(tok))
-        // {
-        //     true
-        // } else if tok == SpecialToken::EndOfSentence {
-        //     self.is_accepting() || self.lexer_allows_eos()
-        // } else {
-        //     false
-        // }
     }
 
     fn trie_started(&mut self) {
@@ -1883,9 +1836,9 @@ impl Parser {
         self.state.force_bytes(&mut shared)
     }
 
-    pub fn scan_model_variable(&mut self, mv: ModelVariable) -> bool {
+    pub fn scan_eos(&mut self) -> bool {
         let mut shared = self.shared.lock().unwrap();
-        self.state.scan_model_variable(&mut shared, mv)
+        self.state.scan_eos(&mut shared)
     }
 
     pub fn apply_tokens(
@@ -1925,12 +1878,6 @@ impl Parser {
 
     pub fn maybe_gen_grammar(&mut self) -> Option<(String, CSymIdx, GenGrammarOptions)> {
         self.state.maybe_gen_grammar()
-    }
-
-    // this can be used in future to allow "end-of-turn" special token and the like
-    pub fn model_variables(&mut self) -> Vec<ModelVariable> {
-        let mut shared = self.shared.lock().unwrap();
-        self.state.model_variables(&mut shared)
     }
 
     pub fn deep_clone(&self) -> Self {
