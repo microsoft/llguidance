@@ -150,21 +150,22 @@ impl ByteTokenizer {
         let char_map = build_char_map();
 
         for tok_id in 0..vocab_size {
-            if added.contains_key(&tok_id) {
-                continue;
-            }
             if let Some(tok_name) = res.hf_tokenizer.id_to_token(tok_id) {
-                if is_byte_fallback {
+                let bytes = if added.contains_key(&tok_id) {
+                    let mut bytes = tok_name.as_bytes().to_vec();
+                    bytes.insert(0, TokTrie::SPECIAL_TOKEN_PREFIX_BYTE);
+                    bytes
+                } else if is_byte_fallback {
                     if tok_name.len() == 6 && tok_name.starts_with("<0x") && tok_name.ends_with(">")
                     {
                         // parse hex number from tok_name
                         let hex_str = &tok_name[3..5];
                         let byte = u8::from_str_radix(hex_str, 16).unwrap();
-                        res.token_bytes[tok_id as usize] = vec![byte];
+                        vec![byte]
                     } else {
                         assert!(!tok_name.starts_with("<0x"));
                         let tok_name = tok_name.replace(space_ch, " ");
-                        res.token_bytes[tok_id as usize] = tok_name.as_bytes().to_vec();
+                        tok_name.as_bytes().to_vec()
                     }
                 } else if is_byte_level {
                     let bytes: Result<Vec<u8>> = tok_name
@@ -176,18 +177,17 @@ impl ByteTokenizer {
                                 .ok_or_else(|| anyhow!("missing char: {}", c))
                         })
                         .collect();
-                    let bytes = match bytes {
+                    match bytes {
                         Ok(b) => b,
                         Err(e) => {
-                            println!("error: {} for {:?}", e, tok_name);
+                            log::warn!("error: {} for {:?}", e, tok_name);
                             continue;
                         }
-                    };
-
-                    res.token_bytes[tok_id as usize] = bytes;
+                    }
                 } else {
                     panic!();
-                }
+                };
+                res.token_bytes[tok_id as usize] = bytes;
             } else {
                 log::warn!("missing token: {}", tok_id);
             }

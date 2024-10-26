@@ -103,13 +103,48 @@ pub trait Recognizer {
 }
 
 pub trait TokenizerEnv: Send {
+    /// Stop the program; not used.
+    // TODO remove this
     fn stop(&self) -> !;
+
+    /// Associated trie.
     fn tok_trie(&self) -> &TokTrie;
+
+    /// Tokenize a given byte sequence.
+    /// It may or may not interpret <|special_tokens|> as special.
     fn tokenize_bytes(&self, s: &[u8]) -> Vec<TokenId>;
 
+    /// Tokenize a given byte sequence.
+    /// It will interpret text starting with SPECIAL_TOKEN_PREFIX_BYTE as special tokens.
+    fn tokenize_bytes_prefix(&self, s: &[u8]) -> Vec<TokenId> {
+        if s.contains(&TokTrie::SPECIAL_TOKEN_PREFIX_BYTE) {
+            let copy = s
+                .iter()
+                .filter_map(|&b| {
+                    if b == TokTrie::SPECIAL_TOKEN_PREFIX_BYTE {
+                        None
+                    } else {
+                        Some(b)
+                    }
+                })
+                .collect::<Vec<_>>();
+            self.tokenize_bytes(&copy)
+        } else {
+            self.tokenize_bytes(s)
+        }
+    }
+
+    /// Tokenize a string coming from user. It may or may not interpret <|special_tokens|> as special.
     fn tokenize(&self, s: &str) -> Vec<TokenId> {
         self.tokenize_bytes(s.as_bytes())
     }
+
+    /// Tokenize a string. It will interpret <|special_tokens|> as special.
+    fn tokenize_special(&self, s: &str) -> Vec<TokenId> {
+        self.tokenize(s)
+    }
+
+    /// End of sentence token
     fn eos_token(&self) -> TokenId {
         self.tok_trie().eos_token()
     }
@@ -216,6 +251,8 @@ impl TrieNode {
 const LEN_BITS: u32 = 10;
 
 impl TokTrie {
+    pub const SPECIAL_TOKEN_PREFIX_BYTE: u8 = 0xff;
+
     pub fn from(info: &TokRxInfo, words: &Vec<Vec<u8>>) -> Self {
         let mut trie = TrieHash::new(0xff);
         let mut token_offsets = Vec::new();
@@ -393,14 +430,19 @@ impl TokTrie {
             format!("OOB[{}]", idx)
         } else {
             // format!("{:?}[{}]", self.token_str(idx), idx)
-            let s = self.token_str(idx);
-            if s.len() == 0 {
-                format!("EMPTY[{}]", idx)
-            } else if !s.contains('\u{fffd}') {
-                format!("{:?}", s)
+            let bytes = self.token(idx);
+            if bytes.len() > 1 && bytes[0] == TokTrie::SPECIAL_TOKEN_PREFIX_BYTE {
+                String::from_utf8_lossy(&bytes[1..]).to_string()
             } else {
-                let bytes = self.token(idx);
-                format!("HEX[{}]", to_hex_string(bytes))
+                let s = String::from_utf8_lossy(bytes);
+                if s.len() == 0 {
+                    format!("EMPTY[{}]", idx)
+                } else if !s.contains('\u{fffd}') {
+                    format!("{:?}", s)
+                } else {
+                    let bytes = self.token(idx);
+                    format!("HEX[{}]", to_hex_string(bytes))
+                }
             }
         }
     }
@@ -420,6 +462,14 @@ impl TokTrie {
     }
 
     pub fn decode(&self, tokens: &[TokenId]) -> Vec<u8> {
+        let mut bytes = self.decode_raw(tokens);
+        if bytes.contains(&TokTrie::SPECIAL_TOKEN_PREFIX_BYTE) {
+            bytes.retain(|&b| b != TokTrie::SPECIAL_TOKEN_PREFIX_BYTE);
+        }
+        bytes
+    }
+
+    pub fn decode_raw(&self, tokens: &[TokenId]) -> Vec<u8> {
         tokens
             .iter()
             .flat_map(|t| self.token(*t).to_vec())
@@ -428,6 +478,32 @@ impl TokTrie {
 
     pub fn decode_str(&self, tokens: &[TokenId]) -> String {
         String::from_utf8_lossy(&self.decode(tokens)).to_string()
+    }
+
+    pub fn get_special_token(&self, name: &str) -> Option<TokenId> {
+        self.child_at_byte(self.root(), TokTrie::SPECIAL_TOKEN_PREFIX_BYTE)
+            .and_then(|n| {
+                self.child_at_bytes(n, name.as_bytes())
+                    .and_then(|n| n.token_id())
+            })
+    }
+
+    pub fn get_special_tokens(&self) -> Vec<TokenId> {
+        let mut res = Vec::new();
+        let pref_node = self
+            .child_at_byte(self.root(), TokTrie::SPECIAL_TOKEN_PREFIX_BYTE)
+            .expect("missing special token prefix");
+        let mut stack = vec![pref_node];
+        while let Some(n) = stack.pop() {
+            for c in self.node_children(n) {
+                if let Some(tok) = c.token_id() {
+                    res.push(tok);
+                }
+                stack.push(c);
+            }
+        }
+        res.remove(0);
+        res
     }
 
     pub fn greedy_tokenize(&self, bytes: &[u8]) -> Vec<TokenId> {
