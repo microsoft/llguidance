@@ -290,6 +290,8 @@ impl Scratch {
         self.row_end - self.row_start
     }
 
+    // Add a new row to the Earley table.  It will be the
+    // current, working, row.
     fn work_row(&self, allowed_lexemes: SimpleVob) -> Row {
         Row {
             first_item: self.row_start,
@@ -309,17 +311,20 @@ impl Scratch {
         }
     }
 
+    // Deprecated, along with the other code which manages the "hidden"
+    // feature.  It is being keep as a stub in case other properties on
+    // productions are desired.
     #[inline(always)]
     fn merge_item_origin(&mut self, target_item_idx: usize, origin_item_idx: usize) {
         let origin = self.item_props[origin_item_idx].clone();
         self.item_props[target_item_idx].merge(origin);
     }
 
-    // Add an Earley item to the Earley table.  It is "just" added in the sense
-    // that no checks are performed, except the one that ensures there is enough
-    // space in the table.  The other checks are assumed to be unnecessary
-    // or to have been performed.  For example, it is assumed the caller knows
-    // that this Earley item will be unique.
+    // Add a new Earley item with default values to the Earley table.  It is
+    // "just" added in the sense that no checks are performed, except the one
+    // that ensures there is enough space in the table.  The other checks are
+    // assumed to be unnecessary or to have been performed.  For example, it
+    // is assumed the caller knows that this Earley item will be unique.
     #[inline(always)]
     fn just_add(&mut self, item: Item, origin_item_idx: usize, info: &str) {
         self.ensure_items(self.row_end + 1);
@@ -345,6 +350,7 @@ impl Scratch {
         self.row_end += 1;
     }
 
+    // Find 'item' in the current, working, row.
     #[inline(always)]
     fn find_item(&self, item: Item) -> Option<usize> {
         self.items[self.row_start..self.row_end]
@@ -379,6 +385,7 @@ impl Scratch {
         }
     }
 
+    // Write item at index 'idx' as a string.
     fn item_to_string(&self, idx: usize) -> String {
         let r = item_to_string(&self.grammar, &self.items[idx]);
         if self.definitive {
@@ -397,6 +404,9 @@ macro_rules! ensure_internal {
 }
 
 impl ParserState {
+
+    // Create a new state for an empty parser.
+    // Only called in definitive mode.
     fn new(
         grammar: Arc<CGrammar>,
         options: GenGrammarOptions,
@@ -427,6 +437,9 @@ impl ParserState {
                 byte: None,
             }],
         };
+
+        // Initialize the Earley table with the predictions in
+        // row 0.
         for rule in r.grammar.rules_of(start).to_vec() {
             r.scratch.add_unique(Item::new(rule, 0), 0, "init");
         }
@@ -437,13 +450,18 @@ impl ParserState {
             "initial push failed"
         );
         assert!(r.lexer_stack.len() == 1);
-        // set the correct initial lexer state
+
+        // Set the correct initial lexer state
+        
         if !r.grammar.lexer_spec().allow_initial_skip {
-            // disallow initial SKIP if asked to
+            // Disallow initial SKIP if asked to.
+            // This is done, for example, we are trying to force
+            // the generation of JSON to start.
             r.rows[0]
                 .allowed_lexemes
                 .set(LexemeIdx::SKIP.as_usize(), false);
         }
+
         let state = lexer.start_state(&r.rows[0].allowed_lexemes, None);
         r.lexer_stack[0].lexer_state = state;
         r.assert_definitive();
