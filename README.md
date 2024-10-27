@@ -8,7 +8,7 @@ The constraints are typically expressed on strings or bytes, not tokens.
 To compute the set of tokens that match a string constraint, one needs go through all the possible tokens
 and apply the constraint.
 An efficient way to do this is walk a prefix tree (trie) of all tokens.
-This library implements this trie and exposes a way of filtering when provided with a constraints
+This library implements this trie and exposes a way of filtering when provided with a constraint
 implementing the [following interface](core/src/toktree.rs):
 
 ```rust
