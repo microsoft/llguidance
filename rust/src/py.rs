@@ -35,7 +35,6 @@ impl LLInterpreter {
         llguidance_json: &str,
         enable_backtrack: Option<bool>,
         enable_ff_tokens: Option<bool>,
-        enable_conditional_ff_tokens: Option<bool>,
         log_level: Option<isize>,
     ) -> PyResult<Self> {
         let env = tokenizer.clone();
@@ -44,7 +43,7 @@ impl LLInterpreter {
         let inference_caps = InferenceCapabilities {
             backtrack: enable_backtrack.unwrap_or(true),
             ff_tokens: enable_ff_tokens.unwrap_or(true),
-            conditional_ff_tokens: enable_conditional_ff_tokens.unwrap_or(true),
+            conditional_ff_tokens: enable_ff_tokens.unwrap_or(true),
             fork: false,
         };
         let logger = Logger::new(0, std::cmp::max(0, log_level) as u32);

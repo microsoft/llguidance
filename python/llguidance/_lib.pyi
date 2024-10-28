@@ -66,7 +66,6 @@ class LLInterpreter:
         llguidance_json: str,
         enable_backtrack: bool = True,
         enable_ff_tokens: bool = True,
-        enable_conditional_ff_tokens: bool = True,
         log_level: int = 1,
     ) -> "LLInterpreter":
         """
@@ -76,7 +75,6 @@ class LLInterpreter:
             llguidance_json: str - the JSON representation of the AG2 grammar/constraint
             enable_backtrack: bool - whether to enable backtracking in the interpreter
             enable_ff_tokens: bool - whether to enable fast-forwarded tokens in the interpreter
-            enable_conditional_ff_tokens: bool - whether to enable conditional fast-forwarded tokens in the interpreter
             log_level: int - the verbosity level of the interpreter
                 0 is silent, 1 is warnings, 2 is verbose
         """
