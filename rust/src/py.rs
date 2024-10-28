@@ -33,15 +33,17 @@ impl LLInterpreter {
     fn py_new(
         tokenizer: &LLTokenizer,
         llguidance_json: &str,
+        enable_backtrack: Option<bool>,
+        enable_ff_tokens: Option<bool>,
         log_level: Option<isize>,
     ) -> PyResult<Self> {
         let env = tokenizer.clone();
         let arg: TopLevelGrammar = serde_json::from_str(llguidance_json).map_err(val_error)?;
         let log_level = log_level.unwrap_or(1);
         let inference_caps = InferenceCapabilities {
-            backtrack: true,
-            ff_tokens: true,
-            conditional_ff_tokens: true,
+            backtrack: enable_backtrack.unwrap_or(true),
+            ff_tokens: enable_ff_tokens.unwrap_or(true),
+            conditional_ff_tokens: enable_ff_tokens.unwrap_or(true),
             fork: false,
         };
         let logger = Logger::new(0, std::cmp::max(0, log_level) as u32);
