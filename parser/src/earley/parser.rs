@@ -406,7 +406,7 @@ macro_rules! ensure_internal {
 impl ParserState {
 
     // Create a new state for an empty parser.
-    // Only called in definitive mode.
+    // The parser starts in definitive mode.
     fn new(
         grammar: Arc<CGrammar>,
         options: GenGrammarOptions,
