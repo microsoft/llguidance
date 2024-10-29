@@ -6,7 +6,7 @@
 
 use std::{
     collections::HashMap,
-    fmt::{Debug, Display},
+    fmt::Debug,
     hash::Hash,
     ops::Range,
     sync::{Arc, Mutex},
@@ -53,40 +53,6 @@ struct Item {
     data: u64,
 }
 
-// These are only tracked in definitive mode
-#[derive(Debug, Clone)]
-struct ItemProps {
-    // TODO remove; we're no longer using this
-    hidden_start: usize,
-}
-
-impl Display for ItemProps {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // hidden feature is deprecated in the parser
-        if self.hidden_start == usize::MAX {
-            write!(f, "")
-        } else {
-            write!(f, "(hidden_start {})", self.hidden_start)
-        }
-    }
-}
-
-impl Default for ItemProps {
-    fn default() -> Self {
-        ItemProps {
-            // hidden feature is deprecated in the parser
-            hidden_start: usize::MAX,
-        }
-    }
-}
-
-impl ItemProps {
-    fn merge(&mut self, other: ItemProps) {
-        // hidden feature is deprecated in the parser
-        self.hidden_start = self.hidden_start.min(other.hidden_start);
-    }
-}
-
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ParserStats {
     pub rows: usize,
@@ -95,9 +61,6 @@ pub struct ParserStats {
     pub num_lex_errors: usize,
     pub num_lexemes: usize,
     pub all_items: usize,
-
-    // hidden feature is deprecated in the parser
-    pub hidden_bytes: usize,
 
     pub lexer_cost: u64,
 }
@@ -111,9 +74,6 @@ impl ParserStats {
             num_lexemes: self.num_lexemes - previous.num_lexemes,
             num_lex_errors: self.num_lex_errors - previous.num_lex_errors,
             all_items: self.all_items - previous.all_items,
-
-            // hidden feature is deprecated in the parser
-            hidden_bytes: self.hidden_bytes - previous.hidden_bytes,
 
             lexer_cost: self.lexer_cost - previous.lexer_cost,
         }
@@ -178,7 +138,6 @@ struct Scratch {
     row_end: usize,
 
     items: Vec<Item>,
-    item_props: Vec<ItemProps>,
 
     // Is this Earley table in "definitive" mode?
     // 'definitive' is set when the LLM is adding new tokens --
@@ -273,7 +232,6 @@ impl Scratch {
             row_start: 0,
             row_end: 0,
             items: vec![],
-            item_props: vec![],
             definitive: true,
         }
     }
@@ -311,22 +269,13 @@ impl Scratch {
         }
     }
 
-    // Deprecated, along with the other code which manages the "hidden"
-    // feature.  It is being keep as a stub in case other properties on
-    // productions are desired.
-    #[inline(always)]
-    fn merge_item_origin(&mut self, target_item_idx: usize, origin_item_idx: usize) {
-        let origin = self.item_props[origin_item_idx].clone();
-        self.item_props[target_item_idx].merge(origin);
-    }
-
     // Add a new Earley item with default values to the Earley table.  It is
     // "just" added in the sense that no checks are performed, except the one
     // that ensures there is enough space in the table.  The other checks are
     // assumed to be unnecessary or to have been performed.  For example, it
     // is assumed the caller knows that this Earley item will be unique.
     #[inline(always)]
-    fn just_add(&mut self, item: Item, origin_item_idx: usize, info: &str) {
+    fn just_add(&mut self, item: Item, _origin_item_idx: usize, info: &str) {
         self.ensure_items(self.row_end + 1);
         // SAFETY: we just ensured that there is enough space
         unsafe {
@@ -334,13 +283,6 @@ impl Scratch {
         }
         // self.items[self.row_end] = item;
         if self.definitive {
-            if self.item_props.len() <= self.row_end {
-                self.item_props.push(ItemProps::default());
-            } else {
-                self.item_props[self.row_end] = ItemProps::default();
-            }
-            self.merge_item_origin(self.row_end, origin_item_idx);
-
             debug!(
                 "      addu: {} ({})",
                 self.item_to_string(self.row_end),
@@ -359,41 +301,19 @@ impl Scratch {
             .map(|x| x + self.row_start)
     }
 
-    // hidden feature is deprecated in the parser
-    fn set_hidden_start(&mut self, item: Item, hidden_start: usize) {
-        let idx = self.find_item(item).unwrap();
-        self.item_props[idx].hidden_start =
-            std::cmp::min(self.item_props[idx].hidden_start, hidden_start);
-        debug!(
-            "      hidden: {} {}",
-            hidden_start,
-            self.item_to_string(idx),
-        );
-    }
-
     // Ensure that Earley table 'self' contains
     // Earley item 'item'.  That is, look for 'item' in 'self',
     // and add 'item' to 'self' if it is not there already.
     #[inline(always)]
     fn add_unique(&mut self, item: Item, origin_item_idx: usize, info: &str) {
-        if let Some(idx) = self.find_item(item) {
-            if self.definitive {
-                self.merge_item_origin(idx, origin_item_idx);
-            }
-        } else {
+        if self.find_item(item).is_none() {
             self.just_add(item, origin_item_idx, info);
         }
     }
 
     // Write item at index 'idx' as a string.
     fn item_to_string(&self, idx: usize) -> String {
-        let r = item_to_string(&self.grammar, &self.items[idx]);
-        if self.definitive {
-            let props = &self.item_props[idx];
-            format!("{} {}", r, props)
-        } else {
-            r
-        }
+        item_to_string(&self.grammar, &self.items[idx])
     }
 }
 
@@ -404,7 +324,6 @@ macro_rules! ensure_internal {
 }
 
 impl ParserState {
-
     // Create a new state for an empty parser.
     // The parser starts in definitive mode.
     fn new(
@@ -452,7 +371,7 @@ impl ParserState {
         assert!(r.lexer_stack.len() == 1);
 
         // Set the correct initial lexer state
-        
+
         if !r.grammar.lexer_spec().allow_initial_skip {
             // Disallow initial SKIP if asked to.
             // This is done, for example, we are trying to force
@@ -666,7 +585,6 @@ impl ParserState {
         self.grammar.sym_data(self.item_lhs(item))
     }
 
-    // hidden feature is deprecated in the parser
     fn hidden_start(&self, shared: &mut SharedState) -> usize {
         let hidden_len = shared
             .lexer
@@ -847,7 +765,6 @@ impl ParserState {
             self.rows[idx].first_item = dst;
             for i in range {
                 let item = self.scratch.items[i];
-                let item_props = &self.scratch.item_props[i];
                 let sym_data = self.item_sym_data(&item);
                 let max_tokens = sym_data.props.max_tokens;
                 if max_tokens != usize::MAX {
@@ -863,7 +780,6 @@ impl ParserState {
                     }
                 }
                 self.scratch.items[dst] = item;
-                self.scratch.item_props[dst] = item_props.clone();
                 dst += 1;
             }
             self.rows[idx].last_item = dst;
@@ -1322,14 +1238,6 @@ impl ParserState {
                     let new_item = Item::new(*rule, curr_idx);
                     self.scratch.add_unique(new_item, item_idx, "predict");
                 }
-
-                // TODO the hidden stuff is no longer used
-                if self.scratch.definitive && sym_data.props.hidden {
-                    for rule in &sym_data.rules {
-                        let new_item = Item::new(*rule, curr_idx);
-                        self.scratch.set_hidden_start(new_item, curr_idx);
-                    }
-                }
             }
         }
 
@@ -1520,7 +1428,7 @@ impl ParserState {
         let hidden_bytes = lexeme.hidden_bytes();
         assert!(hidden_bytes.len() == pre_lexeme.hidden_len);
 
-        if true || self.scratch.definitive {
+        if self.scratch.definitive {
             trace!(
                 "  hidden_bytes: {} {}",
                 self.lexer_spec().dbg_lexeme_set(added_row_lexemes),
@@ -1529,14 +1437,13 @@ impl ParserState {
         }
 
         if self.has_forced_bytes(added_row_lexemes, &hidden_bytes) {
-            if true || self.scratch.definitive {
+            if self.scratch.definitive {
                 trace!("  hidden forced");
             }
             let mut lexer_state = shared.lexer.start_state(added_row_lexemes, None);
             // if the bytes are forced, we just advance the lexer
             // by replacing the top lexer states
             self.pop_lexer_states(hidden_bytes.len() - 1);
-            self.stats.hidden_bytes += hidden_bytes.len();
             for b in hidden_bytes {
                 match shared
                     .lexer
@@ -1813,7 +1720,6 @@ impl Parser {
         self.state.captures = std::mem::take(&mut other.state.captures);
     }
 
-    // hidden feature is deprecated in the parser
     pub fn hidden_start(&self) -> usize {
         let mut shared = self.shared.lock().unwrap();
         self.state.hidden_start(&mut shared)
