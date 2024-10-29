@@ -1165,7 +1165,6 @@ impl ParserState {
                         .as_ref()
                         .unwrap();
 
-                    // hidden feature is deprecated in the parser
                     let bytes = lexeme.hidden_bytes();
                     self.captures.push((var_name.clone(), bytes.to_vec()));
                 }
@@ -1351,7 +1350,6 @@ impl ParserState {
             bytes.push(byte.unwrap());
         }
 
-        // hidden feature is deprecated in the parser
         Lexeme::new(pre_lexeme.idx, bytes, pre_lexeme.hidden_len)
     }
 
@@ -1389,7 +1387,6 @@ impl ParserState {
         let added_row = self.num_rows();
         let added_row_lexemes = &self.rows[added_row].allowed_lexemes;
 
-        // hidden feature is deprecated in the parser
         let no_hidden = LexerState {
             row_idx: added_row as u32,
             lexer_state: shared.lexer.start_state(added_row_lexemes, transition_byte),
@@ -1407,11 +1404,9 @@ impl ParserState {
             );
         }
 
-        // hidden feature is deprecated in the parser
         no_hidden
     }
 
-    // hidden feature is deprecated in the parser
     #[inline(always)]
     fn handle_hidden_bytes(
         &mut self,
@@ -1520,11 +1515,9 @@ impl ParserState {
         };
 
         if scan_res {
-            // hidden feature is deprecated in the parser
             let mut no_hidden = self.lexer_state_for_added_row(shared, lexeme, transition_byte);
 
             if pre_lexeme.hidden_len > 0 {
-                // hidden feature is deprecated in the parser
                 self.handle_hidden_bytes(shared, no_hidden, lexeme_byte, pre_lexeme);
             } else {
                 if pre_lexeme.byte_next_row && no_hidden.lexer_state.is_dead() {
