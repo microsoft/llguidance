@@ -188,6 +188,16 @@ impl RowInfo {
 //     row_idx = scan(top.row_idx, next_lexeme)
 //     push(LexerState { row_idx, next_byte, next_lexer_state })
 // }
+//
+// The LLM thinks in tokens, while the parser only deals with lexemes.
+// There is no easy translation between these, and the parser cannot work
+// with tokens. On the other hand, forcing the LLM to deal with lexemes will increase
+// token perplexity and degrade the quality of the LLM's output.
+//
+// The data structure used to resolve this "impedance mismatch" is a stack of 'LexerState' items.
+// Tokens are broken down into single bytes when they go into this stack,
+// and the bytes are assembled into lexemes when the 'LexerState' items are
+// removed from the stack.
 #[derive(Clone, Copy)]
 struct LexerState {
     row_idx: u32,
@@ -1323,6 +1333,8 @@ impl ParserState {
         }
     }
 
+    // curr_row_bytes() looks in the lexer stack, and returns
+    // the bytes for the current row as a 'Vec'.
     #[inline(always)]
     fn curr_row_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![];
@@ -1343,6 +1355,8 @@ impl ParserState {
         self.grammar.lexer_spec()
     }
 
+    // mk_lexeme() converts the pre-lexemes for the current row into
+    // a lexeme, and returns it.
     #[inline(always)]
     fn mk_lexeme(&self, byte: Option<u8>, pre_lexeme: PreLexeme) -> Lexeme {
         let mut bytes = self.curr_row_bytes();
