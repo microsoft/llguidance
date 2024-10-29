@@ -1625,6 +1625,12 @@ impl BiasComputer for DefaultBiasComputer {
     }
 }
 
+// Processing of the parser and the lexer is heavily interlocked.
+// The 'Recognizer' trait is used as the interface for this.
+// See the documentation for TokTrie in README.md and implementation.md:
+// https://github.com/microsoft/toktrie/tree/972825d6c2090de141e948154a48ed31816c3217
+// and
+// https://github.com/microsoft/toktrie/blob/972825d6c2090de141e948154a48ed31816c3217/implementation.md .
 impl<'a> Recognizer for ParserRecognizer<'a> {
     #[inline(always)]
     fn pop_bytes(&mut self, num: usize) {
@@ -1729,6 +1735,10 @@ impl Parser {
         self.state.captures = std::mem::take(&mut other.state.captures);
     }
 
+    // The "hidden" feature must be supported for historical reasons.
+    // It is used for 'gen(stop="foo')'.  The result of this 'gen'
+    // must not include 'foo', even though the LLM generated 'foo'.
+    // The bytes in 'foo' are therefore said to be "hidden".
     pub fn hidden_start(&self) -> usize {
         let mut shared = self.shared.lock().unwrap();
         self.state.hidden_start(&mut shared)
