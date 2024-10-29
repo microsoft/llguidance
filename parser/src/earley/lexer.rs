@@ -27,11 +27,14 @@ pub struct Lexer {
 
 pub type StateID = derivre::StateID;
 
+/// PreLexeme contains index of the lexeme but not the bytes.
 #[derive(Debug, Clone, Copy)]
 pub struct PreLexeme {
     pub idx: LexemeIdx,
     pub byte: Option<u8>,
+    /// Does the 'byte' above belong to the next lexeme?
     pub byte_next_row: bool,
+    /// Length in bytes of the hidden part of the lexeme.
     pub hidden_len: usize,
 }
 

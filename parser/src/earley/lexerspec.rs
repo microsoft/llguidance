@@ -28,6 +28,9 @@ pub struct LexemeSpec {
     json_options: Option<JsonQuoteOptions>,
 }
 
+/// LexemeIdx is an index into the lexeme table.
+/// It corresponds to a category like IDENTIFIER or STRING,
+/// or to a very specific lexeme like WHILE or MULTIPLY.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct LexemeIdx(usize);
 

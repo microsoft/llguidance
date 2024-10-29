@@ -1355,8 +1355,8 @@ impl ParserState {
         self.grammar.lexer_spec()
     }
 
-    // mk_lexeme() converts the pre-lexemes for the current row into
-    // a lexeme, and returns it.
+    // mk_lexeme() converts a pre-lexeme for the current row into
+    // a lexeme (ie., it determines the bytes that go into the lexeme), and returns it.
     #[inline(always)]
     fn mk_lexeme(&self, byte: Option<u8>, pre_lexeme: PreLexeme) -> Lexeme {
         let mut bytes = self.curr_row_bytes();
@@ -1501,11 +1501,13 @@ impl ParserState {
     // This is never inlined anyways, so better make it formal
     #[inline(never)]
     fn advance_parser(&mut self, shared: &mut SharedState, pre_lexeme: PreLexeme) -> bool {
+        // this byte will be applied to the next lexeme
         let transition_byte = if pre_lexeme.byte_next_row {
             pre_lexeme.byte
         } else {
             None
         };
+        // this is the last byte of the lexeme
         let lexeme_byte = if pre_lexeme.byte_next_row {
             None
         } else {
