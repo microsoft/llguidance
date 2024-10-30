@@ -140,10 +140,10 @@ struct Scratch {
     items: Vec<Item>,
 
     // Is this Earley table in "definitive" mode?
-    // 'definitive' is set when the LLM is adding new tokens --
-    // when new tokens are being 'defined'.  The opposite of
+    // 'definitive' is set when the parser is adding a lexeme --
+    // when the new lexeme is being 'defined'.  The opposite of
     // definitive mode is "speculative" mode, which is used
-    // for computing the token mask.
+    // for computing the token mask on the pre-lexemes.
     definitive: bool,
 }
 
@@ -1662,6 +1662,11 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
         self.state.trie_finished_inner();
     }
 
+    // try_push_byte() is the "speculative" version of try_push_byte_definitive().
+    // It attempts to advance the lexer and parser one byte.  It returns true
+    // if it succeeds in doing this, true otherwise.  It is often invoked indirectly by the
+    // add_bias_inner() method of TokTrie.  In this file, that can happen via the add_bias()
+    // and the various compute_bias() methods.
     #[inline(always)]
     fn try_push_byte(&mut self, byte: u8) -> bool {
         let stats = false;
