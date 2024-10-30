@@ -120,6 +120,10 @@ impl LLInterpreter {
     fn post_process(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
         self.advance_parser(sampled_token)
     }
+
+    fn has_pending_stop(&self) -> bool {
+        self.inner.has_pending_stop()
+    }
 }
 
 #[derive(Serialize, Deserialize)]

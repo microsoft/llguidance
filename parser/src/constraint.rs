@@ -118,6 +118,10 @@ impl Constraint {
         Ok(())
     }
 
+    pub fn has_pending_stop(&self) -> bool {
+        self.delayed_stop
+    }
+
     /// This computes token sampling mask.
     /// It typically takes up to a millisecond for a 100k tokenizer.
     /// It will return an error when the order of calls is violated.

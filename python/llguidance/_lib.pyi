@@ -135,3 +135,7 @@ class LLInterpreter:
         This is experimental and breaks tests when used instead of post_process().
         """
 
+    def has_pending_stop(self) -> bool:
+        """
+        If true, next mid_process() call will return stop
+        """
