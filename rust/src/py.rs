@@ -27,6 +27,7 @@ struct LLTokenizer {
     tok_bos: Option<u32>,
 }
 
+// This is the interface from llguidance to the LLM's.
 #[pymethods]
 impl LLInterpreter {
     #[new]
