@@ -3,12 +3,12 @@
 This crate implements a parser for llguidance grammars.
 
 The main entry point is the [Constraint struct](./src/constraint.rs).
-You will a token parser, built with
+You will need a token parser, built with
 [TokenParser::from_llguidance_json](./src/tokenparser.rs#L64).
 This in turn requires a JSON-encoded grammar,
 see [TopLevelGrammar struct](./src/api.rs).
 
-If you're dealing with complation (non-chat) model,
+If you're dealing with a compilation (non-chat) model,
 call `constraint.process_prompt()` first.
 
 Once you have a constraint, do the following in a loop:
@@ -18,7 +18,7 @@ Once you have a constraint, do the following in a loop:
 - append all the tokens returned to your output (if you enabled `ff_tokens`,
   more than one token can be returned)
 
-If either `compute_mask()` or `commit_token()` return stop result, you need to terminate
+If either `compute_mask()` or `commit_token()` return a stop result, you need to terminate
 the sequence.
 
 If you're accepting arbitrary grammars, you likely should stream the parser
