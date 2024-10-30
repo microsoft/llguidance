@@ -1628,7 +1628,7 @@ impl BiasComputer for DefaultBiasComputer {
 // Processing of the parser and the lexer is heavily interlocked.
 // The 'Recognizer' trait is used as the interface for this.
 // See the documentation for TokTrie in README.md and implementation.md:
-// https://github.com/microsoft/toktrie/tree/972825d6c2090de141e948154a48ed31816c3217
+// https://github.com/microsoft/toktrie
 // and
 // https://github.com/microsoft/toktrie/blob/972825d6c2090de141e948154a48ed31816c3217/implementation.md .
 impl<'a> Recognizer for ParserRecognizer<'a> {
