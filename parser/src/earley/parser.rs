@@ -215,7 +215,7 @@ struct ParserState {
     rows: Vec<Row>,
     row_infos: Vec<RowInfo>,
     stats: ParserStats,
-    last_collapse: usize,
+    last_collapse: usize, // In this parser, collapse() is unused
     token_idx: usize,
     byte_idx: usize,
     options: GenGrammarOptions,
@@ -1640,6 +1640,7 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
         self.state.pop_lexer_states(num);
     }
 
+    // For this Earley parser, collapse does nothing -- it is a no-op
     fn collapse(&mut self) {
         // this actually means "commit" - can no longer backtrack past this point
 
