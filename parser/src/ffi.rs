@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Result};
 use toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenizerEnv};
 
 use crate::{
@@ -22,28 +22,32 @@ unsafe impl Sync for CTokenizerInner {}
 
 impl CTokenizerInner {
     fn raw_tokenize(&self, s: &[u8]) -> Vec<toktrie::TokenId> {
-        let mut res_toks = vec![0; s.len() / 4 + 5];
-        let n_toks = (self.tokenize_fn)(
-            self.tokenize_user_data,
-            s.as_ptr(),
-            s.len(),
-            res_toks.as_mut_ptr(),
-            res_toks.len(),
-        );
-
-        if n_toks > res_toks.len() {
-            res_toks.resize(n_toks, 0);
-            (self.tokenize_fn)(
+        if let Some(tokenize_fn) = self.tokenize_fn {
+            let mut res_toks = vec![0; s.len() / 4 + 5];
+            let n_toks = tokenize_fn(
                 self.tokenize_user_data,
                 s.as_ptr(),
                 s.len(),
                 res_toks.as_mut_ptr(),
                 res_toks.len(),
             );
-        }
 
-        res_toks.truncate(n_toks);
-        res_toks
+            if n_toks > res_toks.len() {
+                res_toks.resize(n_toks, 0);
+                tokenize_fn(
+                    self.tokenize_user_data,
+                    s.as_ptr(),
+                    s.len(),
+                    res_toks.as_mut_ptr(),
+                    res_toks.len(),
+                );
+            }
+
+            res_toks.truncate(n_toks);
+            res_toks
+        } else {
+            self.trie.greedy_tokenize(s)
+        }
     }
 }
 
@@ -71,30 +75,57 @@ pub struct LlgTokenizer {
 }
 
 impl LlgTokenizer {
-    fn from_init(init: &LlgTokenizerInit) -> Self {
-        let token_lens =
-            unsafe { std::slice::from_raw_parts(init.token_lens, init.vocab_size as usize) };
-        let total_len = token_lens.iter().sum::<u32>();
-        let token_bytes =
-            unsafe { std::slice::from_raw_parts(init.token_bytes, total_len as usize) };
+    fn from_init(init: &LlgTokenizerInit) -> Result<Self> {
+        ensure!(
+            init.tokenize_fn.is_some() || init.use_approximate_greedy_tokenize_fn,
+            "Either tokenize_fn or use_approximate_greedy_tokenize_fn must be set"
+        );
+        let tokens = if init.tokenizer_json.is_null() {
+            ensure!(
+                !init.token_lens.is_null() && !init.token_bytes.is_null(),
+                "token_lens and token_bytes must be set"
+            );
+            let token_lens =
+                unsafe { std::slice::from_raw_parts(init.token_lens, init.vocab_size as usize) };
+            let total_len = token_lens.iter().sum::<u32>();
+            let token_bytes =
+                unsafe { std::slice::from_raw_parts(init.token_bytes, total_len as usize) };
 
-        let mut tokens = vec![];
-        let mut ptr = 0;
-        for len in token_lens {
-            let token = &token_bytes[ptr..ptr + *len as usize];
-            tokens.push(token.to_vec());
-            ptr += *len as usize;
-        }
-        let trie = TokTrie::from(&TokRxInfo::new(init.vocab_size, init.tok_eos), &tokens);
+            let mut tokens = vec![];
+            let mut ptr = 0;
+            for len in token_lens {
+                let token = &token_bytes[ptr..ptr + *len as usize];
+                tokens.push(token.to_vec());
+                ptr += *len as usize;
+            }
+            tokens
+        } else {
+            let tokenizer_json = unsafe { CStr::from_ptr(init.tokenizer_json) }
+                .to_str()
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in tokenizer_json"))?;
+            let tokenizer_json = serde_json::from_str(tokenizer_json)
+                .map_err(|e| anyhow::anyhow!("Invalid JSON in tokenizer_json: {e}"))?;
+            let mut token_bytes =
+                crate::tokenizer_json::token_bytes_from_tokenizer_json(&tokenizer_json)?;
 
-        LlgTokenizer {
+            let sz = init.vocab_size as usize;
+            if token_bytes.len() < sz {
+                token_bytes.resize(sz, vec![]);
+            }
+
+            token_bytes
+        };
+
+        let trie = TokTrie::from(&TokRxInfo::new(tokens.len() as u32, init.tok_eos), &tokens);
+
+        Ok(LlgTokenizer {
             token_env: Arc::new(CTokenizerInner {
                 trie,
-                tokenize_assumes_string: init.tokenize_assumes_string,
+                tokenize_assumes_string: init.tokenize_assumes_string && init.tokenize_fn.is_some(),
                 tokenize_fn: init.tokenize_fn,
                 tokenize_user_data: init.tokenize_user_data,
             }),
-        }
+        })
     }
 
     fn to_env(&self) -> TokEnv {
@@ -108,13 +139,15 @@ pub type LlgToken = u32;
 /// Will not write more than output_tokens_len tokens (which can be 0)
 /// Returns the total number of tokens (which can be more than output_tokens_len)
 /// This function has to be thread-safe!
-pub type LlgTokenizeFn = extern "C" fn(
-    user_data: *const c_void,
-    bytes: *const u8,
-    bytes_len: usize,
-    output_tokens: *mut u32,
-    output_tokens_len: usize,
-) -> usize;
+pub type LlgTokenizeFn = Option<
+    extern "C" fn(
+        user_data: *const c_void,
+        bytes: *const u8,
+        bytes_len: usize,
+        output_tokens: *mut u32,
+        output_tokens_len: usize,
+    ) -> usize,
+>;
 
 #[repr(C)]
 pub struct LlgTokenizerInit {
@@ -132,6 +165,10 @@ pub struct LlgTokenizerInit {
     /// The length of this the sum of all token_lens
     pub token_bytes: *const u8,
 
+    /// Instead of passing token_lens and token_bytes, this can be set to
+    /// the contents of HF tokenizer.json file.
+    pub tokenizer_json: *const c_char,
+
     /// Set to true to enable hack that works around the tokenize_fn only
     /// accepting valid UTF-8 strings and possibly adding <BOS> etc.
     /// TODO: the <BOS> bit not implemented yet
@@ -143,6 +180,10 @@ pub struct LlgTokenizerInit {
     /// invalid UTF-8. If this is not the case, set tokenize_assumes_string to true.
     /// Either way, this function has to be thread-safe!
     pub tokenize_fn: LlgTokenizeFn,
+
+    /// Set to true to not use tokenize_fn and instead tokenize greedily,
+    /// which is often incorrect and may reduce accuracy.
+    pub use_approximate_greedy_tokenize_fn: bool,
 
     /// User data to pass to the tokenize_fn
     pub tokenize_user_data: *const c_void,
@@ -239,7 +280,8 @@ fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> 
     let json_schema = serde_json::from_str(json_schema)
         .map_err(|e| anyhow::anyhow!("Invalid JSON in json_schema: {e}"))?;
     let opts = JsonCompileOptions { compact: false };
-    let grammar = opts.json_to_llg_no_validate(&json_schema)
+    let grammar = opts
+        .json_to_llg_no_validate(&json_schema)
         .map_err(|e| anyhow::anyhow!("Error compiling JSON schema to LLG: {e}"))?;
     new_constraint_core(init, grammar)
 }
@@ -423,10 +465,73 @@ pub extern "C" fn llg_commit_token(
 
 /// Construct a new tokenizer from the given TokenizerInit
 #[no_mangle]
-pub extern "C" fn llg_new_tokenizer(tok_init: &LlgTokenizerInit) -> *mut LlgTokenizer {
-    let tok = LlgTokenizer::from_init(tok_init);
-    Box::into_raw(Box::new(tok))
+pub extern "C" fn llg_new_tokenizer(
+    tok_init: &LlgTokenizerInit,
+    error_string: *mut c_char,
+    error_string_len: usize,
+) -> *mut LlgTokenizer {
+    match LlgTokenizer::from_init(tok_init) {
+        Ok(tok) => Box::into_raw(Box::new(tok)),
+        Err(e) => {
+            if error_string_len > 0 {
+                let e = e.to_string();
+                let e = e.as_bytes();
+                let len = std::cmp::min(e.len(), error_string_len - 1);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(e.as_ptr(), error_string as *mut u8, len);
+                    *error_string.add(len) = 0;
+                }
+            }
+            std::ptr::null_mut()
+        }
+    }
 }
+
+/// Tokenize the given bytes and return the tokens.
+/// Always returns the number of tokens that would be written to output_tokens
+/// if output_tokens_len was large enough.
+#[no_mangle]
+pub extern "C" fn llg_tokenize_bytes(
+    tok: &LlgTokenizer,
+    bytes: *const u8,
+    bytes_len: usize,
+    output_tokens: *mut u32,
+    output_tokens_len: usize,
+) -> usize {
+    let tokens = tok
+        .token_env
+        .tokenize_bytes(unsafe { std::slice::from_raw_parts(bytes, bytes_len) });
+    let n_toks = tokens.len();
+    let to_copy = std::cmp::min(n_toks, output_tokens_len);
+    unsafe {
+        std::ptr::copy_nonoverlapping(tokens.as_ptr(), output_tokens, to_copy);
+    }
+    n_toks
+}
+
+/// Return a string representation of the tokens, useful for debugging.
+/// The output is null-terminated.
+/// Returns the number of bytes that would be written to output if output_len was large enough.
+#[no_mangle]
+pub extern "C" fn llg_stringify_tokens(
+    tok: &LlgTokenizer,
+    tokens: *const u32,
+    n_tokens: usize,
+    output: *mut c_char,
+    output_len: usize,
+) -> usize {
+    let trie = tok.token_env.tok_trie();
+    let tokens = unsafe { std::slice::from_raw_parts(tokens, n_tokens) };
+    let s = trie.tokens_dbg(tokens);
+    let s = s.as_bytes();
+    let len = std::cmp::min(s.len(), output_len - 1);
+    unsafe {
+        std::ptr::copy_nonoverlapping(s.as_ptr(), output as *mut u8, len);
+        *output.add(len) = 0;
+    }
+    s.len() + 1
+}
+
 
 /// Free the tokenizer. Should *NOT* be called while there are still constraints using it.
 #[no_mangle]

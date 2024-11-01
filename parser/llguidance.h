@@ -140,6 +140,11 @@ typedef struct LlgTokenizerInit {
    */
   const uint8_t *token_bytes;
   /**
+   * Instead of passing token_lens and token_bytes, this can be set to
+   * the contents of HF tokenizer.json file.
+   */
+  const char *tokenizer_json;
+  /**
    * Set to true to enable hack that works around the tokenize_fn only
    * accepting valid UTF-8 strings and possibly adding <BOS> etc.
    * TODO: the <BOS> bit not implemented yet
@@ -153,6 +158,11 @@ typedef struct LlgTokenizerInit {
    * Either way, this function has to be thread-safe!
    */
   LlgTokenizeFn tokenize_fn;
+  /**
+   * Set to true to not use tokenize_fn and instead tokenize greedily,
+   * which is often incorrect and may reduce accuracy.
+   */
+  bool use_approximate_greedy_tokenize_fn;
   /**
    * User data to pass to the tokenize_fn
    */
@@ -219,7 +229,31 @@ int32_t llg_commit_token(struct LlgConstraint *cc, LlgToken token, struct LlgCom
 /**
  * Construct a new tokenizer from the given TokenizerInit
  */
-struct LlgTokenizer *llg_new_tokenizer(const struct LlgTokenizerInit *tok_init);
+struct LlgTokenizer *llg_new_tokenizer(const struct LlgTokenizerInit *tok_init,
+                                       char *error_string,
+                                       size_t error_string_len);
+
+/**
+ * Tokenize the given bytes and return the tokens.
+ * Always returns the number of tokens that would be written to output_tokens
+ * if output_tokens_len was large enough.
+ */
+size_t llg_tokenize_bytes(const struct LlgTokenizer *tok,
+                          const uint8_t *bytes,
+                          size_t bytes_len,
+                          uint32_t *output_tokens,
+                          size_t output_tokens_len);
+
+/**
+ * Return a string representation of the tokens, useful for debugging.
+ * The output is null-terminated.
+ * Returns the number of bytes that would be written to output if output_len was large enough.
+ */
+size_t llg_stringify_tokens(const struct LlgTokenizer *tok,
+                            const uint32_t *tokens,
+                            size_t n_tokens,
+                            char *output,
+                            size_t output_len);
 
 /**
  * Free the tokenizer. Should *NOT* be called while there are still constraints using it.

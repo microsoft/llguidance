@@ -7,6 +7,7 @@ pub mod api;
 pub mod output;
 pub use toktrie;
 
+mod tokenizer_json;
 mod constraint;
 pub use constraint::{CommitResult, Constraint};
 
@@ -21,6 +22,7 @@ mod grammar_builder;
 mod json;
 pub use grammar_builder::{GrammarBuilder, NodeRef};
 pub use json::JsonCompileOptions;
+pub use tokenizer_json::token_bytes_from_tokenizer_json;
 
 #[macro_export]
 macro_rules! loginfo {

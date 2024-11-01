@@ -34,7 +34,16 @@ LlgTokenizer *create_tokenizer(std::vector<std::vector<uint8_t>> &tokens,
       .tokenize_user_data = tokenize_user_data,
       .tokenize_fn = tokenize_fn,
   };
-  return llg_new_tokenizer(&tok_init);
+
+  char error_buf[128];
+  auto tok = llg_new_tokenizer(&tok_init, error_buf, sizeof(error_buf));
+
+  if (tok == nullptr) {
+    printf("Error: %s\n", error_buf);
+    exit(1);
+  }
+
+  return tok;
 }
 
 // This function assumes that each byte is a single token.
@@ -73,6 +82,25 @@ LlgTokenizer *create_byte_tokenizer(void) {
                           nullptr);
 }
 
+LlgTokenizer *create_hf_tokenizer(std::string tokenizer_json,
+                                  uint32_t tok_eos) {
+  LlgTokenizerInit tok_init = {
+      .tok_eos = tok_eos,
+      .use_approximate_greedy_tokenize_fn = true,
+      .tokenizer_json = tokenizer_json.c_str(),
+  };
+
+  char error_buf[128];
+  auto tok = llg_new_tokenizer(&tok_init, error_buf, sizeof(error_buf));
+
+  if (tok == nullptr) {
+    printf("Error: %s\n", error_buf);
+    exit(1);
+  }
+
+  return tok;
+}
+
 std::string read_file(const std::string &filePath) {
   std::ifstream file(filePath);
   std::stringstream buffer;
@@ -86,14 +114,44 @@ void fail_constraint(LlgConstraint *c) {
   exit(1);
 }
 
-int main(int argc, const char *argv[]) {
-  // the tokenizer can (and should) be shared between constraints
-  LlgTokenizer *tokenizer = create_byte_tokenizer();
+std::vector<uint32_t> do_llg_tokenize(const LlgTokenizer *tok, std::string s) {
+  std::vector<uint32_t> tokens;
+  size_t n_tokens =
+      llg_tokenize_bytes(tok, (const uint8_t *)s.c_str(), s.size(), nullptr, 0);
+  tokens.resize(n_tokens);
+  llg_tokenize_bytes(tok, (const uint8_t *)s.c_str(), s.size(), tokens.data(),
+                     n_tokens);
+  return tokens;
+}
 
-  if (argc != 3) {
-    printf("Usage: %s <schema.ll.json> <sample.json>\n", argv[0]);
+std::string do_llg_stringify_tokens(const LlgTokenizer *tok,
+                                    std::vector<uint32_t> tokens) {
+  char buffer[1024];
+  size_t n_bytes = llg_stringify_tokens(tok, tokens.data(), tokens.size(),
+                                        buffer, sizeof(buffer));
+  if (n_bytes >= sizeof(buffer)) {
+    char *new_buffer = new char[n_bytes + 1];
+    llg_stringify_tokens(tok, tokens.data(), tokens.size(), new_buffer,
+                         n_bytes + 1);
+    auto r = std::string(new_buffer);
+    delete[] new_buffer;
+    return r;
+  } else {
+    return std::string(buffer);
+  }
+}
+
+int main(int argc, const char *argv[]) {
+  if (argc < 3) {
+    printf("Usage: %s <schema.ll.json> <sample.json> [tokenizer.json]\n",
+           argv[0]);
     return 1;
   }
+
+  // the tokenizer can (and should) be shared between constraints
+  LlgTokenizer *tokenizer = argc > 3
+                                ? create_hf_tokenizer(read_file(argv[3]), 2)
+                                : create_byte_tokenizer();
 
   auto schema_json = read_file(argv[1]);
   auto sample_json = read_file(argv[2]);
@@ -109,9 +167,16 @@ int main(int argc, const char *argv[]) {
     fail_constraint(c);
   }
 
+  // for debugging the tokenizer:
+  // for (int i = 0; i < 320; ++i) {
+  //   std::vector<uint32_t> tokens;
+  //   tokens.push_back(i);
+  //   std::string s = do_llg_stringify_tokens(tokenizer, tokens);
+  //   printf("Token %d: %s\n", i, s.c_str());
+  // }
+
   // we assume our "LLM" will generate these tokens
-  auto tokens =
-      bogus_tokenize((const uint8_t *)sample_json.c_str(), sample_json.size());
+  auto tokens = do_llg_tokenize(tokenizer, sample_json);
 
   LlgMaskResult mask_res;
   for (size_t i = 0; i < tokens.size(); i++) {
