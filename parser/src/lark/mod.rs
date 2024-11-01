@@ -1,3 +1,5 @@
+mod ast;
 mod lexer;
+mod parser;
 
-pub use lexer::parse_lark;
+pub use parser::parse_lark;
