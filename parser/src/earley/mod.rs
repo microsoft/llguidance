@@ -2,6 +2,7 @@ mod from_guidance;
 mod grammar;
 mod lexer;
 mod parser;
+pub mod lark;
 
 pub mod lexerspec;
 pub mod regexvec;

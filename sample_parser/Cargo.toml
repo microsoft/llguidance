@@ -21,3 +21,7 @@ path = "src/schema_tester.rs"
 [[bin]]
 name = "minimal"
 path = "src/minimal.rs"
+
+[[bin]]
+name = "lark_test"
+path = "src/lark_test.rs"
