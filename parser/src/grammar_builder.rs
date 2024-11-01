@@ -2,7 +2,9 @@ use std::{collections::HashMap, sync::atomic::AtomicU32};
 
 use anyhow::{ensure, Result};
 
-use crate::api::{GrammarWithLexer, Node, NodeId, NodeProps, RegexSpec, TopLevelGrammar};
+use crate::api::{
+    GrammarWithLexer, Node, NodeId, NodeProps, RegexId, RegexNode, RegexSpec, TopLevelGrammar,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct NodeRef {
@@ -16,6 +18,7 @@ pub struct GrammarBuilder {
     strings: HashMap<String, NodeRef>,
     curr_grammar_id: u32,
     nodes: Vec<Node>,
+    rx_nodes: Vec<RegexNode>,
 }
 
 impl GrammarBuilder {
@@ -49,7 +52,14 @@ impl GrammarBuilder {
             strings: HashMap::new(),
             curr_grammar_id: 0,
             nodes: vec![],
+            rx_nodes: vec![],
         }
+    }
+
+    pub fn add_regex_node(&mut self, node: RegexNode) -> RegexId {
+        let id = RegexId(self.rx_nodes.len());
+        self.rx_nodes.push(node);
+        id
     }
 
     fn shift_nodes(&mut self) {
@@ -62,6 +72,8 @@ impl GrammarBuilder {
                 "no nodes added before add_grammar() or finalize()"
             );
             self.top_grammar.grammars.last_mut().unwrap().nodes = nodes;
+            self.top_grammar.grammars.last_mut().unwrap().rx_nodes =
+                std::mem::take(&mut self.rx_nodes);
         }
     }
 
