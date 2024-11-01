@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use derivre::{RegexAst, RegexBuilder};
 
 use crate::earley::lexerspec::LexerSpec;
@@ -20,7 +20,6 @@ enum Token {
     Comma,
     Dot,
     DotDot,
-    Percent,
     Arrow,
     LParen,
     RParen,
@@ -29,9 +28,6 @@ enum Token {
     LBracket,
     RBracket,
     Tilde,
-    Question,
-    Star,
-    Plus,
     // regexps
     Op,
     String,
@@ -355,6 +351,9 @@ impl Parser {
             if self.has_token(Token::Newline)
                 || self.has_token(Token::VBar)
                 || self.has_token(Token::Arrow)
+                || self.has_token(Token::RBrace)
+                || self.has_token(Token::RParen)
+                || self.has_token(Token::RBracket)
             {
                 break;
             }
@@ -567,11 +566,7 @@ impl Token {
         (Token::RBrace, "}"),
         (Token::LBracket, "["),
         (Token::RBracket, "]"),
-        (Token::Percent, "%"),
         (Token::Tilde, "~"),
-        (Token::Question, "?"),
-        (Token::Star, "*"),
-        (Token::Plus, "+"),
         (Token::VBar, "|"),
     ];
 
@@ -628,6 +623,7 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
     let mut lexemes = Vec::new();
     let mut start_idx = 0;
 
+    let input = format!("{}\n", input);
     let input_bytes = input.as_bytes();
     for idx in 0..=input_bytes.len() {
         let mut b = b'\n';
@@ -657,8 +653,12 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
                 };
                 curr_lexeme.value = input[start_idx..end_idx].to_string();
                 start_idx = end_idx;
-                println!("lex: {:?}", curr_lexeme);
-                lexemes.push(curr_lexeme.clone());
+
+                // println!("lex: {:?}", curr_lexeme);
+
+                if curr_lexeme.token != Token::SKIP {
+                    lexemes.push(curr_lexeme.clone());
+                }
 
                 state = lexer.start_state(&all_lexemes, transition_byte);
 
@@ -677,6 +677,25 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
     }
 
     Ok(lexemes)
+}
+
+pub fn parse_lark(input: &str) -> Result<Vec<Item>> {
+    let tokens = lex_lark(input)?;
+    let mut parser = Parser::new(tokens);
+    parser.parse_start().map_err(|e| {
+        if let Some(tok) = parser.peek_token() {
+            anyhow!(
+                "{}({}): {} (at {:?} ({:?}))",
+                tok.line,
+                tok.column,
+                e,
+                tok.value,
+                tok.token
+            )
+        } else {
+            anyhow!("at EOF: {}", e)
+        }
+    })
 }
 
 pub fn test_lex_lark() {

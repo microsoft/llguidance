@@ -1,6 +1,6 @@
 use std::{env, fs::File, io::Read};
 
-use llguidance_parser::earley::lark::lex_lark;
+use llguidance_parser::earley::lark::parse_lark;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -10,7 +10,10 @@ fn main() {
     }
 
     let grammar_file = read_file_to_string(&args[1]);
-    let _tokens = lex_lark(&grammar_file).unwrap();
+    let r = parse_lark(&grammar_file).unwrap();
+    for it in r.iter() {
+        println!("{:?}", it);
+    }
 }
 
 fn read_file_to_string(filename: &str) -> String {
