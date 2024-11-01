@@ -3,11 +3,9 @@ use std::collections::HashMap;
 use anyhow::{anyhow, bail, Result};
 use derivre::{RegexAst, RegexBuilder};
 
-use crate::earley::lexerspec::LexerSpec;
-
-use super::{
+use crate::earley::{
     lexer::{Lexer, LexerResult},
-    lexerspec::LexemeIdx,
+    lexerspec::{LexemeIdx, LexerSpec},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -698,6 +696,7 @@ pub fn parse_lark(input: &str) -> Result<Vec<Item>> {
     })
 }
 
+#[allow(dead_code)]
 pub fn test_lex_lark() {
     lex_lark(LARK_GRAMMAR).unwrap();
 }

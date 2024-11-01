@@ -18,6 +18,8 @@ pub use derivre;
 
 pub mod ffi;
 
+pub mod lark;
+
 mod grammar_builder;
 mod json;
 pub use grammar_builder::{GrammarBuilder, NodeRef};

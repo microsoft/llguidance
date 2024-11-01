@@ -1,6 +1,6 @@
 use std::{env, fs::File, io::Read};
 
-use llguidance_parser::earley::lark::parse_lark;
+use llguidance_parser::lark::parse_lark;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
