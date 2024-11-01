@@ -81,7 +81,7 @@ impl ParserStats {
 }
 
 // In this, code a "Row" is what is usually called an Earley set in the literature.
-// The term "row" comes from Kallemeyer 2018, which uses a chart parsing algorithm
+// The term "row" comes from Kallmeyer 2018, which uses a chart parsing algorithm
 // in which the rows are Earley sets.
 #[derive(Clone)]
 struct Row {
@@ -1146,7 +1146,7 @@ impl ParserState {
         let mut allowed_lexemes = self.lexer_spec().alloc_lexeme_set();
         let mut max_tokens = vec![];
 
-        // Agenda retrieval is a simplication of Kallmeyer 2018.
+        // Agenda retrieval is a simplification of Kallmeyer 2018.
         // There is no separate data structure for the agenda --
         // the Earley table is used, so that adding to the Earley
         // table (aka chart) also adds an item to the agenda.  No duplicate
@@ -1225,13 +1225,13 @@ impl ParserState {
                 if let Some(lx) = sym_data.lexeme {
                     allowed_lexemes.set(lx.as_usize(), true);
                     if self.scratch.definitive {
-                        // In definitive mode, set 'maxtokens' for
-                        // the postdot symbol.
+                        // In definitive mode, set 'max_tokens' for
+                        // the post-dot symbol.
                         max_tokens.push((lx, sym_data.props.max_tokens));
                     }
                 }
 
-                // The comletion inference rule for nullable symbols
+                // The completion inference rule for nullable symbols
                 // (slide 20 in Kallmeyer 2018).
                 if sym_data.is_nullable {
                     self.scratch
