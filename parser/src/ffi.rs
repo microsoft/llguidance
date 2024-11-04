@@ -304,6 +304,23 @@ fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Resu
     new_constraint_core(init, grammar)
 }
 
+fn new_constraint_any(
+    init: &LlgConstraintInit,
+    constraint_type: *const c_char,
+    data: *const c_char,
+) -> Result<Constraint> {
+    let tp = unsafe { CStr::from_ptr(constraint_type) }
+        .to_str()
+        .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in constraint_type"))?;
+    match tp {
+        "regex" => new_constraint_regex(init, data),
+        "json" | "json_schema" => new_constraint_json(init, data),
+        "lark" => new_constraint_lark(init, data),
+        "llguidance" | "guidance" => new_constraint_lark(init, data),
+        _ => bail!("unknown constraint type: {tp}"),
+    }
+}
+
 fn new_constraint_core(init: &LlgConstraintInit, grammar: TopLevelGrammar) -> Result<Constraint> {
     if init.tokenizer.is_null() {
         bail!("Tokenizer is null");
@@ -417,6 +434,18 @@ pub extern "C" fn llg_new_constraint_lark(
     lark: *const c_char,
 ) -> *mut LlgConstraint {
     return_constraint(new_constraint_lark(init, lark))
+}
+
+/// Create a new constraint with specified type
+/// Type can be one of "regex", "json_schema" (or "json"), "lark", "llguidance" (or "guidance")
+/// Always returns a non-null value. Call llg_get_error() on the result to check for errors.
+#[no_mangle]
+pub extern "C" fn llg_new_constraint_any(
+    init: &LlgConstraintInit,
+    constraint_type: *const c_char,
+    data: *const c_char,
+) -> *mut LlgConstraint {
+    return_constraint(new_constraint_any(init, constraint_type, data))
 }
 
 /// Get the error message from the constraint or null if there is no error.
