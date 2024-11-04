@@ -6,7 +6,8 @@ use crate::api::{
     GrammarWithLexer, Node, ParserLimits, RegexId, RegexNode, RegexSpec, TopLevelGrammar,
     DEFAULT_CONTEXTUAL,
 };
-use crate::{loginfo, Logger};
+use crate::lark::{lark_to_llguidance, parse_lark};
+use crate::{loginfo, JsonCompileOptions, Logger};
 use anyhow::{bail, ensure, Result};
 use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use instant::Instant;
@@ -84,8 +85,37 @@ fn map_rx_nodes(
 fn grammar_from_json(
     tok_env: &TokEnv,
     limits: &mut ParserLimits,
-    input: GrammarWithLexer,
+    mut input: GrammarWithLexer,
 ) -> Result<(LexerSpec, Grammar)> {
+    if input.json_schema.is_some() || input.lark_grammar.is_some() {
+        ensure!(
+            input.nodes.is_empty() && input.rx_nodes.is_empty(),
+            "cannot have both json_schema/lark_grammar and nodes/rx_nodes"
+        );
+
+        let mut new_grm = if let Some(json_schema) = input.json_schema.as_ref() {
+            ensure!(
+                input.lark_grammar.is_none(),
+                "cannot have both json_schema and lark_grammar"
+            );
+            let opts = JsonCompileOptions { compact: false };
+            opts.json_to_llg_no_validate(json_schema)?
+        } else {
+            let items = parse_lark(input.lark_grammar.as_ref().unwrap())?;
+            lark_to_llguidance(items)?
+        };
+
+        let g = new_grm.grammars.pop().unwrap();
+
+        input.greedy_skip_rx = g.greedy_skip_rx;
+        input.nodes = g.nodes;
+        input.rx_nodes = g.rx_nodes;
+        input.contextual = g.contextual;
+
+        input.lark_grammar = None;
+        input.json_schema = None;
+    }
+
     ensure!(input.nodes.len() > 0, "empty grammar");
 
     let (builder, rx_nodes) = map_rx_nodes(limits, input.rx_nodes, input.allow_invalid_utf8)?;
