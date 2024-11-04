@@ -46,15 +46,15 @@ name: RULE
     | TOKEN
 
 _VBAR: _NL? "|"
-OP: /qqq[+*]|[?](?![a-z])/
+OP: /[+*]|[?]/
 RULE: /!?[_?]?[a-z][_a-z0-9]*/
 TOKEN: /_?[A-Z][_A-Z0-9]*/
 STRING: _STRING "i"?
-REGEXP: /\/(?!\/)(\\\/|\\\\|[^\/])*?\/[imslux]*/
+REGEXP: /\/(\\\/|\\\\|[^\/])+?\/[imslux]*/
 _NL: /(\r?\n)+\s*/
 
 _STRING_INNER: /.*?/
-_STRING_ESC_INNER: _STRING_INNER /(?<!\\)(\\\\)*?/
+_STRING_ESC_INNER: _STRING_INNER
 
 _STRING : "\"" _STRING_ESC_INNER "\""
 

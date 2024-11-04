@@ -1,8 +1,8 @@
 use super::{
     ast::*,
-    lexer::{lex_lark, Lexeme, Token},
+    lexer::{lex_lark, Lexeme, Location, Token},
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, ensure, Result};
 
 /// The parser struct that holds the tokens and current position.
 pub struct Parser {
@@ -37,7 +37,19 @@ impl Parser {
         } else if self.has_token(Token::Token) {
             Ok(Item::Token(self.parse_token_def()?))
         } else {
-            Ok(Item::Statement(self.parse_statement()?))
+            let loc = self.location();
+            Ok(Item::Statement(loc, self.parse_statement()?))
+        }
+    }
+
+    fn location(&self) -> Location {
+        if let Some(t) = self.peek_token() {
+            Location {
+                line: t.line,
+                column: t.column,
+            }
+        } else {
+            Location { line: 0, column: 0 }
         }
     }
 
@@ -56,8 +68,20 @@ impl Parser {
         };
         self.expect_token(Token::Colon)?;
         let expansions = self.parse_expansions()?;
+        let (name, pin_terminals) = if name.starts_with("!") {
+            (name[1..].to_string(), true)
+        } else {
+            (name, false)
+        };
+        let (name, cond_inline) = if name.starts_with("?") {
+            (name[1..].to_string(), true)
+        } else {
+            (name, false)
+        };
         Ok(Rule {
             name,
+            pin_terminals,
+            cond_inline,
             params,
             priority,
             expansions,
@@ -166,12 +190,13 @@ impl Parser {
 
     /// Parses expansions.
     fn parse_expansions(&mut self) -> Result<Expansions> {
+        let loc = self.location();
         let mut aliases = Vec::new();
         aliases.push(self.parse_alias()?);
         while self.match_vbar() {
             aliases.push(self.parse_alias()?);
         }
-        Ok(Expansions(aliases))
+        Ok(Expansions(loc, aliases))
     }
 
     fn match_vbar(&mut self) -> bool {
@@ -251,17 +276,43 @@ impl Parser {
         }
     }
 
+    fn parse_string(&self, string1: &Lexeme) -> Result<(String, String)> {
+        let inner = string1.value.clone();
+        let (inner, flags) = if inner.ends_with('i') {
+            (inner[..inner.len() - 1].to_string(), "i".to_string())
+        } else {
+            (inner, "".to_string())
+        };
+        let inner =
+            serde_json::from_str(&inner).map_err(|e| anyhow!("error parsing string: {e}"))?;
+        Ok((inner, flags))
+    }
+
+    fn parse_simple_string(&self, string1: &Lexeme) -> Result<String> {
+        let (inner, flags) = self.parse_string(string1)?;
+        ensure!(flags.is_empty(), "flags not allowed in this context");
+        Ok(inner)
+    }
+
     /// Parses a value.
     fn parse_value(&mut self) -> Result<Value> {
         if let Some(string1) = self.match_token_with_value(Token::String) {
             if self.match_token(Token::DotDot) {
-                let string2 = self.expect_token(Token::String)?.value;
-                Ok(Value::LiteralRange(string1.value.clone(), string2))
+                let string2 = self.expect_token(Token::String)?;
+                Ok(Value::LiteralRange(
+                    self.parse_simple_string(&string1)?,
+                    self.parse_simple_string(&string2)?,
+                ))
             } else {
-                Ok(Value::Literal(string1.value.clone()))
+                let (inner, flags) = self.parse_string(&string1)?;
+                Ok(Value::LiteralString(inner, flags))
             }
         } else if let Some(regexp_token) = self.match_token_with_value(Token::Regexp) {
-            Ok(Value::Literal(regexp_token.value.clone()))
+            let inner = regexp_token.value;
+            let last_slash_idx = inner.rfind('/').unwrap();
+            let flags = inner[last_slash_idx + 1..].to_string();
+            let regex = inner[1..last_slash_idx].to_string();
+            Ok(Value::LiteralRegex(regex, flags))
         } else if let Some(name_token) = self
             .match_token_with_value(Token::Rule)
             .or_else(|| self.match_token_with_value(Token::Token))

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use anyhow::{bail, Result};
 use derivre::{RegexAst, RegexBuilder};
@@ -27,7 +27,7 @@ pub enum Token {
     RBracket,
     Tilde,
     // regexps
-    Op,
+    Op, // + * ?
     String,
     Regexp,
     Rule,
@@ -47,6 +47,24 @@ pub struct Lexeme {
     pub value: String,
     pub line: usize,
     pub column: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Location {
+    pub line: usize,
+    pub column: usize,
+}
+
+impl Location {
+    pub fn augment(&self, err: impl Display) -> anyhow::Error {
+        let err = err.to_string();
+        if err.starts_with("at ") {
+            // don't add more location info
+            anyhow::anyhow!("{err}")
+        } else {
+            anyhow::anyhow!("at {}({}): {}", self.line, self.column, err)
+        }
+    }
 }
 
 impl Token {

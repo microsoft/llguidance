@@ -21,6 +21,7 @@ pub struct GrammarWithLexer {
     /// The start symbol is at nodes[0]
     pub nodes: Vec<Node>,
 
+    /// This is no longer used.
     /// When enabled, the grammar can use `Lexeme` but not `Gen`.
     /// When disabled, the grammar can use `Gen` but not `Lexeme`.
     /// `String` is allowed in either case as a shorthand for either `Lexeme` or `Gen`.
@@ -196,7 +197,7 @@ pub struct GenGrammarOptions {
     pub max_tokens_grm: usize,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum RegexNode {
     /// Intersection of the regexes
     And(Vec<RegexId>),

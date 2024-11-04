@@ -1,15 +1,19 @@
+use super::lexer::Location;
+
 /// Represents an item in the grammar (rule, token, or statement).
 #[derive(Debug, Clone)]
 pub enum Item {
     Rule(Rule),
     Token(TokenDef),
-    Statement(Statement),
+    Statement(Location, Statement),
 }
 
 /// Represents a grammar rule.
 #[derive(Debug, Clone)]
 pub struct Rule {
     pub name: String,
+    pub cond_inline: bool,
+    pub pin_terminals: bool,
     pub params: Option<RuleParams>,
     pub priority: Option<i32>,
     pub expansions: Expansions,
@@ -54,7 +58,7 @@ pub struct TokenParams(pub Vec<String>);
 
 /// Represents a list of expansions.
 #[derive(Debug, Clone)]
-pub struct Expansions(pub Vec<Alias>);
+pub struct Expansions(pub Location, pub Vec<Alias>);
 
 /// Represents an alias in the grammar.
 #[derive(Debug, Clone)]
@@ -88,7 +92,8 @@ pub enum Atom {
 pub enum Value {
     LiteralRange(String, String),
     Name(String),
-    Literal(String),
+    LiteralString(String, String),
+    LiteralRegex(String, String),
     TemplateUsage { name: String, values: Vec<Value> },
 }
 
