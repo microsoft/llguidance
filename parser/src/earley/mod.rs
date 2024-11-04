@@ -1,6 +1,6 @@
 mod from_guidance;
 mod grammar;
-mod lexer;
+pub(crate) mod lexer;
 mod parser;
 
 pub mod lexerspec;

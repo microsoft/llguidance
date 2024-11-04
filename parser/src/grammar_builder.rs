@@ -2,7 +2,9 @@ use std::{collections::HashMap, sync::atomic::AtomicU32};
 
 use anyhow::{ensure, Result};
 
-use crate::api::{GrammarWithLexer, Node, NodeId, NodeProps, RegexSpec, TopLevelGrammar};
+use crate::api::{
+    GrammarWithLexer, Node, NodeId, NodeProps, RegexId, RegexNode, RegexSpec, TopLevelGrammar,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct NodeRef {
@@ -16,6 +18,81 @@ pub struct GrammarBuilder {
     strings: HashMap<String, NodeRef>,
     curr_grammar_id: u32,
     nodes: Vec<Node>,
+    pub regex: RegexBuilder,
+}
+
+pub struct RegexBuilder {
+    node_ids: HashMap<RegexNode, RegexId>,
+    nodes: Vec<RegexNode>,
+}
+
+impl RegexBuilder {
+    pub fn new() -> Self {
+        Self {
+            nodes: vec![],
+            node_ids: HashMap::new(),
+        }
+    }
+
+    pub fn add_node(&mut self, node: RegexNode) -> RegexId {
+        if let Some(id) = self.node_ids.get(&node) {
+            return *id;
+        }
+        let id = RegexId(self.nodes.len());
+        self.nodes.push(node.clone());
+        self.node_ids.insert(node, id);
+        id
+    }
+
+    pub fn regex(&mut self, rx: String) -> RegexId {
+        self.add_node(RegexNode::Regex(rx))
+    }
+
+    pub fn literal(&mut self, s: String) -> RegexId {
+        self.add_node(RegexNode::Literal(s))
+    }
+
+    pub fn concat(&mut self, nodes: Vec<RegexId>) -> RegexId {
+        if nodes.len() == 1 {
+            return nodes[0];
+        }
+        if nodes.len() == 0 {
+            return self.add_node(RegexNode::NoMatch);
+        }
+        self.add_node(RegexNode::Concat(nodes))
+    }
+
+    pub fn select(&mut self, nodes: Vec<RegexId>) -> RegexId {
+        if nodes.len() == 1 {
+            return nodes[0];
+        }
+        if nodes.len() == 0 {
+            return self.add_node(RegexNode::NoMatch);
+        }
+        self.add_node(RegexNode::Or(nodes))
+    }
+
+    pub fn zero_or_more(&mut self, node: RegexId) -> RegexId {
+        self.repeat(node, 0, None)
+    }
+
+    pub fn one_or_more(&mut self, node: RegexId) -> RegexId {
+        self.repeat(node, 1, None)
+    }
+
+    pub fn optional(&mut self, node: RegexId) -> RegexId {
+        self.repeat(node, 0, Some(1))
+    }
+
+    pub fn repeat(&mut self, node: RegexId, min: u32, max: Option<u32>) -> RegexId {
+        self.add_node(RegexNode::Repeat(node, min, max))
+    }
+
+    fn finalize(&mut self) -> Vec<RegexNode> {
+        let r = std::mem::take(&mut self.nodes);
+        *self = Self::new();
+        r
+    }
 }
 
 impl GrammarBuilder {
@@ -49,6 +126,7 @@ impl GrammarBuilder {
             strings: HashMap::new(),
             curr_grammar_id: 0,
             nodes: vec![],
+            regex: RegexBuilder::new(),
         }
     }
 
@@ -62,6 +140,7 @@ impl GrammarBuilder {
                 "no nodes added before add_grammar() or finalize()"
             );
             self.top_grammar.grammars.last_mut().unwrap().nodes = nodes;
+            self.top_grammar.grammars.last_mut().unwrap().rx_nodes = self.regex.finalize();
         }
     }
 
@@ -158,10 +237,19 @@ impl GrammarBuilder {
         self.select(&[value, empty])
     }
 
+    pub fn one_or_more(&mut self, elt: NodeRef) -> NodeRef {
+        let p = self.placeholder();
+        let p_elt = self.join(&[p, elt]);
+        let inner = self.select(&[elt, p_elt]);
+        self.set_placeholder(p, inner);
+        p
+    }
+
     pub fn zero_or_more(&mut self, elt: NodeRef) -> NodeRef {
         let p = self.placeholder();
         let empty = self.empty();
-        let inner = self.select(&[empty, elt]);
+        let p_elt = self.join(&[p, elt]);
+        let inner = self.select(&[empty, p_elt]);
         self.set_placeholder(p, inner);
         p
     }

@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// This represents a collection of grammars, with a designated
 /// "start" grammar at first position.
@@ -19,8 +20,19 @@ pub const DEFAULT_CONTEXTUAL: bool = true;
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct GrammarWithLexer {
     /// The start symbol is at nodes[0]
+    /// When nodes is empty, then one of json_schema or lark_grammar must be set.
+    #[serde(default)]
     pub nodes: Vec<Node>,
 
+    /// The JSON schema that the grammar should generate.
+    /// When this is set, nodes and rx_nodes must be empty.
+    pub json_schema: Option<Value>,
+
+    /// The Lark grammar that the grammar should generate.
+    /// When this is set, nodes and rx_nodes must be empty.
+    pub lark_grammar: Option<String>,
+
+    /// This is no longer used.
     /// When enabled, the grammar can use `Lexeme` but not `Gen`.
     /// When disabled, the grammar can use `Gen` but not `Lexeme`.
     /// `String` is allowed in either case as a shorthand for either `Lexeme` or `Gen`.
@@ -196,7 +208,7 @@ pub struct GenGrammarOptions {
     pub max_tokens_grm: usize,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum RegexNode {
     /// Intersection of the regexes
     And(Vec<RegexId>),
@@ -373,6 +385,8 @@ impl TopLevelGrammar {
                     json_allowed_escapes: None,
                     json_raw: None,
                 }],
+                json_schema: None,
+                lark_grammar: None,
                 greedy_lexer: true,
                 greedy_skip_rx: None,
                 contextual: None,

@@ -99,6 +99,15 @@ impl LexerSpec {
         SimpleVob::alloc(self.lexemes.len())
     }
 
+    pub fn all_lexemes(&self) -> SimpleVob {
+        let mut v = self.alloc_lexeme_set();
+        self.lexemes[0..self.lexemes.len() - self.num_extra_lexemes]
+            .iter()
+            .enumerate()
+            .for_each(|(idx, _)| v.set(idx, true));
+        v
+    }
+
     pub fn lazy_lexemes(&self) -> SimpleVob {
         let mut v = self.alloc_lexeme_set();
         for (idx, lex) in self.lexemes.iter().enumerate() {

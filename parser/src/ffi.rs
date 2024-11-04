@@ -8,6 +8,7 @@ use toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenizerEnv};
 
 use crate::{
     api::{ParserLimits, RegexNode, TopLevelGrammar},
+    lark::{lark_to_llguidance, parse_lark},
     CommitResult, Constraint, JsonCompileOptions, Logger, TokenParser,
 };
 
@@ -273,6 +274,14 @@ fn new_constraint_regex(init: &LlgConstraintInit, regex: *const c_char) -> Resul
     new_constraint_core(init, grammar)
 }
 
+fn new_constraint_lark(init: &LlgConstraintInit, lark: *const c_char) -> Result<Constraint> {
+    let lark = unsafe { CStr::from_ptr(lark) }
+        .to_str()
+        .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in lark"))?;
+    let grammar = lark_to_llguidance(parse_lark(lark)?)?;
+    new_constraint_core(init, grammar)
+}
+
 fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> Result<Constraint> {
     let json_schema = unsafe { CStr::from_ptr(json_schema) }
         .to_str()
@@ -293,6 +302,23 @@ fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Resu
     let grammar: TopLevelGrammar = serde_json::from_str(grammar_json)
         .map_err(|e| anyhow::anyhow!("Invalid JSON in grammar_json: {e}"))?;
     new_constraint_core(init, grammar)
+}
+
+fn new_constraint_any(
+    init: &LlgConstraintInit,
+    constraint_type: *const c_char,
+    data: *const c_char,
+) -> Result<Constraint> {
+    let tp = unsafe { CStr::from_ptr(constraint_type) }
+        .to_str()
+        .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in constraint_type"))?;
+    match tp {
+        "regex" => new_constraint_regex(init, data),
+        "json" | "json_schema" => new_constraint_json(init, data),
+        "lark" => new_constraint_lark(init, data),
+        "llguidance" | "guidance" => new_constraint_lark(init, data),
+        _ => bail!("unknown constraint type: {tp}"),
+    }
 }
 
 fn new_constraint_core(init: &LlgConstraintInit, grammar: TopLevelGrammar) -> Result<Constraint> {
@@ -398,6 +424,28 @@ pub extern "C" fn llg_new_constraint_json(
     json_schema: *const c_char,
 ) -> *mut LlgConstraint {
     return_constraint(new_constraint_json(init, json_schema))
+}
+
+/// Create a new constraint from a given lark grammar
+/// Always returns a non-null value. Call llg_get_error() on the result to check for errors.
+#[no_mangle]
+pub extern "C" fn llg_new_constraint_lark(
+    init: &LlgConstraintInit,
+    lark: *const c_char,
+) -> *mut LlgConstraint {
+    return_constraint(new_constraint_lark(init, lark))
+}
+
+/// Create a new constraint with specified type
+/// Type can be one of "regex", "json_schema" (or "json"), "lark", "llguidance" (or "guidance")
+/// Always returns a non-null value. Call llg_get_error() on the result to check for errors.
+#[no_mangle]
+pub extern "C" fn llg_new_constraint_any(
+    init: &LlgConstraintInit,
+    constraint_type: *const c_char,
+    data: *const c_char,
+) -> *mut LlgConstraint {
+    return_constraint(new_constraint_any(init, constraint_type, data))
 }
 
 /// Get the error message from the constraint or null if there is no error.
@@ -531,7 +579,6 @@ pub extern "C" fn llg_stringify_tokens(
     }
     s.len() + 1
 }
-
 
 /// Free the tokenizer. Should *NOT* be called while there are still constraints using it.
 #[no_mangle]

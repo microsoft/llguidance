@@ -14,6 +14,7 @@ instant = "0.1.13"
 jsonschema = { version = "0.24.0", default-features = false }
 url = "2.5.2"
 lazy_static = "1.5.0"
+regex-syntax = "0.8.5"
 
 [features]
 default = []
