@@ -174,7 +174,10 @@ impl Constraint {
         Ok(CommitResult::from_step_result(&self.last_res))
     }
 
-    /// This commits the sampled token (if any), and sees if this forces any more tokens
+    /// commit_token() is a top-level method in this file and is called indirectly via
+    /// the advance_parser() method of the LLIinterpreter trait in py.rs.
+    ///
+    /// commit_token() commits the sampled token (if any), and sees if this forces any more tokens
     /// on the output (if ff_tokens are enabled in InferenceCapabilities).
     pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<CommitResult> {
         loginfo!(self.parser.logger, "\ncommit_token({:?})", sampled_token);
