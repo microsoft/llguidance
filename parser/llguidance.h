@@ -204,6 +204,13 @@ struct LlgConstraint *llg_new_constraint_json(const struct LlgConstraintInit *in
                                               const char *json_schema);
 
 /**
+ * Create a new constraint from a given lark grammar
+ * Always returns a non-null value. Call llg_get_error() on the result to check for errors.
+ */
+struct LlgConstraint *llg_new_constraint_lark(const struct LlgConstraintInit *init,
+                                              const char *lark);
+
+/**
  * Get the error message from the constraint or null if there is no error.
  * After it returns a non-null value, it will always return it until the constraint is freed
  * using llg_free_constraint() (at which point the pointer will be invalid).
