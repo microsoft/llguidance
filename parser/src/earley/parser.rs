@@ -140,10 +140,11 @@ struct Scratch {
     items: Vec<Item>,
 
     // Is this Earley table in "definitive" mode?
-    // 'definitive' is set when the parser is adding a lexeme --
-    // when the new lexeme is being 'defined'.  The opposite of
-    // definitive mode is "speculative" mode, which is used
-    // for computing the token mask on the pre-lexemes.
+    // 'definitive' is set when the new lexeme is being 'defined',
+    // as indicated by the creation of a 'struct Rowinfo' to track
+    // the lexeme.  The opposite of definitive mode is "speculative"
+    // mode, which is used for computing the token mask on the
+    // pre-lexemes.
     definitive: bool,
 }
 
