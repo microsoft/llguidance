@@ -258,6 +258,10 @@ impl TokenParser {
         self.error_message.clone()
     }
 
+    // advance_parser() is a top-level method in this file.  
+    // This advance_parser() is called indirectly via the advance_parser() method
+    // of the llguidance LLInterpreter interface,
+    //
     // The result here *never* includes a mask.
     // It's either stop or an unconditional splice (possibly noop).
     pub fn advance_parser(&mut self, arg: StepArg) -> StepResult {
