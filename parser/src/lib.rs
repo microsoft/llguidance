@@ -1,3 +1,7 @@
+/// This is the primary interface for llguidance -- the one on which the others
+/// (FFI and LLInterpreter) are built.  While not cleanest of these interfaces,
+/// it is the  most inclusive.
+///
 /// cbindgen:ignore
 pub mod earley;
 
