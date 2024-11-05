@@ -337,16 +337,17 @@ impl Parser {
     }
 
     /// Parses an import path.
-    fn parse_import_path(&mut self) -> Result<ImportPath> {
-        let mut names = Vec::new();
+    fn parse_import_path(&mut self) -> Result<String> {
+        let mut names = String::new();
         if self.match_token(Token::Dot) {
-            names.push(".".to_string());
+            names.push('.');
         }
-        names.push(self.parse_name()?);
+        names.push_str(&self.parse_name()?);
         while self.match_token(Token::Dot) {
-            names.push(self.parse_name()?);
+            names.push('.');
+            names.push_str(&self.parse_name()?);
         }
-        Ok(ImportPath(names))
+        Ok(names)
     }
 
     /// Parses a name (RULE or TOKEN).

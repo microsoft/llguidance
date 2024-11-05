@@ -10,7 +10,7 @@ use crate::{
     GrammarBuilder, NodeRef,
 };
 
-use super::ast::*;
+use super::{ast::*, common::lookup_common_regex, lexer::Location};
 
 struct Compiler {
     test_rx: derivre::RegexBuilder,
@@ -260,22 +260,52 @@ impl Compiler {
         Ok(id)
     }
 
-    fn do_statement(&mut self, statement: Statement) -> Result<()> {
+    fn mk_token_def(loc: &Location, local_name: String, regex: &str) -> TokenDef {
+        TokenDef {
+            name: local_name,
+            params: None,
+            priority: None,
+            expansions: Expansions(
+                loc.clone(),
+                vec![Alias {
+                    expansion: Expansion(vec![Expr {
+                        atom: Atom::Value(Value::LiteralRegex(regex.to_string(), "".to_string())),
+                        op: None,
+                        range: None,
+                    }]),
+                    alias: None,
+                }],
+            ),
+        }
+    }
+
+    fn do_statement(&mut self, loc: &Location, statement: Statement) -> Result<Vec<TokenDef>> {
+        let mut defs = Vec::new();
         match statement {
             Statement::Ignore(exp) => {
                 self.ignore.push(exp);
             }
-            Statement::Import { .. } | Statement::MultiImport { .. } => {
-                bail!("import statement not supported yet");
+            Statement::Import { path, alias } => {
+                let regex = lookup_common_regex(&path)?;
+                let local_name =
+                    alias.unwrap_or_else(|| path.split('.').last().unwrap().to_string());
+                defs.push(Self::mk_token_def(loc, local_name, regex));
+            }
+            Statement::MultiImport { path, names } => {
+                for n in names {
+                    let qname = format!("{}.{}", path, n);
+                    let regex = lookup_common_regex(&qname)?;
+                    defs.push(Self::mk_token_def(loc, n.to_string(), regex));
+                }
             }
             Statement::OverrideRule(_) => {
                 bail!("override statement not supported yet");
             }
             Statement::Declare(_) => {
-                // ignore
+                bail!("declare statement not supported yet");
             }
         }
-        Ok(())
+        Ok(defs)
     }
 
     fn execute(&mut self) -> Result<()> {
@@ -286,15 +316,35 @@ impl Compiler {
                 Item::Rule(rule) => {
                     ensure!(rule.params.is_none(), "params not supported yet");
                     ensure!(rule.priority.is_none(), "priority not supported yet");
+                    ensure!(
+                        !rules.contains_key(&rule.name),
+                        "duplicate rule: {:?}",
+                        rule.name
+                    );
                     rules.insert(rule.name.clone(), rule);
                 }
                 Item::Token(token_def) => {
                     ensure!(token_def.params.is_none(), "params not supported yet");
                     ensure!(token_def.priority.is_none(), "priority not supported yet");
+                    ensure!(
+                        !tokens.contains_key(&token_def.name),
+                        "duplicate token: {:?}",
+                        token_def.name
+                    );
                     tokens.insert(token_def.name.clone(), token_def);
                 }
                 Item::Statement(loc, statement) => {
-                    self.do_statement(statement).map_err(|e| loc.augment(e))?;
+                    let defs = self
+                        .do_statement(&loc, statement)
+                        .map_err(|e| loc.augment(e))?;
+                    for def in defs {
+                        ensure!(
+                            !tokens.contains_key(&def.name),
+                            "duplicate token (in import): {:?}",
+                            def.name
+                        );
+                        tokens.insert(def.name.clone(), def);
+                    }
                 }
             }
         }

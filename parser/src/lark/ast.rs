@@ -33,20 +33,16 @@ pub struct TokenDef {
 pub enum Statement {
     Ignore(Expansions),
     Import {
-        path: ImportPath,
+        path: String,
         alias: Option<String>,
     },
     MultiImport {
-        path: ImportPath,
+        path: String,
         names: Vec<String>,
     },
     OverrideRule(Box<Rule>),
     Declare(Vec<String>),
 }
-
-/// Represents an import path.
-#[derive(Debug, Clone)]
-pub struct ImportPath(pub Vec<String>);
 
 /// Represents parameters for a rule.
 #[derive(Debug, Clone)]
