@@ -212,18 +212,25 @@ impl Compiler {
     }
 
     fn do_expr(&mut self, expr: &Expr) -> Result<NodeRef> {
-        ensure!(expr.range.is_none(), "ranges (~1..100) not supported yet");
         let atom = self.do_atom(&expr.atom)?;
-        match &expr.op {
-            Some(op) => match op.0.as_str() {
-                "*" => Ok(self.builder.zero_or_more(atom)),
-                "+" => Ok(self.builder.one_or_more(atom)),
-                "?" => Ok(self.builder.optional(atom)),
-                _ => {
-                    bail!("unsupported operator: {}", op.0);
-                }
-            },
-            None => Ok(atom),
+
+        if let Some((a, b)) = expr.range {
+            ensure!(expr.op.is_none(), "ranges not supported with operators");
+            ensure!(a <= b, "range end must be >= start");
+            ensure!(a >= 0, "range start must be >= 0");
+            Ok(self.builder.repeat(atom, a as usize, Some(b as usize)))
+        } else {
+            match &expr.op {
+                Some(op) => match op.0.as_str() {
+                    "*" => Ok(self.builder.zero_or_more(atom)),
+                    "+" => Ok(self.builder.one_or_more(atom)),
+                    "?" => Ok(self.builder.optional(atom)),
+                    _ => {
+                        bail!("unsupported operator: {}", op.0);
+                    }
+                },
+                None => Ok(atom),
+            }
         }
     }
 
