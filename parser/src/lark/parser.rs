@@ -124,10 +124,15 @@ impl Parser {
                     path: import_path,
                     alias: Some(name),
                 })
-            } else {
+            } else if self.has_token(Token::LParen) {
                 Ok(Statement::MultiImport {
                     path: import_path,
                     names: self.parse_name_list()?,
+                })
+            } else {
+                Ok(Statement::Import {
+                    path: import_path,
+                    alias: None,
                 })
             }
         } else if self.match_token(Token::KwOverride) {

@@ -12,13 +12,18 @@ use crate::{
 
 use super::{ast::*, common::lookup_common_regex, lexer::Location};
 
+#[derive(Debug, Default)]
+struct Grammar {
+    rules: HashMap<String, Rule>,
+    tokens: HashMap<String, TokenDef>,
+    ignore: Vec<Expansions>,
+}
+
 struct Compiler {
     test_rx: derivre::RegexBuilder,
     builder: GrammarBuilder,
     items: Vec<Item>,
-    ignore: Vec<Expansions>,
-    rules: Arc<HashMap<String, Rule>>,
-    tokens: Arc<HashMap<String, TokenDef>>,
+    grammar: Arc<Grammar>,
     node_ids: HashMap<String, NodeRef>,
     regex_ids: HashMap<String, RegexId>,
     in_progress: HashSet<String>,
@@ -29,9 +34,7 @@ pub fn lark_to_llguidance(items: Vec<Item>) -> Result<TopLevelGrammar> {
         builder: GrammarBuilder::new(),
         test_rx: derivre::RegexBuilder::new(),
         items,
-        ignore: Vec::new(),
-        rules: Arc::new(HashMap::new()),
-        tokens: Arc::new(HashMap::new()),
+        grammar: Arc::new(Grammar::default()),
         node_ids: HashMap::new(),
         regex_ids: HashMap::new(),
         in_progress: HashSet::new(),
@@ -41,6 +44,10 @@ pub fn lark_to_llguidance(items: Vec<Item>) -> Result<TopLevelGrammar> {
 }
 
 impl Compiler {
+    fn grammar(&self) -> Arc<Grammar> {
+        Arc::clone(&self.grammar)
+    }
+
     fn do_token(&mut self, name: &str) -> Result<RegexId> {
         if let Some(id) = self.regex_ids.get(name) {
             return Ok(*id);
@@ -49,8 +56,9 @@ impl Compiler {
             bail!("circular reference in token {:?} definition", name);
         }
         self.in_progress.insert(name.to_string());
-        let tokens = Arc::clone(&self.tokens);
-        let token = tokens
+        let g = self.grammar();
+        let token = g
+            .tokens
             .get(name)
             .ok_or_else(|| anyhow!("token {:?} not found", name))?;
         let id = self.do_token_expansions(&token.expansions)?;
@@ -180,9 +188,9 @@ impl Compiler {
             Atom::Value(value) => {
                 match value {
                     Value::Name(n) => {
-                        if self.rules.contains_key(n) {
+                        if self.grammar.rules.contains_key(n) {
                             return self.do_rule(n);
-                        } else if self.tokens.contains_key(n) {
+                        } else if self.grammar.tokens.contains_key(n) {
                             // OK -> treat as token
                         } else {
                             bail!("unknown name: {:?}", n);
@@ -247,8 +255,9 @@ impl Compiler {
             return Ok(id);
         }
         self.in_progress.insert(name.to_string());
-        let rules = Arc::clone(&self.rules);
-        let rule = rules
+        let g = self.grammar();
+        let rule = g
+            .rules
             .get(name)
             .ok_or_else(|| anyhow!("rule {:?} not found", name))?;
         let id = self.do_expansions(&rule.expansions)?;
@@ -260,8 +269,40 @@ impl Compiler {
         Ok(id)
     }
 
-    fn mk_token_def(loc: &Location, local_name: String, regex: &str) -> TokenDef {
-        TokenDef {
+    fn execute(&mut self) -> Result<()> {
+        let mut grm = Grammar::default();
+        for item in std::mem::take(&mut self.items) {
+            let loc = item.location().clone();
+            grm.process_item(item).map_err(|e| loc.augment(e))?;
+        }
+        ensure!(grm.rules.contains_key("start"), "no start rule found");
+        let ignore = std::mem::take(&mut grm.ignore);
+        self.grammar = Arc::new(grm);
+        self.builder.add_grammar(GrammarWithLexer::default());
+        let ignore = ignore
+            .iter()
+            .map(|exp| self.do_token_expansions(exp))
+            .collect::<Result<Vec<_>>>()?;
+        let start = self.do_rule("start")?;
+        self.builder.set_start_node(start);
+        if ignore.len() > 0 {
+            let ignore_rx = self.builder.regex.select(ignore);
+            self.builder.top_grammar.grammars[0].greedy_skip_rx =
+                Some(RegexSpec::RegexId(ignore_rx));
+        }
+        Ok(())
+    }
+}
+
+impl Grammar {
+    fn add_token_def(&mut self, loc: &Location, local_name: String, regex: &str) -> Result<()> {
+        ensure!(
+            !self.tokens.contains_key(&local_name),
+            "duplicate token (in import): {:?}",
+            local_name
+        );
+
+        let t = TokenDef {
             name: local_name,
             params: None,
             priority: None,
@@ -276,11 +317,12 @@ impl Compiler {
                     alias: None,
                 }],
             ),
-        }
+        };
+        self.tokens.insert(t.name.clone(), t.clone());
+        Ok(())
     }
 
-    fn do_statement(&mut self, loc: &Location, statement: Statement) -> Result<Vec<TokenDef>> {
-        let mut defs = Vec::new();
+    fn do_statement(&mut self, loc: &Location, statement: Statement) -> Result<()> {
         match statement {
             Statement::Ignore(exp) => {
                 self.ignore.push(exp);
@@ -289,13 +331,13 @@ impl Compiler {
                 let regex = lookup_common_regex(&path)?;
                 let local_name =
                     alias.unwrap_or_else(|| path.split('.').last().unwrap().to_string());
-                defs.push(Self::mk_token_def(loc, local_name, regex));
+                self.add_token_def(loc, local_name, regex)?;
             }
             Statement::MultiImport { path, names } => {
                 for n in names {
                     let qname = format!("{}.{}", path, n);
                     let regex = lookup_common_regex(&qname)?;
-                    defs.push(Self::mk_token_def(loc, n.to_string(), regex));
+                    self.add_token_def(loc, n.to_string(), regex)?;
                 }
             }
             Statement::OverrideRule(_) => {
@@ -305,63 +347,34 @@ impl Compiler {
                 bail!("declare statement not supported yet");
             }
         }
-        Ok(defs)
+        Ok(())
     }
 
-    fn execute(&mut self) -> Result<()> {
-        let mut rules = HashMap::new();
-        let mut tokens = HashMap::new();
-        for item in std::mem::take(&mut self.items) {
-            match item {
-                Item::Rule(rule) => {
-                    ensure!(rule.params.is_none(), "params not supported yet");
-                    ensure!(rule.priority.is_none(), "priority not supported yet");
-                    ensure!(
-                        !rules.contains_key(&rule.name),
-                        "duplicate rule: {:?}",
-                        rule.name
-                    );
-                    rules.insert(rule.name.clone(), rule);
-                }
-                Item::Token(token_def) => {
-                    ensure!(token_def.params.is_none(), "params not supported yet");
-                    ensure!(token_def.priority.is_none(), "priority not supported yet");
-                    ensure!(
-                        !tokens.contains_key(&token_def.name),
-                        "duplicate token: {:?}",
-                        token_def.name
-                    );
-                    tokens.insert(token_def.name.clone(), token_def);
-                }
-                Item::Statement(loc, statement) => {
-                    let defs = self
-                        .do_statement(&loc, statement)
-                        .map_err(|e| loc.augment(e))?;
-                    for def in defs {
-                        ensure!(
-                            !tokens.contains_key(&def.name),
-                            "duplicate token (in import): {:?}",
-                            def.name
-                        );
-                        tokens.insert(def.name.clone(), def);
-                    }
-                }
+    fn process_item(&mut self, item: Item) -> Result<()> {
+        match item {
+            Item::Rule(rule) => {
+                ensure!(rule.params.is_none(), "params not supported yet");
+                ensure!(rule.priority.is_none(), "priority not supported yet");
+                ensure!(
+                    !self.rules.contains_key(&rule.name),
+                    "duplicate rule: {:?}",
+                    rule.name
+                );
+                self.rules.insert(rule.name.clone(), rule);
             }
-        }
-        ensure!(rules.contains_key("start"), "no start rule found");
-        self.rules = Arc::new(rules);
-        self.tokens = Arc::new(tokens);
-        self.builder.add_grammar(GrammarWithLexer::default());
-        let ignore = std::mem::take(&mut self.ignore)
-            .iter()
-            .map(|exp| self.do_token_expansions(exp))
-            .collect::<Result<Vec<_>>>()?;
-        let start = self.do_rule("start")?;
-        self.builder.set_start_node(start);
-        if ignore.len() > 0 {
-            let ignore_rx = self.builder.regex.select(ignore);
-            self.builder.top_grammar.grammars[0].greedy_skip_rx =
-                Some(RegexSpec::RegexId(ignore_rx));
+            Item::Token(token_def) => {
+                ensure!(token_def.params.is_none(), "params not supported yet");
+                ensure!(token_def.priority.is_none(), "priority not supported yet");
+                ensure!(
+                    !self.tokens.contains_key(&token_def.name),
+                    "duplicate token: {:?}",
+                    token_def.name
+                );
+                self.tokens.insert(token_def.name.clone(), token_def);
+            }
+            Item::Statement(loc, statement) => {
+                self.do_statement(&loc, statement)?;
+            }
         }
         Ok(())
     }

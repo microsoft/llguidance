@@ -1,3 +1,7 @@
 #!/bin/sh
 
-cargo run --bin lark_test -- data/lark.lark
+if [ -z "$1" ]; then
+    LARK=data/lark.lark
+fi
+
+cargo run --bin lark_test -- $LARK "$@"

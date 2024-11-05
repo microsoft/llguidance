@@ -8,6 +8,16 @@ pub enum Item {
     Statement(Location, Statement),
 }
 
+impl Item {
+    pub fn location(&self) -> &Location {
+        match self {
+            Item::Rule(rule) => &rule.expansions.0,
+            Item::Token(token) => &token.expansions.0,
+            Item::Statement(loc, _) => loc,
+        }
+    }
+}
+
 /// Represents a grammar rule.
 #[derive(Debug, Clone)]
 pub struct Rule {
@@ -32,14 +42,8 @@ pub struct TokenDef {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Ignore(Expansions),
-    Import {
-        path: String,
-        alias: Option<String>,
-    },
-    MultiImport {
-        path: String,
-        names: Vec<String>,
-    },
+    Import { path: String, alias: Option<String> },
+    MultiImport { path: String, names: Vec<String> },
     OverrideRule(Box<Rule>),
     Declare(Vec<String>),
 }
