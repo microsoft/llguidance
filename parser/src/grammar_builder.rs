@@ -274,9 +274,10 @@ impl GrammarBuilder {
         } else if n == 1 {
             self.optional(elt)
         } else if n < 3 * K {
-            let n_1 = self.at_most(elt, n - 1);
-            let inner = self.join(&[elt, n_1]);
-            self.optional(inner)
+            let options = (0..=n)
+                .map(|k| self.simple_repeat(elt, k))
+                .collect::<Vec<_>>();
+            self.select(&options)
         } else {
             let elt_k = self.simple_repeat(elt, K);
 
@@ -293,14 +294,8 @@ impl GrammarBuilder {
     }
 
     fn simple_repeat(&mut self, elt: NodeRef, n: usize) -> NodeRef {
-        if n == 0 {
-            self.empty()
-        } else if n == 1 {
-            elt
-        } else {
-            let elt_n = (0..n).map(|_| elt).collect::<Vec<_>>();
-            self.join(&elt_n)
-        }
+        let elt_n = (0..n).map(|_| elt).collect::<Vec<_>>();
+        self.join(&elt_n)
     }
 
     // this tries to keep grammar size O(log(n))
