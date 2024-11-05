@@ -75,6 +75,8 @@ pub enum SpecialToken {
 pub trait Recognizer {
     /// for _ in 0..num { stack.pop() }
     fn pop_bytes(&mut self, num: usize);
+    /// "Collapse" the stack so that it consists only of its former
+    /// top element.
     /// X = stack.top(); stack.empty(); stack.push(X)
     fn collapse(&mut self);
     /// check if stack.top() transitions via byte to a viable state
