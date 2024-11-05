@@ -12,6 +12,8 @@ pub struct NodeRef {
     grammar_id: u32,
 }
 
+const K: usize = 4;
+
 pub struct GrammarBuilder {
     pub top_grammar: TopLevelGrammar,
     placeholder: Node,
@@ -221,7 +223,18 @@ impl GrammarBuilder {
     }
 
     pub fn join(&mut self, values: &[NodeRef]) -> NodeRef {
-        let ch = self.child_nodes(&values);
+        let mut ch = self.child_nodes(&values);
+        let empty = NodeId(self.empty().idx);
+        ch.retain(|&n| n != empty);
+        if ch.len() == 0 {
+            return self.empty();
+        }
+        if ch.len() == 1 {
+            return NodeRef {
+                idx: ch[0].0,
+                grammar_id: self.curr_grammar_id,
+            };
+        }
         self.add_node(Node::Join {
             sequence: ch,
             props: NodeProps::default(),
@@ -252,6 +265,84 @@ impl GrammarBuilder {
         let inner = self.select(&[empty, p_elt]);
         self.set_placeholder(p, inner);
         p
+    }
+
+    // this tries to keep grammar size O(log(n))
+    fn at_most(&mut self, elt: NodeRef, n: usize) -> NodeRef {
+        if n == 0 {
+            self.empty()
+        } else if n == 1 {
+            self.optional(elt)
+        } else if n < 3 * K {
+            let n_1 = self.at_most(elt, n - 1);
+            let inner = self.join(&[elt, n_1]);
+            self.optional(inner)
+        } else {
+            let elt_k = self.simple_repeat(elt, K);
+
+            let elt_max_nk = self.at_most(elt_k, (n / K) - 1);
+            let elt_max_k = self.at_most(elt, K - 1);
+            let elt_max_nk = self.join(&[elt_max_nk, elt_max_k]);
+
+            let elt_nk = self.repeat_exact(elt_k, n / K);
+            let left = self.at_most(elt, n % K);
+            let elt_n = self.join(&[elt_nk, left]);
+
+            self.select(&[elt_n, elt_max_nk])
+        }
+    }
+
+    fn simple_repeat(&mut self, elt: NodeRef, n: usize) -> NodeRef {
+        if n == 0 {
+            self.empty()
+        } else if n == 1 {
+            elt
+        } else {
+            let elt_n = (0..n).map(|_| elt).collect::<Vec<_>>();
+            self.join(&elt_n)
+        }
+    }
+
+    // this tries to keep grammar size O(log(n))
+    fn repeat_exact(&mut self, elt: NodeRef, n: usize) -> NodeRef {
+        if n > 2 * K {
+            let elt_k = self.simple_repeat(elt, K);
+            let inner = self.repeat_exact(elt_k, n / K);
+            let left = n % K;
+            let mut elt_left = (0..left).map(|_| elt).collect::<Vec<_>>();
+            elt_left.push(inner);
+            self.join(&elt_left)
+        } else {
+            self.simple_repeat(elt, n)
+        }
+    }
+
+    fn at_least(&mut self, elt: NodeRef, n: usize) -> NodeRef {
+        let z = self.zero_or_more(elt);
+        if n == 0 {
+            z
+        } else {
+            let r = self.repeat_exact(elt, n);
+            self.join(&[r, z])
+        }
+    }
+
+    pub fn repeat(&mut self, elt: NodeRef, min: usize, max: Option<usize>) -> NodeRef {
+        if max.is_none() {
+            return self.at_least(elt, min);
+        }
+        let max = max.unwrap();
+        assert!(min <= max);
+        if min == max {
+            self.repeat_exact(elt, min)
+        } else if min == 0 {
+            self.at_most(elt, max)
+        } else {
+            let d = max - min;
+            let common = self.repeat_exact(elt, min);
+            let extra = self.at_most(elt, d);
+            self.join(&[common, extra])
+        }
     }
 
     pub fn placeholder(&mut self) -> NodeRef {
