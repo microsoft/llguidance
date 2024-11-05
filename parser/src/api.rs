@@ -5,7 +5,7 @@ use serde_json::Value;
 
 /// This represents a collection of grammars, with a designated
 /// "start" grammar at first position.
-/// Grammars can refer to each other via GrammarRef nodes.
+/// Grammars can refer to each other via GenGrammar nodes.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TopLevelGrammar {
     pub grammars: Vec<GrammarWithLexer>,
