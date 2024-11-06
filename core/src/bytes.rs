@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use anyhow::{anyhow, Result};
-use bytemuck::{NoUninit, Pod};
+use bytemuck::{NoUninit, Pod as PodTrait};
 use bytemuck_derive::{Pod, Zeroable};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroable, Pod)]
@@ -12,7 +12,7 @@ pub fn clone_vec_as_bytes<T: NoUninit>(input: &[T]) -> Vec<u8> {
     bytemuck::cast_slice(input).to_vec()
 }
 
-pub fn vec_from_bytes<T: Pod>(bytes: &[u8]) -> Vec<T> {
+pub fn vec_from_bytes<T: PodTrait>(bytes: &[u8]) -> Vec<T> {
     if bytes.len() % size_of::<T>() != 0 {
         panic!(
             "vecT: got {} bytes, needed multiple of {}",
