@@ -6,7 +6,7 @@ default-run = "sample_parser"
 
 [dependencies]
 llguidance_parser = { path = "../parser" }
-toktrie_hf_tokenizers = { git = "https://github.com/microsoft/toktrie", rev = "972825d6c2090de141e948154a48ed31816c3217" }
+toktrie_hf_tokenizers = { git = "https://github.com/microsoft/toktrie", rev = "6172936f8c965d2050a53d14de0e3410ecc78ad1" }
 serde_json = "1.0.128"
 anyhow = "1.0.87"
 
