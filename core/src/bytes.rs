@@ -2,7 +2,7 @@ use std::mem::size_of;
 
 use anyhow::{anyhow, Result};
 use bytemuck::{NoUninit, Pod};
-use bytemuck_derive::Zeroable;
+use bytemuck_derive::{Pod, Zeroable};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Zeroable, Pod)]
 #[repr(C)]
