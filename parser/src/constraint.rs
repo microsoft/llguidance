@@ -170,6 +170,10 @@ impl Constraint {
         &self.last_res
     }
 
+    pub fn has_current_step_result(&self) -> bool {
+        self.step_arg.is_none()
+    }
+
     fn res_commit_result(&mut self) -> Result<CommitResult> {
         Ok(CommitResult::from_step_result(&self.last_res))
     }
