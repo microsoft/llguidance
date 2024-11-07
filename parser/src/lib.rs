@@ -27,7 +27,7 @@ pub mod lark;
 mod grammar_builder;
 mod json;
 pub use grammar_builder::{GrammarBuilder, NodeRef};
-pub use json::JsonCompileOptions;
+pub use json::compiler::JsonCompileOptions;
 pub use tokenizer_json::token_bytes_from_tokenizer_json;
 
 #[macro_export]
