@@ -21,7 +21,7 @@ default = []
 logging = []
 
 [lib]
-crate-type = ["staticlib", "rlib"]
+crate-type = ["staticlib", "rlib", "cdylib"]
 
 [build-dependencies]
 cbindgen = "0.27.0"
