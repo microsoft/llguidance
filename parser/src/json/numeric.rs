@@ -89,8 +89,8 @@ pub fn rx_int_range(left: Option<i64>, right: Option<i64>) -> String {
                         parts.push(format!("{}[0-{}]", rpref, rx));
                     }
 
-                    if left_rec + 1 <= right_rec - 1 {
-                        let inner = rx_int_range(Some(left_rec + 1), Some(right_rec - 1));
+                    if left_rec <= right_rec {
+                        let inner = rx_int_range(Some(left_rec), Some(right_rec));
                         parts.push(format!("{}[0-9]", inner));
                     }
 
