@@ -346,11 +346,10 @@ pub fn rx_float_range(
                         parts.push(format!("({}(\\.[0-9]+)?)", inner));
                     }
 
-                    if !rd.is_empty() || right_inclusive {
+                    if !rd.is_empty() {
                         parts.push(format!(
-                            "({}{}{})",
+                            "({}(\\.{})?)",
                             right_rec,
-                            if !rd.is_empty() { "\\." } else { "" },
                             lexi_0_to_x(&rd, right_inclusive)
                         ));
                     } else if right_inclusive {
