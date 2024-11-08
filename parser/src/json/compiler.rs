@@ -4,6 +4,7 @@ use lazy_static::lazy_static;
 use serde_json::{json, Value};
 use std::{collections::HashMap, vec};
 
+use super::formats::lookup_format;
 use crate::{
     api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
     GrammarBuilder, NodeRef,
@@ -378,7 +379,8 @@ impl Compiler {
                 let min_length = json_schema.opt_u64("minLength")?.unwrap_or(0);
                 let max_length = json_schema.opt_u64("maxLength")?;
                 let pattern = json_schema.opt_str("pattern")?;
-                return self.gen_json_string(min_length, max_length, pattern);
+                let format = json_schema.opt_str("format")?;
+                return self.gen_json_string(min_length, max_length, pattern, format);
             }
             "array" => {
                 let empty = vec![];
@@ -520,7 +522,22 @@ impl Compiler {
         min_length: u64,
         max_length: Option<u64>,
         regex: Option<&str>,
+        format: Option<&str>,
     ) -> Result<NodeRef> {
+
+        let mut regex = regex;
+
+        if let Some(format) = format {
+            if regex.is_some() {
+                bail!("Cannot specify both a regex and a format for a JSON string");
+            }
+            if let Some(r) = lookup_format(format) {
+                regex = Some(r);
+            } else {
+                bail!("Unknown format: {}", format)
+            };
+        }
+
         if min_length == 0 && max_length.is_none() && regex.is_none() {
             return Ok(self.json_simple_string());
         }
