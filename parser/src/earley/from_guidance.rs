@@ -6,8 +6,7 @@ use crate::api::{
     GrammarWithLexer, Node, ParserLimits, RegexId, RegexNode, RegexSpec, TopLevelGrammar,
     DEFAULT_CONTEXTUAL,
 };
-use crate::lark::{lark_to_llguidance, parse_lark};
-use crate::{loginfo, JsonCompileOptions, Logger};
+use crate::{lark_to_llguidance, loginfo, JsonCompileOptions, Logger};
 use anyhow::{bail, ensure, Result};
 use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use instant::Instant;
@@ -101,8 +100,7 @@ fn grammar_from_json(
             let opts = JsonCompileOptions { compact: false };
             opts.json_to_llg_no_validate(json_schema)?
         } else {
-            let items = parse_lark(input.lark_grammar.as_ref().unwrap())?;
-            lark_to_llguidance(items)?
+            lark_to_llguidance(input.lark_grammar.as_ref().unwrap())?
         };
 
         let g = new_grm.grammars.pop().unwrap();

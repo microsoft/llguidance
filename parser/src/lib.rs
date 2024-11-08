@@ -11,8 +11,8 @@ pub mod api;
 pub mod output;
 pub use toktrie;
 
-mod tokenizer_json;
 mod constraint;
+mod tokenizer_json;
 pub use constraint::{CommitResult, Constraint};
 
 mod logging;
@@ -22,13 +22,22 @@ pub use derivre;
 
 pub mod ffi;
 
-pub mod lark;
-
 mod grammar_builder;
 mod json;
 pub use grammar_builder::{GrammarBuilder, NodeRef};
 pub use json::JsonCompileOptions;
 pub use tokenizer_json::token_bytes_from_tokenizer_json;
+
+#[cfg(feature = "lark")]
+mod lark;
+
+#[cfg(feature = "lark")]
+pub use lark::lark_to_llguidance;
+
+#[cfg(not(feature = "lark"))]
+pub fn lark_to_llguidance(_lark: &str) -> anyhow::Result<api::TopLevelGrammar> {
+    anyhow::bail!("lark_to_llguidance not available without the 'lark' feature");
+}
 
 #[macro_export]
 macro_rules! loginfo {

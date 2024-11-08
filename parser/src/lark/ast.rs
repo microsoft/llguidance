@@ -22,7 +22,9 @@ impl Item {
 #[derive(Debug, Clone)]
 pub struct Rule {
     pub name: String,
+    #[allow(dead_code)]
     pub cond_inline: bool,
+    #[allow(dead_code)]
     pub pin_terminals: bool,
     pub params: Option<RuleParams>,
     pub priority: Option<i32>,
@@ -42,17 +44,27 @@ pub struct TokenDef {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Ignore(Expansions),
-    Import { path: String, alias: Option<String> },
-    MultiImport { path: String, names: Vec<String> },
+    Import {
+        path: String,
+        alias: Option<String>,
+    },
+    MultiImport {
+        path: String,
+        names: Vec<String>,
+    },
+    #[allow(dead_code)]
     OverrideRule(Box<Rule>),
+    #[allow(dead_code)]
     Declare(Vec<String>),
 }
 
 /// Represents parameters for a rule.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RuleParams(pub Vec<String>);
 
 /// Represents parameters for a token.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct TokenParams(pub Vec<String>);
 
@@ -64,6 +76,7 @@ pub struct Expansions(pub Location, pub Vec<Alias>);
 #[derive(Debug, Clone)]
 pub struct Alias {
     pub expansion: Expansion,
+    #[allow(dead_code)]
     pub alias: Option<String>,
 }
 
@@ -94,7 +107,11 @@ pub enum Value {
     Name(String),
     LiteralString(String, String),
     LiteralRegex(String, String),
-    TemplateUsage { name: String, values: Vec<Value> },
+    #[allow(dead_code)]
+    TemplateUsage {
+        name: String,
+        values: Vec<Value>,
+    },
 }
 
 /// Represents an operator.

@@ -5,12 +5,11 @@ use std::{
 };
 
 use anyhow::Result;
-use llguidance_parser::lark::{lark_to_llguidance, parse_lark};
+use llguidance_parser::lark_to_llguidance;
 
 fn process_file(filename: &str) -> Result<()> {
     let grammar_file = read_file_to_string(filename);
-    let r = parse_lark(&grammar_file)?;
-    let llguidance = lark_to_llguidance(r)?;
+    let llguidance = lark_to_llguidance(&grammar_file)?;
     let json = serde_json::to_string_pretty(&llguidance).unwrap();
     // write json to file
     let mut file = File::create("tmp/llguidance.json").expect("Unable to create file");

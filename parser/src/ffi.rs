@@ -8,8 +8,7 @@ use toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenizerEnv};
 
 use crate::{
     api::{ParserLimits, RegexNode, TopLevelGrammar},
-    lark::{lark_to_llguidance, parse_lark},
-    CommitResult, Constraint, JsonCompileOptions, Logger, TokenParser,
+    lark_to_llguidance, CommitResult, Constraint, JsonCompileOptions, Logger, TokenParser,
 };
 
 struct CTokenizerInner {
@@ -279,7 +278,7 @@ fn new_constraint_lark(init: &LlgConstraintInit, lark: *const c_char) -> Result<
     let lark = unsafe { CStr::from_ptr(lark) }
         .to_str()
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in lark"))?;
-    let grammar = lark_to_llguidance(parse_lark(lark)?)?;
+    let grammar = lark_to_llguidance(lark)?;
     new_constraint_core(init, grammar)
 }
 
@@ -317,7 +316,7 @@ fn new_constraint_any(
         "regex" => new_constraint_regex(init, data),
         "json" | "json_schema" => new_constraint_json(init, data),
         "lark" => new_constraint_lark(init, data),
-        "llguidance" | "guidance" => new_constraint_lark(init, data),
+        "llguidance" | "guidance" => new_constraint(init, data),
         _ => bail!("unknown constraint type: {tp}"),
     }
 }
