@@ -24,6 +24,8 @@ pub mod ffi;
 
 mod grammar_builder;
 mod json;
+#[cfg(feature = "jsonschema_validation")]
+mod json_validation;
 pub use grammar_builder::{GrammarBuilder, NodeRef};
 pub use json::JsonCompileOptions;
 pub use tokenizer_json::token_bytes_from_tokenizer_json;

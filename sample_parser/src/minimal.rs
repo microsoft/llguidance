@@ -60,7 +60,7 @@ fn main() {
             compact: false,
         };
         let val = serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
-        opts.json_to_llg_no_validate(&val)
+        opts.json_to_llg(&val)
             .expect("Failed to convert JSON to LLG")
     } else {
         panic!("Unknown schema file extension")

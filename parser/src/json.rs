@@ -1,6 +1,4 @@
 use anyhow::{anyhow, bail, Result};
-use jsonschema::Validator;
-use lazy_static::lazy_static;
 use serde_json::{json, Value};
 use std::{collections::HashMap, vec};
 
@@ -122,7 +120,12 @@ macro_rules! cache {
 impl JsonCompileOptions {
     pub fn json_to_llg(&self, schema: &Value) -> Result<TopLevelGrammar> {
         let mut compiler = Compiler::new(self.clone());
-        compiler.validate(schema)?;
+        #[cfg(feature = "jsonschema_validation")]
+        {
+            use crate::json_validation::validate_schema;
+            validate_schema(schema)?;
+        }
+
         compiler.execute(schema)?;
         compiler.builder.finalize()
     }
@@ -208,28 +211,6 @@ impl OptionalField for Value {
     }
 }
 
-struct DummyResolver {}
-impl jsonschema::Retrieve for DummyResolver {
-    fn retrieve(
-        &self,
-        uri: &jsonschema::Uri<&str>,
-    ) -> std::result::Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-        Err(anyhow!("external resolver disabled (url: {})", uri).into())
-    }
-}
-
-lazy_static! {
-    static ref SCHEMA_VALIDATOR: Validator = {
-        Validator::options()
-            .with_draft(jsonschema::Draft::Draft7)
-            .with_retriever(DummyResolver {})
-            .build(&json!({
-                "$ref": "http://json-schema.org/draft-07/schema"
-            }))
-            .unwrap()
-    };
-}
-
 impl Compiler {
     pub fn new(options: JsonCompileOptions) -> Self {
         Self {
@@ -240,12 +221,6 @@ impl Compiler {
             lexeme_cache: HashMap::new(),
             any_cache: None,
         }
-    }
-
-    pub fn validate(&mut self, schema: &Value) -> Result<()> {
-        SCHEMA_VALIDATOR
-            .validate(schema)
-            .map_err(|mut e| anyhow!("Invalid schema: {}", e.next().unwrap()))
     }
 
     pub fn execute(&mut self, schema: &Value) -> Result<()> {
