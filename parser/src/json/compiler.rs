@@ -478,7 +478,7 @@ impl Compiler {
                     Some(min_val + 1.0)
                 }
             }
-            (Some(min_val), false) => Some(min_val.floor()),
+            (Some(min_val), false) => Some(min_val.ceil()),
             _ => None,
         }.map(|val| val as i64);
         let maximum = match (maximum, exclusive_maximum) {
@@ -489,7 +489,7 @@ impl Compiler {
                     Some(max_val - 1.0)
                 }
             },
-            (Some(max_val), false) => Some(max_val.ceil()),
+            (Some(max_val), false) => Some(max_val.floor()),
             _ => None,
         }.map(|val| val as i64);
         // TODO: handle errors in rx_int_range; currently it just panics
