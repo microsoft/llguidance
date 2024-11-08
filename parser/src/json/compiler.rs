@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, vec};
 
 use super::formats::lookup_format;
+use super::numeric::{rx_float_range, rx_int_range};
 use crate::{
     api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
     GrammarBuilder, NodeRef,
@@ -63,6 +64,7 @@ const DEFS_KEYS: [&str; 4] = ["$defs", "definitions", "defs", "refs"];
 const ARRAY_KEYS: [&str; 4] = ["items", "prefixItems", "minItems", "maxItems"];
 const OBJECT_KEYS: [&str; 2] = ["properties", "additionalProperties"];
 const STRING_KEYS: [&str; 4] = ["minLength", "maxLength", "pattern", "format"];
+const NUMERIC_KEYS: [&str; 4] = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"];
 
 const CHAR_REGEX: &str = r#"(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])"#;
 
@@ -83,7 +85,7 @@ fn validate_json_node_keys(node: &Value) -> Result<()> {
 
     for key in node.keys() {
         let key = &key.as_str();
-        if KEYWORDS.contains(key) || IGNORED_KEYS.contains(key) || DEFS_KEYS.contains(key) || ARRAY_KEYS.contains(key) || OBJECT_KEYS.contains(key) || STRING_KEYS.contains(key) {
+        if KEYWORDS.contains(key) || IGNORED_KEYS.contains(key) || DEFS_KEYS.contains(key) || ARRAY_KEYS.contains(key) || OBJECT_KEYS.contains(key) || STRING_KEYS.contains(key) || NUMERIC_KEYS.contains(key) {
             continue;
         }
         if key.starts_with("x-") || key.starts_with("$xsd-") {
@@ -135,6 +137,7 @@ fn mk_regex(rx: &str) -> RegexSpec {
 
 trait OptionalField {
     fn opt_u64(&self, key: &str) -> Result<Option<u64>>;
+    fn opt_f64(&self, key: &str) -> Result<Option<f64>>;
     fn opt_str(&self, key: &str) -> Result<Option<&str>>;
     fn opt_array(&self, key: &str) -> Result<Option<&Vec<Value>>>;
     #[allow(dead_code)]
@@ -156,6 +159,16 @@ impl OptionalField for Value {
         if let Some(val) = self.get(key) {
             val.as_u64()
                 .ok_or_else(|| expected_err(key, val, "unsigned integer"))
+                .map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn opt_f64(&self, key: &str) -> Result<Option<f64>> {
+        if let Some(val) = self.get(key) {
+            val.as_f64()
+                .ok_or_else(|| expected_err(key, val, "float"))
                 .map(Some)
         } else {
             Ok(None)
@@ -373,8 +386,53 @@ impl Compiler {
         match target_type_str {
             "null" => return Ok(self.builder.string("null")),
             "boolean" => return Ok(self.lexeme(r"true|false")),
-            "integer" => return Ok(self.json_int()),
-            "number" => return Ok(self.json_number()),
+            "integer" | "number" => {
+                let mut minimum = json_schema.opt_f64("minimum")?;
+                let mut maximum = json_schema.opt_f64("maximum")?;
+                let exclusive_minimum: bool = match json_schema.get("exclusiveMinimum") {
+                    // Draft4-style boolean
+                    Some(Value::Bool(b)) => *b,
+                    // Draft 2020-12 style number
+                    Some(Value::Number(n)) => {
+                        let n = n.as_f64()
+                            .ok_or_else(|| expected_err("exclusiveMinimum", &Value::Number(n.clone()), "unsigned integer"))?;
+                        match minimum {
+                            Some(min) if n < min => {
+                                false
+                            },
+                            _ => {
+                                minimum = Some(n);
+                                true
+                            }
+                        }
+                    },
+                    _ => false,
+                };
+                let exclusive_maximum: bool = match json_schema.get("exclusiveMaximum") {
+                    // Draft4-style boolean
+                    Some(Value::Bool(b)) => *b,
+                    // Draft 2020-12 style number
+                    Some(Value::Number(n)) => {
+                        let n = n.as_f64()
+                            .ok_or_else(|| expected_err("exclusiveMaximum", &Value::Number(n.clone()), "unsigned integer"))?;
+                        match maximum {
+                            Some(max) if n > max => {
+                                false
+                            },
+                            _ => {
+                                maximum = Some(n);
+                                true
+                            }
+                        }
+                    },
+                    _ => false,
+                };
+                if target_type_str == "integer" {
+                    return self.json_int(minimum, maximum, exclusive_minimum, exclusive_maximum);
+                } else {
+                    return self.json_number(minimum, maximum, exclusive_minimum, exclusive_maximum);
+                }
+            },
             "string" => {
                 let min_length = json_schema.opt_u64("minLength")?.unwrap_or(0);
                 let max_length = json_schema.opt_u64("maxLength")?;
@@ -411,12 +469,38 @@ impl Compiler {
         r
     }
 
-    fn json_int(&mut self) -> NodeRef {
-        self.lexeme(r"-?(?:0|[1-9][0-9]*)")
+    fn json_int(&mut self, minimum: Option<f64>, maximum: Option<f64>, exclusive_minimum: bool, exclusive_maximum: bool) -> Result<NodeRef> {
+        let minimum = match (minimum, exclusive_minimum) {
+            (Some(min_val), true) => {
+                if min_val.fract() != 0.0 {
+                    Some(min_val.ceil())
+                } else {
+                    Some(min_val + 1.0)
+                }
+            }
+            (Some(min_val), false) => Some(min_val.floor()),
+            _ => None,
+        }.map(|val| val as i64);
+        let maximum = match (maximum, exclusive_maximum) {
+            (Some(max_val), true) => {
+                if max_val.fract() != 0.0 {
+                    Some(max_val.floor())
+                } else {
+                    Some(max_val - 1.0)
+                }
+            },
+            (Some(max_val), false) => Some(max_val.ceil()),
+            _ => None,
+        }.map(|val| val as i64);
+        // TODO: handle errors in rx_int_range; currently it just panics
+        let rx = rx_int_range(minimum, maximum);
+        Ok(self.lexeme(&rx))
     }
 
-    fn json_number(&mut self) -> NodeRef {
-        self.lexeme(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+    fn json_number(&mut self, minimum: Option<f64>, maximum: Option<f64>, exclusive_minimum: bool, exclusive_maximum: bool) -> Result<NodeRef> {
+        // TODO: handle errors in rx_float_range; currently it just panics
+        let rx = rx_float_range(minimum, maximum, !exclusive_minimum, !exclusive_maximum);
+        Ok(self.lexeme(&rx))
     }
 
     fn json_simple_string(&mut self) -> NodeRef {
