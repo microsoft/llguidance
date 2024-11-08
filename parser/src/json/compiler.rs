@@ -22,6 +22,7 @@ fn to_compact_json(target: &serde_json::Value) -> String {
     serde_json::to_string(target).unwrap()
 }
 
+const TYPES: [&str; 7] = ["null", "boolean", "integer", "number", "string", "array", "object"];
 const KEYWORDS: [&str; 10] = [
     "anyOf",
     "oneOf",
@@ -60,6 +61,7 @@ const DEFS_KEYS: [&str; 4] = ["$defs", "definitions", "defs", "refs"];
 
 const ARRAY_KEYS: [&str; 4] = ["items", "prefixItems", "minItems", "maxItems"];
 const OBJECT_KEYS: [&str; 2] = ["properties", "additionalProperties"];
+const STRING_KEYS: [&str; 4] = ["minLength", "maxLength", "pattern", "format"];
 
 const CHAR_REGEX: &str = r#"(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])"#;
 
@@ -78,17 +80,9 @@ fn validate_json_node_keys(node: &Value) -> Result<()> {
         .ok_or_else(|| anyhow!("Expected object as json schema, got: {}", limited_str(node)))
         .unwrap();
 
-    let typ = node.get("type").and_then(|v| v.as_str()).unwrap_or("");
-
     for key in node.keys() {
         let key = &key.as_str();
-        if KEYWORDS.contains(key) || IGNORED_KEYS.contains(key) || DEFS_KEYS.contains(key) {
-            continue;
-        }
-        if typ == "array" && ARRAY_KEYS.contains(key) {
-            continue;
-        }
-        if typ == "object" && OBJECT_KEYS.contains(key) {
+        if KEYWORDS.contains(key) || IGNORED_KEYS.contains(key) || DEFS_KEYS.contains(key) || ARRAY_KEYS.contains(key) || OBJECT_KEYS.contains(key) || STRING_KEYS.contains(key) {
             continue;
         }
         if key.starts_with("x-") || key.starts_with("$xsd-") {
@@ -299,6 +293,13 @@ impl Compiler {
             bail!("'false' not supported as schema here");
         }
 
+        if let Some(json_schema) = json_schema.as_object() {
+            // TODO: should be sufficient to have only ignored keys here
+            if json_schema.is_empty() {
+                return Ok(self.gen_json_any());
+            }
+        }
+
         // eprintln!("gen_json: {}", limited_str(json_schema));
         validate_json_node_keys(json_schema)?;
 
@@ -343,26 +344,28 @@ impl Compiler {
             return Ok(self.builder.select(&options));
         }
 
-        // Process type-specific keywords
-        if let Some(arr) = json_schema["type"].as_array() {
-            let nodes = arr
-                .iter()
-                .map(|v| {
-                    let tp = v.as_str().ok_or_else(|| {
-                        anyhow!("Expected string in type list, got: {}", limited_str(v))
-                    })?;
-                    self.gen_json_type(tp, json_schema)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            return Ok(self.builder.select(&nodes));
+        // Process type
+        if let Some(tp) = json_schema.opt_str("type")? {
+            return self.gen_json_type(tp, json_schema)
         }
 
-        if let Some(target_type_str) = json_schema.opt_str("type")? {
-            return self.gen_json_type(target_type_str, json_schema);
-        }
+        let types = match json_schema.opt_array("type")? {
+            Some(types) => types,
+            None => {
+                &TYPES.iter().map(|s| Value::String(s.to_string())).collect::<Vec<_>>()
+            }
+        };
 
-        // Fallback to "any" type
-        Ok(self.gen_json_any())
+        let nodes = types
+            .iter()
+            .map(|v| {
+                let tp = v.as_str().ok_or_else(|| {
+                    anyhow!("Expected string in type list, got: {}", limited_str(v))
+                })?;
+                self.gen_json_type(tp, json_schema)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(self.builder.select(&nodes))
     }
 
     fn gen_json_type(&mut self, target_type_str: &str, json_schema: &Value) -> Result<NodeRef> {
