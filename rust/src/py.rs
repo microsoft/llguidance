@@ -244,22 +244,33 @@ impl TokenizerEnv for LLTokenizer {
 #[derive(Clone)]
 #[pyclass]
 struct JsonCompiler {
-    #[pyo3(get, set)]
-    compact: bool,
+    item_separator: String,
+    key_separator: String,
+    whitespace_flexible: bool
 }
 
 #[pymethods]
 impl JsonCompiler {
     #[new]
-    fn py_new(compact: Option<bool>) -> Self {
+    #[pyo3(signature = (separators = None, whitespace_flexible = false))]
+    fn py_new(separators: Option<(String, String)>, whitespace_flexible: bool) -> Self {
+        let (item_separator, key_separator) = separators.unwrap_or_else(|| if whitespace_flexible {
+            (",".to_owned(), ":".to_owned())
+        } else {
+            (", ".to_owned(), ": ".to_owned())
+        });
         JsonCompiler {
-            compact: compact.unwrap_or(false),
+            item_separator: item_separator,
+            key_separator: key_separator,
+            whitespace_flexible,
         }
     }
     fn compile(&self, schema: &str) -> PyResult<String> {
         let schema: Value = serde_json::from_str(schema).map_err(val_error)?;
         let compile_options = JsonCompileOptions {
-            compact: self.compact,
+            item_separator: self.item_separator.clone(),
+            key_separator: self.key_separator.clone(),
+            whitespace_flexible: self.whitespace_flexible,
         };
         let tlg = compile_options.json_to_llg(&schema).map_err(val_error)?;
         let grammar = &tlg.grammars[0];

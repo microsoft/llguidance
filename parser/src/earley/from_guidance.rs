@@ -98,7 +98,7 @@ fn grammar_from_json(
                 input.lark_grammar.is_none(),
                 "cannot have both json_schema and lark_grammar"
             );
-            let opts = JsonCompileOptions { compact: false };
+            let opts = JsonCompileOptions::default();
             opts.json_to_llg_no_validate(json_schema)?
         } else {
             let items = parse_lark(input.lark_grammar.as_ref().unwrap())?;

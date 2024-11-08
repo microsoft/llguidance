@@ -17,7 +17,9 @@ use crate::{
 
 #[derive(Debug, Default, Clone)]
 pub struct JsonCompileOptions {
-    pub compact: bool,
+    pub item_separator: String,
+    pub key_separator: String,
+    pub whitespace_flexible: bool,
 }
 
 fn to_compact_json(target: &serde_json::Value) -> String {
@@ -117,6 +119,13 @@ macro_rules! cache {
 }
 
 impl JsonCompileOptions {
+    pub fn default() -> Self {
+        Self {
+            item_separator: ",".to_string(),
+            key_separator: ":".to_string(),
+            whitespace_flexible: true,
+        }
+    }
     pub fn json_to_llg(&self, schema: &Value) -> Result<TopLevelGrammar> {
         let mut compiler = Compiler::new(self.clone());
         compiler.validate(schema)?;
@@ -258,10 +267,10 @@ impl Compiler {
 
     pub fn execute(&mut self, schema: &Value) -> Result<()> {
         self.builder.add_grammar(GrammarWithLexer {
-            greedy_skip_rx: if self.options.compact {
-                None
-            } else {
+            greedy_skip_rx: if self.options.whitespace_flexible {
                 Some(mk_regex(r"[\x20\x0A\x0D\x09]+"))
+            } else {
+                None
             },
             ..GrammarWithLexer::default()
         });
@@ -553,7 +562,7 @@ impl Compiler {
         if !properties.is_empty() {
             grammars.extend(self.process_properties(properties)?);
             if additional_properties != &Value::Bool(false) {
-                grammars.push(self.builder.string(","));
+                grammars.push(self.builder.string(&self.options.item_separator));
             }
         }
 
@@ -574,11 +583,11 @@ impl Compiler {
 
         for (name, property_schema) in properties {
             result.push(self.builder.string(&format!("\"{}\"", name)));
-            result.push(self.builder.string(":"));
+            result.push(self.builder.string(&self.options.key_separator));
             result.push(self.gen_json(property_schema)?);
             properties_added += 1;
             if properties_added < properties.len() {
-                result.push(self.builder.string(","));
+                result.push(self.builder.string(&self.options.item_separator));
             }
         }
 
@@ -587,7 +596,7 @@ impl Compiler {
 
     fn process_additional_properties(&mut self, additional_properties: &Value) -> Result<NodeRef> {
         let str = self.json_simple_string();
-        let colon = self.builder.string(":");
+        let colon = self.builder.string(&self.options.key_separator);
         let the_rest = self.gen_json(additional_properties)?;
         let item = self.builder.join(&[str, colon, the_rest]);
         let inner = self.sequence(item);
@@ -595,7 +604,7 @@ impl Compiler {
     }
 
     fn sequence(&mut self, item: NodeRef) -> NodeRef {
-        let comma = self.builder.string(",");
+        let comma = self.builder.string(&self.options.item_separator);
         let item_comma = self.builder.join(&[item, comma]);
         let item_comma_star = self.builder.zero_or_more(item_comma);
         self.builder.join(&[item_comma_star, item])
@@ -719,7 +728,7 @@ impl Compiler {
         }
 
         let mut grammars: Vec<NodeRef> = vec![self.builder.string("[")];
-        let comma = self.builder.string(",");
+        let comma = self.builder.string(&self.options.item_separator);
 
         if !required_items.is_empty() {
             grammars.push(required_items[0]);

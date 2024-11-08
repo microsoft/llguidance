@@ -288,7 +288,7 @@ fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> 
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in json_schema"))?;
     let json_schema = serde_json::from_str(json_schema)
         .map_err(|e| anyhow::anyhow!("Invalid JSON in json_schema: {e}"))?;
-    let opts = JsonCompileOptions { compact: false };
+    let opts = JsonCompileOptions::default();
     let grammar = opts
         .json_to_llg_no_validate(&json_schema)
         .map_err(|e| anyhow::anyhow!("Error compiling JSON schema to LLG: {e}"))?;
