@@ -210,6 +210,7 @@ pub struct LlgConstraintInit {
     pub limits: ParserLimits,
 }
 
+#[derive(Clone)]
 pub struct LlgConstraint {
     local_error: Option<String>,
     last_logs: String,
@@ -511,6 +512,12 @@ pub extern "C" fn llg_commit_token(
     cc.get_error_code()
 }
 
+/// Clone the constraint
+#[no_mangle]
+pub extern "C" fn llg_clone_constraint(cc: &LlgConstraint) -> *mut LlgConstraint {
+    Box::into_raw(Box::new(cc.clone()))
+}
+
 /// Construct a new tokenizer from the given TokenizerInit
 #[no_mangle]
 pub extern "C" fn llg_new_tokenizer(
@@ -533,6 +540,15 @@ pub extern "C" fn llg_new_tokenizer(
             std::ptr::null_mut()
         }
     }
+}
+
+/// Clone a tokenizer.
+/// This increments a reference count and does a small allocation.
+#[no_mangle]
+pub extern "C" fn llg_clone_tokenizer(tok: &LlgTokenizer) -> *mut LlgTokenizer {
+    Box::into_raw(Box::new(LlgTokenizer {
+        token_env: tok.token_env.clone(),
+    }))
 }
 
 /// Tokenize the given bytes and return the tokens.
