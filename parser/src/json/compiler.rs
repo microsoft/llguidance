@@ -354,16 +354,15 @@ impl Compiler {
 
         // Process const
         if let Some(const_value) = json_schema.get("const") {
-            let compact_const = to_compact_json(const_value);
-            return Ok(self.builder.string(&compact_const));
+            return self.gen_json_const(const_value);
         }
 
         // Process enum
         if let Some(enum_array) = json_schema.opt_array("enum")? {
             let options = enum_array
                 .iter()
-                .map(|opt| self.builder.string(&to_compact_json(opt)))
-                .collect::<Vec<_>>();
+                .map(|opt| self.gen_json_const(opt))
+                .collect::<Result<Vec<_>, _>>()?;
             return Ok(self.builder.select(&options));
         }
 
@@ -389,6 +388,30 @@ impl Compiler {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(self.builder.select(&nodes))
+    }
+
+    fn gen_json_const(&mut self, const_value: &Value) -> Result<NodeRef> {
+        // Recursively build a grammar for a constant value (just to play nicely with separators and whitespace flexibility)
+        match const_value {
+            Value::Object(values) => {
+                let properties = values.iter()
+                    .map(|(k, v)| {
+                        (k.clone(), json!({"const": v}))
+                    })
+                    .collect::<serde_json::Map<_, _>>();
+                self.gen_json_object(&properties, &Value::Bool(false))
+            },
+            Value::Array(values) => {
+                let n_items = values.len() as u64;
+                let prefix_items = values.iter().map(|v| json!({"const": v})).collect::<Vec<_>>();
+                self.gen_json_array(&prefix_items, &Value::Bool(false), n_items, Some(n_items))
+            },
+            _ => {
+                // let serde_json dump simple values
+                let const_str = to_compact_json(const_value);
+                Ok(self.builder.string(&const_str))
+            }
+        }
     }
 
     fn gen_json_type(&mut self, target_type_str: &str, json_schema: &Value) -> Result<NodeRef> {
