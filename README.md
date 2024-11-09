@@ -67,40 +67,6 @@ For Python bindings:
 This builds the Python bindings for the library and runs the tests
 (which mostly live in the Guidance repo - it will clone it).
 
-## TODO
-
-- [ ] `to_regex_vec()` in lexerspec.rs - non-contextual keywords
-- [ ] allow byte sequence to fast-forward through grammar at start (grammar derivative)
-- [ ] return `{when_sampled:[EOS],ff:[]}` as slice when EOS ends gen()
-
-### Lexeme-splitting
-
-See https://github.com/microsoft/llguidance/issues/2
-
-```python
-    g = select(["a", "abq", "c"]) + optional("bQ")
-    check_grammar(g, ["", "a‧b‧q‧≺EOS≻"]) # fails 'q' is forced
-    check_grammar(g, ["", "a‧b‧Q"]) # doesn't match at all
-```
-
-### Only valid tokens
-
-See https://github.com/microsoft/llguidance/issues/1
-
-- [ ] implement `.forced_byte()` method in `derivre`
-- [ ] use this for cheap `.forced_byte()` impl in `llguidance`
-- [ ] while walking token trie, remember all forced paths (there shouldn't be too many of them)
-
-In toktrie walk, if we encounter a forced byte, we go into forced mode
-where we just chase all forced bytes.
-The first token we find on this path we put on some list.
-We do not add any of these tokens to the allow set.
-
-Then, after token trie walk, for every token on this list we re-create
-the forced byte string, tokenize, chop excessive tokens, and add the first
-token from tokenization to allow set and remaining tokens (if any) as conditional
-splice.
-
 ## Contributing
 
 This project welcomes contributions and suggestions. Most contributions require you to agree to a
