@@ -267,7 +267,15 @@ impl GrammarBuilder {
         p
     }
 
-    // this tries to keep grammar size O(log(n))
+    // at_most() creates a rule which accepts at most 'n' copies
+    // of element 'elt'.
+
+    // The first-time reader of at_most() might want to consult
+    // the comments for repeat_exact(), where similar logic is
+    // used in a simpler form.
+    //
+    // at_most() recursively factors the sequence into K-size pieces,
+    // in an attempt to keep grammar size O(log(n)).
     fn at_most(&mut self, elt: NodeRef, n: usize) -> NodeRef {
         if n == 0 {
             // If the max ('n') is 0, an empty rule
@@ -330,47 +338,84 @@ impl GrammarBuilder {
     }
 
     // simple_repeat() "simply" repeats the element ('elt') 'n' times.
-    // Here "simple" means we do not factor into K-size pieces.
+    // Here "simple" means we do not factor into K-size pieces, so that
+    // time will be O(n).  The intent is that simple_repeat() only be
+    // called for small 'n'.
     fn simple_repeat(&mut self, elt: NodeRef, n: usize) -> NodeRef {
         let elt_n = (0..n).map(|_| elt).collect::<Vec<_>>();
         self.join(&elt_n)
     }
 
-    // this tries to keep grammar size O(log(n))
+    // Repeat element 'elt' exactly 'n' times, using factoring
+    // in an attempt to keep grammar size O(log(n)).
     fn repeat_exact(&mut self, elt: NodeRef, n: usize) -> NodeRef {
         if n > 2 * K {
+            // For large 'n', try to keep the number of rules O(log(n))
+            // by "factoring" the sequence into K-sized pieces
+
+            // Create a K-element -- 'elt' repeated 'K' times.
             let elt_k = self.simple_repeat(elt, K);
+
+            // Repeat the K-element n/K times.  The repetition
+            // is itself factored, so that the process is
+            // recursive.
             let inner = self.repeat_exact(elt_k, n / K);
+
+            // 'inner' will contain ((n/K)K) be an 'elt'-sequence
+            // of length ((n/K)K), which is n-((n/K)K), or n%K,
+            // short of what we want.  We create 'elt_left' to contain
+            // the n%K additional items we need, and concatenate it
+            // with 'inner' to form our result.
             let left = n % K;
             let mut elt_left = (0..left).map(|_| elt).collect::<Vec<_>>();
             elt_left.push(inner);
             self.join(&elt_left)
         } else {
+            // For small 'n' (currently, 8 or less), simply
+            // repeat 'elt' 'n' times.
             self.simple_repeat(elt, n)
         }
     }
 
+    // at_least() accepts a sequence of at least 'n' copies of
+    // element 'elt'.
     fn at_least(&mut self, elt: NodeRef, n: usize) -> NodeRef {
         let z = self.zero_or_more(elt);
         if n == 0 {
+            // If n==0, atleast() is equivalent to zero_or_more().
             z
         } else {
+            // If n>0, first sequence is a factored repetition of
+            // exactly 'n' copies of 'elt', ...
             let r = self.repeat_exact(elt, n);
+            // ... followed by zero or more copies of 'elt'
             self.join(&[r, z])
         }
     }
 
+    // Create a rule which accepts from 'min' to 'max' copies of element
+    // 'elt', inclusive.
     pub fn repeat(&mut self, elt: NodeRef, min: usize, max: Option<usize>) -> NodeRef {
         if max.is_none() {
+            // If no 'max', what we want is equivalent to a rule accepting at least
+            // 'min' elements.
             return self.at_least(elt, min);
         }
         let max = max.unwrap();
         assert!(min <= max);
         if min == max {
+            // Where 'min' is equal to 'max', what we want is equivalent to a rule
+            // repeating element 'elt' exactly 'min' times.
             self.repeat_exact(elt, min)
         } else if min == 0 {
+            // If 'min' is zero, what we want is equivalent to a rule accepting at least
+            // 'min' elements.
             self.at_most(elt, max)
         } else {
+            // In the general case, what we want is equivalent to
+            // a rule accepting a fixed-size block of length 'min',
+            // followed by a rule accepting at most 'd' elements,
+            // where 'd' is the difference between 'min' and 'max'
             let d = max - min;
             let common = self.repeat_exact(elt, min);
             let extra = self.at_most(elt, d);
