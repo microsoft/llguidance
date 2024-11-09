@@ -30,7 +30,7 @@ The library is currently integrated in:
 The integration is ongoing in:
 - onnxruntime-genai - [draft PR](https://github.com/microsoft/onnxruntime-genai/pull/1038)
 - mistral.rs - [preliminary PR](https://github.com/EricLBuehler/mistral.rs/pull/899)
-- llama.cpp - [branch](https://github.com/mmoskal/llama.cpp/tree/llg);
+- llama.cpp - [preliminary PR](https://github.com/ggerganov/llama.cpp/pull/10224);
   note that llama.cpp is fully integrated in Guidance above
   via Python bindings
 
