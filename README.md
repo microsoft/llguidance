@@ -34,6 +34,8 @@ The integration is ongoing in:
   note that llama.cpp is fully integrated in Guidance above
   via Python bindings
 
+## Technical details
+
 Given a context-free grammar, a tokenizer, and prefix of tokens,
 llguidance computes a token mask (set of tokens from the tokenizer)
 that when added to current prefix of token can lead to a valid string in
@@ -45,9 +47,9 @@ There is also no significant startup cost.
 
 The library implements a context-free grammar parser with Earley's algorithm
 on top of a lexer which uses [derivatives of regular expressions](https://github.com/microsoft/derivre).
-
-Grammars are normally [JSON-serialized](./parser/src/api.rs).
-The following libraries produce llguidance grammars:
+A lot of
+[low-level optimizations](https://github.com/microsoft/toktrie/blob/main/implementation.md)
+are implemented.
 
 ## Building
 
