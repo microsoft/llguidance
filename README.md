@@ -54,15 +54,18 @@ are implemented.
 ## Building
 
 - [install rust](https://www.rust-lang.org/tools/install); 1.75 or later
+
+If you just need the C or Rust library (`llguidance_parser`), 
+check the [parser](./parser/README.md) directory.
+
+For Python bindings:
+
 - install python 3.9 or later; very likely you'll need a virtual env/conda
 - run `./scripts/install-deps.sh`
 - to build and after any changes, run `./scripts/test-guidance.sh`
 
 This builds the Python bindings for the library and runs the tests
 (which mostly live in the Guidance repo - it will clone it).
-
-The Rust crate is called `llguidance_parser`.
-For usage see the [README there](./parser/README.md).
 
 ## TODO
 
