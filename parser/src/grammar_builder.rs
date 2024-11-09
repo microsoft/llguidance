@@ -270,29 +270,67 @@ impl GrammarBuilder {
     // this tries to keep grammar size O(log(n))
     fn at_most(&mut self, elt: NodeRef, n: usize) -> NodeRef {
         if n == 0 {
+            // If the max ('n') is 0, an empty rule
             self.empty()
         } else if n == 1 {
+            // If 'n' is 1, an optional rule of length 1
             self.optional(elt)
         } else if n < 3 * K {
+            // If 'n' is below a fixed number (currently 12),
+            // the rule is a choice of all the rules of fixed length
+            // from 0 to 'n'.
             let options = (0..=n)
                 .map(|k| self.simple_repeat(elt, k))
                 .collect::<Vec<_>>();
             self.select(&options)
         } else {
+            // Above a fixed number (again, currently 12),
+            // we "factor" the sequence into K-sized pieces.
+            // Let 'elt_k' be a k-element --- the repetition
+            // of 'k' copies of the element ('elt').
             let elt_k = self.simple_repeat(elt, K);
 
+            // First we deal with the sequences of length less than
+            // (n/K)*K.
+            // 'elt_max_nk' is all the sequences of k-elements
+            // of length less than n/K.
             let elt_max_nk = self.at_most(elt_k, (n / K) - 1);
+            // The may be up to K-1 elements not accounted by the sequences
+            // of k-elements in 'elt_max_k'.  The choices in 'elt_max_k'
+            // account for these "remainders".
             let elt_max_k = self.at_most(elt, K - 1);
             let elt_max_nk = self.join(&[elt_max_nk, elt_max_k]);
 
+            // Next we deal with the sequences of length between
+            // (n/K)*K and 'n', inclusive. It is integer arithmetic, so there
+            // will be n%K of these.
+            // Here we call n/K the quotient and n%K the remainder.
+            // 'elt_nk' repeats the k-element exactly the quotient
+            // number of times, to ensure all our sequences are of
+            // length at least (n/K)*K.
             let elt_nk = self.repeat_exact(elt_k, n / K);
+            // 'left' repeats 'elt' at most the remainder number
+            // of times.  The remainder is always less than K.
             let left = self.at_most(elt, n % K);
+            // Join 'elt_nk' and 'left' into 'elt_n'.
+            // 'elt_nk' is a constant-sized piece,
+            // which ensures all the sequences of 'elt' in 'elt_n',
+            // will be of length at least (n/K)*K.
+            // 'left' will be a choice of rules which
+            // produce at most K-1 copies of 'elt'.
             let elt_n = self.join(&[elt_nk, left]);
 
+            // We have accounted for all the sequences of less than
+            // (n/K)*K elements in 'elt_max_nk'.  We have accounted
+            // for all the sequences of length between (n/K)*K elements and n elements
+            // (inclusive) in 'elt_n'.  Clearly, the sequences of length at most 'n'
+            // are the alternation of 'elt_max_nk' and 'elt_n'.
             self.select(&[elt_n, elt_max_nk])
         }
     }
 
+    // simple_repeat() "simply" repeats the element ('elt') 'n' times.
+    // Here "simple" means we do not factor into K-size pieces.
     fn simple_repeat(&mut self, elt: NodeRef, n: usize) -> NodeRef {
         let elt_n = (0..n).map(|_| elt).collect::<Vec<_>>();
         self.join(&elt_n)
