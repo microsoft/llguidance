@@ -64,7 +64,7 @@ const IGNORED_KEYS: [&str; 19] = [
 const DEFS_KEYS: [&str; 4] = ["$defs", "definitions", "defs", "refs"];
 
 const ARRAY_KEYS: [&str; 4] = ["items", "prefixItems", "minItems", "maxItems"];
-const OBJECT_KEYS: [&str; 2] = ["properties", "additionalProperties"];
+const OBJECT_KEYS: [&str; 3] = ["properties", "additionalProperties", "required"];
 const STRING_KEYS: [&str; 4] = ["minLength", "maxLength", "pattern", "format"];
 const NUMERIC_KEYS: [&str; 4] = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"];
 
@@ -399,7 +399,7 @@ impl Compiler {
                         (k.clone(), json!({"const": v}))
                     })
                     .collect::<serde_json::Map<_, _>>();
-                self.gen_json_object(&properties, &Value::Bool(false))
+                self.gen_json_object(&properties, &Value::Bool(false), properties.keys().cloned().collect())
             },
             Value::Array(values) => {
                 let n_items = values.len() as u64;
@@ -486,7 +486,18 @@ impl Compiler {
                 let additional_properties = json_schema
                     .get("additionalProperties")
                     .unwrap_or(&Value::Bool(true));
-                return self.gen_json_object(properties, additional_properties);
+                let required: Vec<String> = json_schema.opt_array("required")?
+                    .map(|values| {
+                        values.iter()
+                            .map(|v| {
+                                v.as_str()
+                                    .map(|s| s.to_string()) // Convert &str to String
+                                    .ok_or_else(|| expected_err("required", v, "array of string"))
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap_or_else(|| Ok(vec![]))?;
+                return self.gen_json_object(properties, additional_properties, required);
             }
             _ => bail!("Unsupported type in schema: {}", target_type_str),
         }
@@ -579,51 +590,82 @@ impl Compiler {
         &mut self,
         properties: &serde_json::Map<String, Value>,
         additional_properties: &Value,
+        required: Vec<String>,
     ) -> Result<NodeRef> {
-        let mut grammars: Vec<NodeRef> = vec![self.builder.string("{")];
-
-        if !properties.is_empty() {
-            grammars.extend(self.process_properties(properties)?);
-            if additional_properties != &Value::Bool(false) {
-                grammars.push(self.builder.string(&self.options.item_separator));
+        let mut illegal_keys: Vec<String> = vec![];
+        let mut items: Vec<(NodeRef, bool)> = vec![];
+        for name in properties.keys().chain(required.iter().filter(|n| !properties.contains_key(n.as_str()))) {
+            let property_schema = properties.get(name).unwrap_or(additional_properties);
+            let is_required = required.contains(name);
+            if property_schema == &Value::Bool(false) {
+                if is_required {
+                    bail!("Required property has 'false' schema: {}", name);
+                }
+                illegal_keys.push(name.clone());
+                continue;
             }
+            let name = self.builder.string(&format!("\"{}\"", name));
+            let colon = self.builder.string(&self.options.key_separator);
+            let the_rest = self.gen_json(property_schema)?;
+            let item = self.builder.join(&[name, colon, the_rest]);
+            items.push((item, is_required));
         }
-
         if additional_properties != &Value::Bool(false) {
-            grammars.push(self.process_additional_properties(additional_properties)?);
+            // TODO: illegal keys and NOT(properties keys)
+            let name = self.json_simple_string();
+            let colon = self.builder.string(&self.options.key_separator);
+            let the_rest = self.gen_json(additional_properties)?;
+            let item = self.builder.join(&[name, colon, the_rest]);
+            let seq = self.sequence(item);
+            items.push((seq, false));
         }
-
-        grammars.push(self.builder.string("}"));
-        Ok(self.builder.join(&grammars))
+        let opener = self.builder.string("{");
+        let inner = self.ordered_sequence(&items, false);
+        let closer = self.builder.string("}");
+        Ok(self.builder.join(&[opener, inner, closer]))
     }
 
-    fn process_properties(
-        &mut self,
-        properties: &serde_json::Map<String, Value>,
-    ) -> Result<Vec<NodeRef>> {
-        let mut result = vec![];
-        let mut properties_added = 0;
 
-        for (name, property_schema) in properties {
-            result.push(self.builder.string(&format!("\"{}\"", name)));
-            result.push(self.builder.string(&self.options.key_separator));
-            result.push(self.gen_json(property_schema)?);
-            properties_added += 1;
-            if properties_added < properties.len() {
-                result.push(self.builder.string(&self.options.item_separator));
-            }
+    fn ordered_sequence(&mut self, items: &[(NodeRef, bool)], prefixed: bool) -> NodeRef {
+        if items.is_empty() {
+            return self.builder.string("");
         }
+        let comma = self.builder.string(&self.options.item_separator);
+        let (item, required) = items[0];
+        let rest = &items[1..];
 
-        Ok(result)
-    }
-
-    fn process_additional_properties(&mut self, additional_properties: &Value) -> Result<NodeRef> {
-        let str = self.json_simple_string();
-        let colon = self.builder.string(&self.options.key_separator);
-        let the_rest = self.gen_json(additional_properties)?;
-        let item = self.builder.join(&[str, colon, the_rest]);
-        let inner = self.sequence(item);
-        Ok(self.builder.optional(inner))
+        match (prefixed, required) {
+            (true, true) => {
+                // If we know we have preceeding elements, we can safely just add a (',' + e)
+                let rest_seq = self.ordered_sequence(rest, true);
+                self.builder.join(&[comma, item, rest_seq])
+            },
+            (true, false) => {
+                // If we know we have preceeding elements, we can safely just add an optional(',' + e)
+                // TODO optimization: if the rest is all optional, we can nest the rest in the optional
+                let comma_item = self.builder.join(&[comma, item]);
+                let optional_comma_item = self.builder.optional(comma_item);
+                let rest_seq = self.ordered_sequence(rest, true);
+                self.builder.join(&[optional_comma_item, rest_seq])
+            },
+            (false, true) => {
+                // No preceeding elements, so we just add the element (no comma)
+                let rest_seq = self.ordered_sequence(rest, true);
+                self.builder.join(&[item, rest_seq])
+            },
+            (false, false) => {
+                // No preceeding elements, but our element is optional. If we add the element, the remaining
+                // will be prefixed, else they are not.
+                // TODO: same nested optimization as above
+                let prefixed_rest = self.ordered_sequence(rest, true);
+                let unprefixed_rest = self.ordered_sequence(rest, false);
+                let opts = [
+                    self.builder.join(&[item, prefixed_rest]),
+                    unprefixed_rest,
+                ];
+                self.builder.select(&opts)
+            },
+        }
     }
 
     fn sequence(&mut self, item: NodeRef) -> NodeRef {
