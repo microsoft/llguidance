@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 #include <cassert>
+#include <cstring>
 
 #include "llguidance.h"
 
@@ -25,15 +26,14 @@ LlgTokenizer *create_tokenizer(std::vector<std::vector<uint8_t>> &tokens,
     memcpy(token_bytes + offset, tokens[i].data(), token_lens[i]);
     offset += token_lens[i];
   }
-  LlgTokenizerInit tok_init = {
-      .vocab_size = (uint32_t)tokens.size(),
-      .tok_eos = tok_eos,
-      .token_lens = token_lens,
-      .token_bytes = token_bytes,
-      .tokenize_assumes_string = false,
-      .tokenize_user_data = tokenize_user_data,
-      .tokenize_fn = tokenize_fn,
-  };
+  LlgTokenizerInit tok_init = {};
+  tok_init.vocab_size = (uint32_t)tokens.size();
+  tok_init.tok_eos = tok_eos;
+  tok_init.token_lens = token_lens;
+  tok_init.token_bytes = token_bytes;
+  tok_init.tokenize_assumes_string = false;
+  tok_init.tokenize_user_data = tokenize_user_data;
+  tok_init.tokenize_fn = tokenize_fn;
 
   char error_buf[128];
   auto tok = llg_new_tokenizer(&tok_init, error_buf, sizeof(error_buf));
@@ -84,11 +84,11 @@ LlgTokenizer *create_byte_tokenizer(void) {
 
 LlgTokenizer *create_hf_tokenizer(std::string tokenizer_json,
                                   uint32_t tok_eos) {
-  LlgTokenizerInit tok_init = {
-      .tok_eos = tok_eos,
-      .use_approximate_greedy_tokenize_fn = true,
-      .tokenizer_json = tokenizer_json.c_str(),
-  };
+  LlgTokenizerInit tok_init = {};
+
+  tok_init.tok_eos = tok_eos;
+  tok_init.use_approximate_greedy_tokenize_fn = true;
+  tok_init.tokenizer_json = tokenizer_json.c_str();
 
   char error_buf[128];
   auto tok = llg_new_tokenizer(&tok_init, error_buf, sizeof(error_buf));

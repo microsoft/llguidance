@@ -12,10 +12,11 @@ function main(binname) {
     }
     const nmout = nm.stdout.toString()
     const bycat = {}
+    const bynamespace = {}
     for (const line of nmout.split("\n")) {
         // format: 0000000000077ea0 l     F .text  000000000000003e              core::ptr::drop_in_place<toktrie::Splice>
 
-        const m =  /^\s*([0-9a-f]+)\s[\sa-zA-Z]+(\.\S+)\s+([0-9a-f]+)\s+(.*)$/.exec(line)
+        const m = /^\s*([0-9a-f]+)\s[\sa-zA-Z]+(\.\S+)\s+([0-9a-f]+)\s+(.*)$/.exec(line)
         if (!m) {
             console.log("skipping", line)
             continue
@@ -26,9 +27,21 @@ function main(binname) {
 
         if (!bycat[category]) bycat[category] = 0
         bycat[category] += size
+
+        if (size) {
+            const namespace = name.replace(/(::|\.).*/, "")
+            if (!bynamespace[namespace]) bynamespace[namespace] = 0
+            bynamespace[namespace] += size
+        }
     }
 
     console.log(bycat)
+
+    const namespaceKeys = Object.keys(bynamespace)
+    namespaceKeys.sort((a, b) => bynamespace[a] - bynamespace[b])
+    for (const ns of namespaceKeys) {
+        console.log(ns, bynamespace[ns])
+    }
 }
 
 main(process.argv[2])

@@ -25,6 +25,7 @@ fn main() {
             },
             |bindings| {
                 bindings.write_to_file("llguidance.h");
+                bindings.write_to_file(format!("{}/../../../llguidance.h", env::var("OUT_DIR").unwrap()));
             },
         );
 }

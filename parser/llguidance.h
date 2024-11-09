@@ -243,11 +243,22 @@ int32_t llg_compute_mask(struct LlgConstraint *cc, struct LlgMaskResult *res_p);
 int32_t llg_commit_token(struct LlgConstraint *cc, LlgToken token, struct LlgCommitResult *res_p);
 
 /**
+ * Clone the constraint
+ */
+struct LlgConstraint *llg_clone_constraint(const struct LlgConstraint *cc);
+
+/**
  * Construct a new tokenizer from the given TokenizerInit
  */
 struct LlgTokenizer *llg_new_tokenizer(const struct LlgTokenizerInit *tok_init,
                                        char *error_string,
                                        size_t error_string_len);
+
+/**
+ * Clone a tokenizer.
+ * This increments a reference count and does a small allocation.
+ */
+struct LlgTokenizer *llg_clone_tokenizer(const struct LlgTokenizer *tok);
 
 /**
  * Tokenize the given bytes and return the tokens.

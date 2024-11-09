@@ -10,7 +10,7 @@ use crate::{
     GrammarBuilder, NodeRef,
 };
 
-use super::{ast::*, common::lookup_common_regex, lexer::Location};
+use super::{ast::*, common::lookup_common_regex, lexer::Location, parser::parse_lark};
 
 #[derive(Debug, Default)]
 struct Grammar {
@@ -29,7 +29,7 @@ struct Compiler {
     in_progress: HashSet<String>,
 }
 
-pub fn lark_to_llguidance(items: Vec<Item>) -> Result<TopLevelGrammar> {
+pub fn compile_lark(items: Vec<Item>) -> Result<TopLevelGrammar> {
     let mut c = Compiler {
         builder: GrammarBuilder::new(),
         test_rx: derivre::RegexBuilder::new(),
@@ -41,6 +41,10 @@ pub fn lark_to_llguidance(items: Vec<Item>) -> Result<TopLevelGrammar> {
     };
     c.execute()?;
     c.builder.finalize()
+}
+
+pub fn lark_to_llguidance(lark: &str) -> Result<TopLevelGrammar> {
+    parse_lark(lark).and_then(compile_lark)
 }
 
 impl Compiler {

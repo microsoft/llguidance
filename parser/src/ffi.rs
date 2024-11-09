@@ -8,8 +8,7 @@ use toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenizerEnv};
 
 use crate::{
     api::{ParserLimits, RegexNode, TopLevelGrammar},
-    lark::{lark_to_llguidance, parse_lark},
-    CommitResult, Constraint, JsonCompileOptions, Logger, TokenParser,
+    lark_to_llguidance, CommitResult, Constraint, JsonCompileOptions, Logger, TokenParser,
 };
 
 struct CTokenizerInner {
@@ -210,6 +209,7 @@ pub struct LlgConstraintInit {
     pub limits: ParserLimits,
 }
 
+#[derive(Clone)]
 pub struct LlgConstraint {
     local_error: Option<String>,
     last_logs: String,
@@ -278,7 +278,7 @@ fn new_constraint_lark(init: &LlgConstraintInit, lark: *const c_char) -> Result<
     let lark = unsafe { CStr::from_ptr(lark) }
         .to_str()
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in lark"))?;
-    let grammar = lark_to_llguidance(parse_lark(lark)?)?;
+    let grammar = lark_to_llguidance(lark)?;
     new_constraint_core(init, grammar)
 }
 
@@ -290,7 +290,7 @@ fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> 
         .map_err(|e| anyhow::anyhow!("Invalid JSON in json_schema: {e}"))?;
     let opts = JsonCompileOptions::default();
     let grammar = opts
-        .json_to_llg_no_validate(&json_schema)
+        .json_to_llg(&json_schema)
         .map_err(|e| anyhow::anyhow!("Error compiling JSON schema to LLG: {e}"))?;
     new_constraint_core(init, grammar)
 }
@@ -316,7 +316,7 @@ fn new_constraint_any(
         "regex" => new_constraint_regex(init, data),
         "json" | "json_schema" => new_constraint_json(init, data),
         "lark" => new_constraint_lark(init, data),
-        "llguidance" | "guidance" => new_constraint_lark(init, data),
+        "llguidance" | "guidance" => new_constraint(init, data),
         _ => bail!("unknown constraint type: {tp}"),
     }
 }
@@ -511,6 +511,12 @@ pub extern "C" fn llg_commit_token(
     cc.get_error_code()
 }
 
+/// Clone the constraint
+#[no_mangle]
+pub extern "C" fn llg_clone_constraint(cc: &LlgConstraint) -> *mut LlgConstraint {
+    Box::into_raw(Box::new(cc.clone()))
+}
+
 /// Construct a new tokenizer from the given TokenizerInit
 #[no_mangle]
 pub extern "C" fn llg_new_tokenizer(
@@ -533,6 +539,15 @@ pub extern "C" fn llg_new_tokenizer(
             std::ptr::null_mut()
         }
     }
+}
+
+/// Clone a tokenizer.
+/// This increments a reference count and does a small allocation.
+#[no_mangle]
+pub extern "C" fn llg_clone_tokenizer(tok: &LlgTokenizer) -> *mut LlgTokenizer {
+    Box::into_raw(Box::new(LlgTokenizer {
+        token_env: tok.token_env.clone(),
+    }))
 }
 
 /// Tokenize the given bytes and return the tokens.
