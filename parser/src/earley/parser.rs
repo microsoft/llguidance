@@ -1716,6 +1716,9 @@ impl Parser {
         Ok(Parser { shared, state })
     }
 
+    /// This is a top-level method in this file.  It is called by mid_process_inner()
+    /// in TokenParser in tokenparser.rs.  It is used by the mid_process() method of
+    /// the LLInterpreter interface.
     pub fn compute_bias_after_gen_grammar(
         &mut self,
         computer: &dyn BiasComputer,
@@ -1727,6 +1730,9 @@ impl Parser {
         (self.state.trie_gen_grammar_accepting, r)
     }
 
+    /// This is a top-level method in this file.  It is called by mid_process_inner()
+    /// in TokenParser in tokenparser.rs.  It is used by the mid_process() method of
+    /// the LLInterpreter interface.
     pub fn compute_bias(&mut self, computer: &dyn BiasComputer, start: &[u8]) -> SimpleVob {
         let mut shared = self.shared.lock().unwrap();
         self.state.compute_bias(&mut shared, computer, start)
