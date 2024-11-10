@@ -30,9 +30,11 @@ The library is currently integrated in:
 The integration is ongoing in:
 - onnxruntime-genai - [draft PR](https://github.com/microsoft/onnxruntime-genai/pull/1038)
 - mistral.rs - [preliminary PR](https://github.com/EricLBuehler/mistral.rs/pull/899)
-- llama.cpp - [branch](https://github.com/mmoskal/llama.cpp/tree/llg);
+- llama.cpp - [preliminary PR](https://github.com/ggerganov/llama.cpp/pull/10224);
   note that llama.cpp is fully integrated in Guidance above
   via Python bindings
+
+## Technical details
 
 Given a context-free grammar, a tokenizer, and prefix of tokens,
 llguidance computes a token mask (set of tokens from the tokenizer)
@@ -45,56 +47,25 @@ There is also no significant startup cost.
 
 The library implements a context-free grammar parser with Earley's algorithm
 on top of a lexer which uses [derivatives of regular expressions](https://github.com/microsoft/derivre).
-
-Grammars are normally [JSON-serialized](./parser/src/api.rs).
-The following libraries produce llguidance grammars:
+A lot of
+[low-level optimizations](https://github.com/microsoft/toktrie/blob/main/implementation.md)
+are implemented.
 
 ## Building
 
 - [install rust](https://www.rust-lang.org/tools/install); 1.75 or later
+
+If you just need the C or Rust library (`llguidance_parser`), 
+check the [parser](./parser/README.md) directory.
+
+For Python bindings:
+
 - install python 3.9 or later; very likely you'll need a virtual env/conda
 - run `./scripts/install-deps.sh`
 - to build and after any changes, run `./scripts/test-guidance.sh`
 
 This builds the Python bindings for the library and runs the tests
 (which mostly live in the Guidance repo - it will clone it).
-
-The Rust crate is called `llguidance_parser`.
-For usage see the [README there](./parser/README.md).
-
-## TODO
-
-- [ ] `to_regex_vec()` in lexerspec.rs - non-contextual keywords
-- [ ] allow byte sequence to fast-forward through grammar at start (grammar derivative)
-- [ ] return `{when_sampled:[EOS],ff:[]}` as slice when EOS ends gen()
-
-### Lexeme-splitting
-
-See https://github.com/microsoft/llguidance/issues/2
-
-```python
-    g = select(["a", "abq", "c"]) + optional("bQ")
-    check_grammar(g, ["", "a‧b‧q‧≺EOS≻"]) # fails 'q' is forced
-    check_grammar(g, ["", "a‧b‧Q"]) # doesn't match at all
-```
-
-### Only valid tokens
-
-See https://github.com/microsoft/llguidance/issues/1
-
-- [ ] implement `.forced_byte()` method in `derivre`
-- [ ] use this for cheap `.forced_byte()` impl in `llguidance`
-- [ ] while walking token trie, remember all forced paths (there shouldn't be too many of them)
-
-In toktrie walk, if we encounter a forced byte, we go into forced mode
-where we just chase all forced bytes.
-The first token we find on this path we put on some list.
-We do not add any of these tokens to the allow set.
-
-Then, after token trie walk, for every token on this list we re-create
-the forced byte string, tokenize, chop excessive tokens, and add the first
-token from tokenization to allow set and remaining tokens (if any) as conditional
-splice.
 
 ## Contributing
 
