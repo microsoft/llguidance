@@ -258,9 +258,10 @@ impl TokenParser {
         self.error_message.clone()
     }
 
-    // advance_parser() is a top-level method in this file.  
-    // This advance_parser() is called indirectly via the advance_parser() method
-    // of the llguidance LLInterpreter interface,
+    // advance_parser() is a top-level method in this file.
+    // This advance_parser() is called by Constraint::commit_token().
+    // It is accessible via the advance_parser() method of
+    // the LLInterpreter interface.
     //
     // The result here *never* includes a mask.
     // It's either stop or an unconditional splice (possibly noop).
@@ -277,6 +278,11 @@ impl TokenParser {
         r
     }
 
+    // mid_process() is a top-level method in this file.
+    // mid_process() is called by Constraint::commit_token().
+    // It is also be called by TokenParser::advance_parser()
+    // within this file, in which case it is accessible
+    // via the advance_parser() method of the LLInterpreter interface.
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
         assert!(self.is_fresh == false, "process_prompt() not called");
 
