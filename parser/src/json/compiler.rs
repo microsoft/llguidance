@@ -346,11 +346,10 @@ impl Compiler {
             return self.gen_json_type(tp, json_schema)
         }
 
+        let tps = TYPES.iter().map(|s| Value::String(s.to_string())).collect::<Vec<_>>();
         let types = match json_schema.opt_array("type")? {
             Some(types) => types,
-            None => {
-                &TYPES.iter().map(|s| Value::String(s.to_string())).collect::<Vec<_>>()
-            }
+            None => &tps,
         };
 
         let nodes = types
