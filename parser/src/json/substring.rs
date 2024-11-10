@@ -136,12 +136,6 @@ mod tests {
     use super::{substring, SuffixAutomaton};
 
     #[test]
-    fn test_suffix_automaton() {
-        let sa = SuffixAutomaton::from_string("abacaba");
-        println!("{:?}", sa.states);
-    }
-
-    #[test]
     fn test_substring() {
         let regex = substring("abacaba").unwrap();
         assert_eq!(regex.clone().is_match("acab"), true);
