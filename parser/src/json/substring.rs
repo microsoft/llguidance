@@ -115,7 +115,7 @@ pub fn substring(string: &str) -> Result<Regex, anyhow::Error> {
             continue;
         }
 
-        let options = state.next
+        let mut options = state.next
             .keys()
             .map(|c| {
                 RegexAst::Concat(vec![
@@ -124,7 +124,8 @@ pub fn substring(string: &str) -> Result<Regex, anyhow::Error> {
                 ])
             })
             .collect::<Vec<_>>();
-        let node = RegexAst::Or([options, vec![RegexAst::EmptyString]].concat());
+        options.push(RegexAst::EmptyString);
+        let node = RegexAst::Or(options);
         let expr = builder.mk(&node)?;
         node_cache.insert(*state_index, expr);
         state_stack.pop();
@@ -133,7 +134,7 @@ pub fn substring(string: &str) -> Result<Regex, anyhow::Error> {
 }
 
 mod tests {
-    use super::{substring, SuffixAutomaton};
+    use super::substring;
 
     #[test]
     fn test_substring() {
