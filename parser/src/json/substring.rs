@@ -139,6 +139,7 @@ mod tests {
     #[test]
     fn test_substring() {
         let regex = substring("abacaba").unwrap();
+        assert_eq!(regex.clone().is_match(""), true);
         assert_eq!(regex.clone().is_match("acab"), true);
         assert_eq!(regex.clone().is_match("abaca"), true);
         assert_eq!(regex.clone().is_match("acaba"), true);
