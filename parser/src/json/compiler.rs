@@ -5,7 +5,7 @@ use std::{collections::HashMap, vec};
 use super::formats::lookup_format;
 use super::numeric::{rx_float_range, rx_int_range};
 use crate::{
-    api::{GrammarWithLexer, RegexSpec, TopLevelGrammar, RegexId},
+    api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
     GrammarBuilder, NodeRef,
 };
 
@@ -599,7 +599,7 @@ impl Compiler {
                     taken_names
                     .iter()
                     .map(|n| self.builder.regex.literal(n.to_string()))
-                    .collect::<Vec<RegexId>>();
+                    .collect::<Vec<_>>();
                 let taken = self.builder.regex.select(taken_name_ids);
                 let not_taken = self.builder.regex.not(taken);
                 let valid = self.builder.regex.regex(r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#.to_string());
