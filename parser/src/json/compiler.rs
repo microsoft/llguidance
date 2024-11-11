@@ -13,7 +13,7 @@ use crate::{
 // TODO: array maxItems etc limits
 // TODO: schemastore/src/schemas/json/BizTalkServerApplicationSchema.json - this breaks 1M fuel on lexer, why?!
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct JsonCompileOptions {
     pub item_separator: String,
     pub key_separator: String,
@@ -116,14 +116,17 @@ macro_rules! cache {
     };
 }
 
-impl JsonCompileOptions {
-    pub fn default() -> Self {
+impl Default for JsonCompileOptions {
+    fn default() -> Self {
         Self {
             item_separator: ",".to_string(),
             key_separator: ":".to_string(),
             whitespace_flexible: true,
         }
     }
+}
+
+impl JsonCompileOptions {
     pub fn json_to_llg(&self, schema: &Value) -> Result<TopLevelGrammar> {
         let mut compiler = Compiler::new(self.clone());
         #[cfg(feature = "jsonschema_validation")]
