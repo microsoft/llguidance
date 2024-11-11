@@ -1496,8 +1496,12 @@ impl ParserState {
         }
     }
 
-    /// Advance the parser with given lexeme_idx.
-    /// lexer_state is state *after* consuming the byte.
+
+    /// Advance the parser with given 'pre_lexeme'.
+    /// On return, the lexer_state will be the state *after* consuming
+    /// 'pre_lexeme'.  As a special case, a following single byte lexeme
+    /// is also consumed.
+    ///
     /// It either initial lexer states for lazy lexers,
     /// or lexer_initial_state+byte for greedy lexers.
     /// lexer_byte is the byte that led to producing the lexeme.
