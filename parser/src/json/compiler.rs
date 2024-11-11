@@ -20,7 +20,7 @@ pub struct JsonCompileOptions {
     pub whitespace_flexible: bool,
 }
 
-fn to_compact_json(target: &serde_json::Value) -> String {
+fn json_dumps(target: &serde_json::Value) -> String {
     serde_json::to_string(target).unwrap()
 }
 
@@ -385,7 +385,7 @@ impl Compiler {
             },
             _ => {
                 // let serde_json dump simple values
-                let const_str = to_compact_json(const_value);
+                let const_str = json_dumps(const_value);
                 Ok(self.builder.string(&const_str))
             }
         }
@@ -575,7 +575,7 @@ impl Compiler {
             let property_schema = properties.get(name).unwrap_or(additional_properties);
             let is_required = required.contains(name);
             // Quote (and escape) the name. TODO: probably overkill to use json_dumps here
-            let quoted_name = to_compact_json(&json!(name));
+            let quoted_name = json_dumps(&json!(name));
             if property_schema == &Value::Bool(false) {
                 if is_required {
                     bail!("Required property has 'false' schema: {}", name);
