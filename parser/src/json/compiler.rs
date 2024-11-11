@@ -5,7 +5,7 @@ use std::{collections::HashMap, vec};
 use super::formats::lookup_format;
 use super::numeric::{rx_float_range, rx_int_range};
 use crate::{
-    api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
+    api::{GrammarWithLexer, RegexSpec, TopLevelGrammar, RegexId},
     GrammarBuilder, NodeRef,
 };
 
@@ -569,27 +569,44 @@ impl Compiler {
         additional_properties: &Value,
         required: Vec<String>,
     ) -> Result<NodeRef> {
-        let mut illegal_keys: Vec<String> = vec![];
+        let mut taken_names: Vec<String> = vec![];
         let mut items: Vec<(NodeRef, bool)> = vec![];
         for name in properties.keys().chain(required.iter().filter(|n| !properties.contains_key(n.as_str()))) {
             let property_schema = properties.get(name).unwrap_or(additional_properties);
             let is_required = required.contains(name);
+            // Quote (and escape) the name. TODO: probably overkill to use json_dumps here
+            let quoted_name = to_compact_json(&json!(name));
             if property_schema == &Value::Bool(false) {
                 if is_required {
                     bail!("Required property has 'false' schema: {}", name);
                 }
-                illegal_keys.push(name.clone());
+                // Even if the name won't be used for a property, it is still "taken" in that it can't be used for additionalProperties
+                taken_names.push(quoted_name);
                 continue;
             }
-            let name = self.builder.string(&format!("\"{}\"", name));
+            let name = self.builder.string(&quoted_name);
+            taken_names.push(quoted_name);
             let colon = self.builder.string(&self.options.key_separator);
             let the_rest = self.gen_json(property_schema)?;
             let item = self.builder.join(&[name, colon, the_rest]);
             items.push((item, is_required));
         }
         if additional_properties != &Value::Bool(false) {
-            // TODO: illegal keys and NOT(properties keys)
-            let name = self.json_simple_string();
+            let name = if taken_names.is_empty() {
+                self.json_simple_string()
+            } else {
+                let taken_name_ids =
+                    taken_names
+                    .iter()
+                    .map(|n| self.builder.regex.literal(n.to_string()))
+                    .collect::<Vec<RegexId>>();
+                let taken = self.builder.regex.select(taken_name_ids);
+                let not_taken = self.builder.regex.not(taken);
+                let valid = self.builder.regex.regex(r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#.to_string());
+                let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
+                let rx = RegexSpec::RegexId(valid_and_not_taken);
+                self.builder.lexeme(rx, false)
+            };
             let colon = self.builder.string(&self.options.key_separator);
             let the_rest = self.gen_json(additional_properties)?;
             let item = self.builder.join(&[name, colon, the_rest]);

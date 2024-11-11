@@ -90,6 +90,14 @@ impl RegexBuilder {
         self.add_node(RegexNode::Repeat(node, min, max))
     }
 
+    pub fn not(&mut self, node: RegexId) -> RegexId {
+        self.add_node(RegexNode::Not(node))
+    }
+
+    pub fn and(&mut self, nodes: Vec<RegexId>) -> RegexId {
+        self.add_node(RegexNode::And(nodes))
+    }
+
     fn finalize(&mut self) -> Vec<RegexNode> {
         let r = std::mem::take(&mut self.nodes);
         *self = Self::new();
