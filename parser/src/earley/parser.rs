@@ -1502,9 +1502,9 @@ impl ParserState {
     /// 'pre_lexeme'.  As a special case, a following single byte lexeme
     /// is also consumed.
     ///
-    /// It either initial lexer states for lazy lexers,
-    /// or lexer_initial_state+byte for greedy lexers.
-    /// lexer_byte is the byte that led to producing the lexeme.
+    // The new lexer state will be an initial lexer states when the lexing
+    // is lazy.  If the lexing was greedy, it will be an initial lexer state
+    // advanced to the byte which produced the greedy lexeme.
 
     // This is never inlined anyways, so better make it formal
     #[inline(never)]
