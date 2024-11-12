@@ -6,7 +6,7 @@ use crate::api::{
     GrammarWithLexer, Node, NodeId, NodeProps, RegexId, RegexNode, RegexSpec, TopLevelGrammar,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct NodeRef {
     idx: usize,
     grammar_id: u32,

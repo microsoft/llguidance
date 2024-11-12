@@ -614,13 +614,16 @@ impl Compiler {
             items.push((seq, false));
         }
         let opener = self.builder.string("{");
-        let inner = self.ordered_sequence(&items, false);
+        let inner = self.ordered_sequence(&items, false, &mut HashMap::<(&[(NodeRef, bool)], bool), NodeRef>::new());
         let closer = self.builder.string("}");
         Ok(self.builder.join(&[opener, inner, closer]))
     }
 
-
-    fn ordered_sequence(&mut self, items: &[(NodeRef, bool)], prefixed: bool) -> NodeRef {
+    fn ordered_sequence<'a>(&mut self, items: &'a[(NodeRef, bool)], prefixed: bool, cache: &mut HashMap::<(&'a[(NodeRef, bool)], bool), NodeRef>) -> NodeRef {
+        // Cache to reduce number of nodes from O(n^2) to O(n)
+        if let Some(node) = cache.get(&(items, prefixed)) {
+            return node.clone();
+        }
         if items.is_empty() {
             return self.builder.string("");
         }
@@ -628,10 +631,10 @@ impl Compiler {
         let (item, required) = items[0];
         let rest = &items[1..];
 
-        match (prefixed, required) {
+        let node = match (prefixed, required) {
             (true, true) => {
                 // If we know we have preceeding elements, we can safely just add a (',' + e)
-                let rest_seq = self.ordered_sequence(rest, true);
+                let rest_seq = self.ordered_sequence(rest, true, cache);
                 self.builder.join(&[comma, item, rest_seq])
             },
             (true, false) => {
@@ -639,27 +642,29 @@ impl Compiler {
                 // TODO optimization: if the rest is all optional, we can nest the rest in the optional
                 let comma_item = self.builder.join(&[comma, item]);
                 let optional_comma_item = self.builder.optional(comma_item);
-                let rest_seq = self.ordered_sequence(rest, true);
+                let rest_seq = self.ordered_sequence(rest, true, cache);
                 self.builder.join(&[optional_comma_item, rest_seq])
             },
             (false, true) => {
-                // No preceeding elements, so we just add the element (no comma)
-                let rest_seq = self.ordered_sequence(rest, true);
+                // No preceding elements, so we just add the element (no comma)
+                let rest_seq = self.ordered_sequence(rest, true, cache);
                 self.builder.join(&[item, rest_seq])
             },
             (false, false) => {
-                // No preceeding elements, but our element is optional. If we add the element, the remaining
+                // No preceding elements, but our element is optional. If we add the element, the remaining
                 // will be prefixed, else they are not.
                 // TODO: same nested optimization as above
-                let prefixed_rest = self.ordered_sequence(rest, true);
-                let unprefixed_rest = self.ordered_sequence(rest, false);
+                let prefixed_rest = self.ordered_sequence(rest, true, cache);
+                let unprefixed_rest = self.ordered_sequence(rest, false, cache);
                 let opts = [
                     self.builder.join(&[item, prefixed_rest]),
                     unprefixed_rest,
                 ];
                 self.builder.select(&opts)
             },
-        }
+        };
+        cache.insert((items, prefixed), node.clone());
+        node
     }
 
     fn sequence(&mut self, item: NodeRef) -> NodeRef {
