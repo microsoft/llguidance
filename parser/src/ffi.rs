@@ -149,6 +149,9 @@ pub type LlgTokenizeFn = Option<
     ) -> usize,
 >;
 
+/// Function which llg calls when an operation is done.
+pub type LlgCallback = Option<extern "C" fn(user_data: *const c_void)>;
+
 #[repr(C)]
 pub struct LlgTokenizerInit {
     /// The number of tokens in the vocabulary
@@ -210,11 +213,33 @@ pub struct LlgConstraintInit {
 }
 
 #[derive(Clone)]
+pub struct LlgConstraintStep {
+    /// The constraint to compute mask for.
+    pub constraint: *mut LlgConstraint,
+    /// Pointer to memory where the mask should be written.
+    pub mask_dest: *mut u32,
+    /// The length of the mask_dest array in bytes (not elements).
+    pub mask_byte_len: usize,
+}
+
+unsafe impl Send for LlgConstraintStep {}
+
 pub struct LlgConstraint {
     local_error: Option<String>,
     last_logs: String,
-    constraint: Option<Constraint>,
+    pub(crate) constraint: Option<Constraint>,
     last_commit_result: CommitResult,
+}
+
+impl Clone for LlgConstraint {
+    fn clone(&self) -> Self {
+        LlgConstraint {
+            local_error: self.local_error.clone(),
+            last_logs: self.last_logs.clone(),
+            constraint: self.constraint.clone(),
+            last_commit_result: self.last_commit_result.clone(),
+        }
+    }
 }
 
 impl Default for LlgConstraint {
@@ -360,7 +385,7 @@ impl LlgConstraint {
         }
     }
 
-    fn set_error(&mut self, e: &str) {
+    pub(crate) fn set_error(&mut self, e: &str) {
         self.constraint = None;
         self.local_error = Some(format!("{e}\0"));
     }
@@ -456,6 +481,21 @@ pub extern "C" fn llg_get_error(cc: &LlgConstraint) -> *const c_char {
     cc.get_error()
 }
 
+/// Get the current temperature of the constraint.
+/// It is updated by mask computation.
+#[no_mangle]
+pub extern "C" fn llg_get_temperature(cc: &LlgConstraint) -> f32 {
+    cc.constraint.as_ref().map_or(0.0, |c| c.temperature)
+}
+
+/// Check if constraint is stopped (cannot be extended further).
+#[no_mangle]
+pub extern "C" fn llg_is_stopped(cc: &LlgConstraint) -> bool {
+    cc.constraint
+        .as_ref()
+        .map_or(true, |c| c.step_result().is_stop())
+}
+
 /// Compute mask for the next token sampling
 /// It typically takes up to a millisecond for a 100k tokenizer, so should be called in background.
 /// Returns 0 on success and -1 on error (use llg_get_error() to get the exact error).
@@ -509,6 +549,31 @@ pub extern "C" fn llg_commit_token(
         }
     }
     cc.get_error_code()
+}
+
+/// Compute mask for several constraints in parallel.
+#[no_mangle]
+pub extern "C" fn llg_par_compute_mask(
+    steps: *const LlgConstraintStep,
+    n_steps: usize,
+    user_data: *const c_void,
+    done_cb: LlgCallback,
+) {
+    if steps.is_null() {
+        panic!("llg_par_compute_mask: steps is null");
+    }
+
+    #[cfg(feature = "rayon")]
+    {
+        let steps = unsafe { std::slice::from_raw_parts(steps, n_steps).to_vec() };
+        crate::ffi_par::par_compute_mask(steps, user_data, done_cb);
+    }
+
+    #[cfg(not(feature = "rayon"))]
+    {
+        let _ = (steps, n_steps, user_data, done_cb);
+        panic!("llg_par_compute_mask: rayon feature is not enabled");
+    }
 }
 
 /// Clone the constraint
