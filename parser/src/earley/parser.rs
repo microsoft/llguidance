@@ -963,7 +963,10 @@ impl ParserState {
             let sym_data = self.grammar.sym_data_dot(pos);
             if let Some(ref gg) = sym_data.gen_grammar {
                 // break ties by preferring the one with the lowest grammar number
-                if res.is_none() || res.as_ref().unwrap().grammar.0 > gg.grammar.0 {
+                if res.is_none()
+                    || res.as_ref().unwrap().grammar.to_index().unwrap()
+                        > gg.grammar.to_index().unwrap()
+                {
                     res = Some(gg.clone());
                     res_idx = Some(idx);
                 }
@@ -1495,7 +1498,6 @@ impl ParserState {
             }
         }
     }
-
 
     /// Advance the parser with given 'pre_lexeme'.
     /// On return, the lexer_state will be the state *after* consuming

@@ -709,7 +709,7 @@ impl TokenParser {
             if msg.len() > 0 {
                 warn!(self, "{}", msg);
             }
-            let grm = Arc::clone(&self.compiled_grammars[gen_grammar.grammar.0]);
+            let grm = Arc::clone(&self.compiled_grammars[gen_grammar.grammar.to_index().unwrap()]);
             let max_tokens = self.parser.grammar().sym_data(symidx).props.max_tokens;
             let parser = Parser::new(grm, gen_grammar, self.limits.clone())?;
             let mut old_parser = std::mem::replace(&mut self.parser, parser);

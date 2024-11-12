@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,6 +19,9 @@ pub const DEFAULT_CONTEXTUAL: bool = true;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct GrammarWithLexer {
+    /// The name of this grammar, can be used in GenGrammar nodes.
+    pub name: Option<String>,
+
     /// The start symbol is at nodes[0]
     /// When nodes is empty, then one of json_schema or lark_grammar must be set.
     #[serde(default)]
@@ -257,6 +260,31 @@ impl RegexSpec {
     }
 }
 
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Debug)]
+#[serde(untagged)]
+pub enum GrammarId {
+    Index(usize),
+    Name(String),
+}
+
+impl GrammarId {
+    pub fn to_index(&self) -> Option<usize> {
+        match self {
+            GrammarId::Index(i) => Some(*i),
+            GrammarId::Name(_) => None,
+        }
+    }
+}
+
+impl Display for GrammarId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GrammarId::Index(i) => write!(f, "@#{}", i),
+            GrammarId::Name(s) => write!(f, "@{}", s),
+        }
+    }
+}
+
 macro_rules! id_type {
     ($name:ident) => {
         #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy, Debug)]
@@ -265,7 +293,6 @@ macro_rules! id_type {
     };
 }
 
-id_type!(GrammarId);
 id_type!(NodeId);
 id_type!(RegexId);
 
@@ -286,7 +313,7 @@ impl Node {
 impl Default for GenGrammarOptions {
     fn default() -> Self {
         GenGrammarOptions {
-            grammar: GrammarId(0),
+            grammar: GrammarId::Index(0),
             temperature: None,
             max_tokens_grm: usize::MAX,
         }
@@ -376,6 +403,7 @@ impl TopLevelGrammar {
     pub fn from_regex(rx: RegexNode) -> Self {
         TopLevelGrammar {
             grammars: vec![GrammarWithLexer {
+                name: Some("regex_grammar".to_string()),
                 nodes: vec![Node::Lexeme {
                     rx: RegexSpec::RegexId(RegexId(0)),
                     contextual: None,

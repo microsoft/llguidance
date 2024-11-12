@@ -107,6 +107,8 @@ pub enum Value {
     Name(String),
     LiteralString(String, String),
     LiteralRegex(String, String),
+    GrammarRef(String),
+    SpecialToken(String),
     #[allow(dead_code)]
     TemplateUsage {
         name: String,

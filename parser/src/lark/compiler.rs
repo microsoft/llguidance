@@ -6,7 +6,7 @@ use std::{
 use anyhow::{anyhow, bail, ensure, Result};
 
 use crate::{
-    api::{GrammarWithLexer, RegexId, RegexSpec, TopLevelGrammar},
+    api::{GrammarId, GrammarWithLexer, RegexId, RegexSpec, TopLevelGrammar},
     GrammarBuilder, NodeRef,
 };
 
@@ -130,6 +130,15 @@ impl Compiler {
                     };
                     self.mk_regex("regex", rx)
                 }
+                Value::SpecialToken(s) => {
+                    bail!("special tokens (like {:?}) cannot be used as terminals", s);
+                }
+                Value::GrammarRef(g) => {
+                    bail!(
+                        "grammar references (like {:?}) cannot be used as terminals",
+                        g
+                    );
+                }
                 Value::TemplateUsage { .. } => bail!("template usage not supported yet"),
             },
         }
@@ -199,6 +208,17 @@ impl Compiler {
                         } else {
                             bail!("unknown name: {:?}", n);
                         }
+                    }
+                    Value::SpecialToken(s) => return Ok(self.builder.special_token(s)),
+                    Value::GrammarRef(g) => {
+                        assert!(g.starts_with("@"));
+                        // see if g[1..] is an integer
+                        let id = if let Ok(id) = g[1..].parse::<usize>() {
+                            GrammarId::Index(id)
+                        } else {
+                            GrammarId::Name(g[1..].to_string())
+                        };
+                        return Ok(self.builder.gen_grammar(id));
                     }
                     Value::LiteralRange(_, _)
                     | Value::LiteralString(_, _)

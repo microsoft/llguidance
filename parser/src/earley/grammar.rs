@@ -1,8 +1,8 @@
-use std::{fmt::Debug, hash::Hash};
+use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
 use anyhow::{bail, ensure, Result};
 
-use crate::api::GenGrammarOptions;
+use crate::api::{GenGrammarOptions, GrammarId};
 
 use super::lexerspec::{LexemeIdx, LexerSpec};
 use rustc_hash::FxHashMap;
@@ -126,6 +126,7 @@ impl Rule {
 }
 
 pub struct Grammar {
+    name: Option<String>,
     symbols: Vec<Symbol>,
     symbol_by_name: FxHashMap<String, SymIdx>,
 }
@@ -133,6 +134,7 @@ pub struct Grammar {
 impl Grammar {
     pub fn new() -> Self {
         Grammar {
+            name: None,
             symbols: vec![],
             symbol_by_name: FxHashMap::default(),
         }
@@ -338,6 +340,7 @@ impl Grammar {
         }
 
         let mut outp = Grammar::new();
+        outp.name = self.name.clone();
 
         let start_data = self.sym_data(self.start());
         if start_data.is_terminal() || start_data.rules.iter().any(|r| r.rhs.is_empty()) {
@@ -370,16 +373,22 @@ impl Grammar {
         r
     }
 
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
     pub fn compile(&self, lexer_spec: LexerSpec) -> CGrammar {
         CGrammar::from_grammar(self, lexer_spec)
     }
 
-    pub fn validate_grammar_refs(&self, grammars: &[(LexerSpec, Grammar)]) -> Result<()> {
-        for sym in &self.symbols {
+    pub fn validate_grammar_refs(&mut self, ctx: &HashMap<GrammarId, usize>) -> Result<()> {
+        for sym in &mut self.symbols {
             match sym.gen_grammar {
-                Some(ref opts) => {
-                    if opts.grammar.0 >= grammars.len() {
-                        bail!("unknown grammar {}", opts.grammar.0);
+                Some(ref mut opts) => {
+                    if let Some(idx) = ctx.get(&opts.grammar) {
+                        opts.grammar = GrammarId::Index(*idx);
+                    } else {
+                        bail!("unknown grammar {}", opts.grammar);
                     }
                 }
                 None => {}
