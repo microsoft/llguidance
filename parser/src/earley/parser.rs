@@ -1548,6 +1548,10 @@ impl ParserState {
                     return false;
                 }
                 if let Some(b) = transition_byte {
+                    // At this point there may be a single-byte lexeme after the one
+                    // we just recognized.  For example, assuming C language, in the
+                    // token "foo(", once we recognize the "foo" lexeme, we immediately
+                    // have a single byte "(" lexeme.  We deal with these here.
                     let single = shared
                         .lexer
                         .check_for_single_byte_lexeme(no_hidden.lexer_state, b);
