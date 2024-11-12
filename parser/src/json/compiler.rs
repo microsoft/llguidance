@@ -24,6 +24,17 @@ fn json_dumps(target: &serde_json::Value) -> String {
     serde_json::to_string(target).unwrap()
 }
 
+#[derive(Debug)]
+struct UnsatisfiableSchemaError {
+    message: String,
+}
+
+impl std::fmt::Display for UnsatisfiableSchemaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Unsatisfiable schema: {}", self.message)
+    }
+}
+
 const TYPES: [&str; 7] = ["null", "boolean", "integer", "number", "string", "array", "object"];
 const KEYWORDS: [&str; 10] = [
     "anyOf",
@@ -94,6 +105,24 @@ fn validate_json_node_keys(node: &Value) -> Result<()> {
         bail!("Unknown key in JSON schema: {:?}", key);
     }
 
+    Ok(())
+}
+
+fn check_number_bounds(minimum: Option<f64>, maximum: Option<f64>, exclusive_minimum: bool, exclusive_maximum: bool) -> Result<()> {
+    if let (Some(min), Some(max)) = (minimum, maximum) {
+        if min > max {
+            return Err(anyhow!(UnsatisfiableSchemaError {
+                message: format!("minimum ({}) is greater than maximum ({})", min, max),
+            }));
+        }
+        if min == max && (exclusive_minimum || exclusive_maximum) {
+            let minimum_repr = if exclusive_minimum { "exclusiveMinimum" } else { "minimum" };
+            let maximum_repr = if exclusive_maximum { "exclusiveMaximum" } else { "maximum" };
+            return Err(anyhow!(UnsatisfiableSchemaError {
+                message: format!("{} ({}) is equal to {} ({})", minimum_repr, min, maximum_repr, max),
+            }));
+        }
+    }
     Ok(())
 }
 
@@ -490,6 +519,7 @@ impl Compiler {
     }
 
     fn json_int(&mut self, minimum: Option<f64>, maximum: Option<f64>, exclusive_minimum: bool, exclusive_maximum: bool) -> Result<NodeRef> {
+        check_number_bounds(minimum, maximum, exclusive_minimum, exclusive_maximum)?;
         let minimum = match (minimum, exclusive_minimum) {
             (Some(min_val), true) => {
                 if min_val.fract() != 0.0 {
@@ -518,6 +548,7 @@ impl Compiler {
     }
 
     fn json_number(&mut self, minimum: Option<f64>, maximum: Option<f64>, exclusive_minimum: bool, exclusive_maximum: bool) -> Result<NodeRef> {
+        check_number_bounds(minimum, maximum, exclusive_minimum, exclusive_maximum)?;
         // TODO: handle errors in rx_float_range; currently it just panics
         let rx = rx_float_range(minimum, maximum, !exclusive_minimum, !exclusive_maximum);
         Ok(self.lexeme(&rx))
