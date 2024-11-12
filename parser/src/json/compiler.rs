@@ -629,7 +629,7 @@ impl Compiler {
         for name in properties.keys().chain(required.iter().filter(|n| !properties.contains_key(n.as_str()))) {
             let property_schema = properties.get(name).unwrap_or(additional_properties);
             let is_required = required.contains(name);
-            // Quote (and escape) the name. TODO: probably overkill to use json_dumps here
+            // Quote (and escape) the name
             let quoted_name = json_dumps(&json!(name));
             let property = match self.gen_json(property_schema) {
                 Ok(node) => node,
