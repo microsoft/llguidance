@@ -305,13 +305,35 @@ impl Compiler {
     }
 
     fn process_any_of(&mut self, obj: &Value) -> Result<NodeRef> {
-        let arr = obj
-            .as_array()
-            .ok_or_else(|| anyhow!("Expected array in anyOf, got: {}", limited_str(obj)))?
-            .iter()
+        let arr = obj.as_array().ok_or_else(|| anyhow!("Expected array in anyOf, got: {}", limited_str(obj)))?;
+        if arr.is_empty() {
+            return Err(anyhow!(UnsatisfiableSchemaError {
+                message: "anyOf has no schemas".to_string(),
+            }));
+        }
+        // Unwrap, filtering out unsatisfiable schemas
+        let options = arr.iter()
             .map(|json_schema| self.gen_json(json_schema))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(self.builder.select(&arr))
+            .filter_map(|res| {
+                match res {
+                    Ok(node) => Some(Ok(node)),
+                    Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
+                        // If it's not an UnsatisfiableSchemaError, just propagate it normally
+                        None => { Some(Err(e)) },
+                        // Ignore unsatisfiable schemas
+                        Some(_) => None,
+                    }
+                }
+            })
+            .collect::<Result<Vec<NodeRef>>>()?;
+        if options.is_empty() {
+            // If all schemas are unsatisfiable, return an error
+            // We can't really point to any specific schema at fault, so just dump the whole anyOf
+            return Err(anyhow!(UnsatisfiableSchemaError {
+                message: format!("all schemas in anyOf are unsatisfiable: {}", json_dumps(obj)),
+            }));
+        }
+        Ok(self.builder.select(&options))
     }
 
     fn gen_json(&mut self, json_schema: &Value) -> Result<NodeRef> {
