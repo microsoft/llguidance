@@ -687,7 +687,7 @@ impl Compiler {
             }
         }
         let opener = self.builder.string("{");
-        let inner = self.ordered_sequence(&items, false, &mut HashMap::<(&[(NodeRef, bool)], bool), NodeRef>::new());
+        let inner = self.ordered_sequence(&items, false, &mut HashMap::new());
         let closer = self.builder.string("}");
         Ok(self.builder.join(&[opener, inner, closer]))
     }
