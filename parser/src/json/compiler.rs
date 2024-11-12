@@ -320,7 +320,9 @@ impl Compiler {
         }
 
         if json_schema.as_bool() == Some(false) {
-            bail!("'false' not supported as schema here");
+            return Err(anyhow!(UnsatisfiableSchemaError {
+                message: "false schema".to_string(),
+            }));
         }
 
         if let Some(json_schema) = json_schema.as_object() {
@@ -607,42 +609,60 @@ impl Compiler {
             let is_required = required.contains(name);
             // Quote (and escape) the name. TODO: probably overkill to use json_dumps here
             let quoted_name = json_dumps(&json!(name));
-            if property_schema == &Value::Bool(false) {
-                if is_required {
-                    bail!("Required property has 'false' schema: {}", name);
+            let property = match self.gen_json(property_schema) {
+                Ok(node) => node,
+                Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
+                    // If it's not an UnsatisfiableSchemaError, just propagate it normally
+                    None => { return Err(e) },
+                    // Property is optional; don't raise UnsatisfiableSchemaError but mark name as taken
+                    Some(_) if !is_required => {
+                        taken_names.push(quoted_name);
+                        continue;
+                    },
+                    // Property is required; add context and propagate UnsatisfiableSchemaError
+                    Some(_) => {
+                        return Err(e.context(UnsatisfiableSchemaError {
+                            message: format!("required property '{}' is unsatisfiable", name),
+                        }));
+                    }
                 }
-                // Even if the name won't be used for a property, it is still "taken" in that it can't be used for additionalProperties
-                taken_names.push(quoted_name);
-                continue;
-            }
+            };
             let name = self.builder.string(&quoted_name);
             taken_names.push(quoted_name);
             let colon = self.builder.string(&self.options.key_separator);
-            let the_rest = self.gen_json(property_schema)?;
-            let item = self.builder.join(&[name, colon, the_rest]);
+            let item = self.builder.join(&[name, colon, property]);
             items.push((item, is_required));
         }
-        if additional_properties != &Value::Bool(false) {
-            let name = if taken_names.is_empty() {
-                self.json_simple_string()
-            } else {
-                let taken_name_ids =
-                    taken_names
-                    .iter()
-                    .map(|n| self.builder.regex.literal(n.to_string()))
-                    .collect::<Vec<_>>();
-                let taken = self.builder.regex.select(taken_name_ids);
-                let not_taken = self.builder.regex.not(taken);
-                let valid = self.builder.regex.regex(r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#.to_string());
-                let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
-                let rx = RegexSpec::RegexId(valid_and_not_taken);
-                self.builder.lexeme(rx, false)
-            };
-            let colon = self.builder.string(&self.options.key_separator);
-            let the_rest = self.gen_json(additional_properties)?;
-            let item = self.builder.join(&[name, colon, the_rest]);
-            let seq = self.sequence(item);
-            items.push((seq, false));
+
+        match self.gen_json(additional_properties) {
+            Err(e) => {
+                if e.downcast_ref::<UnsatisfiableSchemaError>().is_none() {
+                    // Propagate errors that aren't UnsatisfiableSchemaError
+                    return Err(e);
+                }
+                // Ignore UnsatisfiableSchemaError for additionalProperties
+            },
+            Ok(property) => {
+                let name = if taken_names.is_empty() {
+                    self.json_simple_string()
+                } else {
+                    let taken_name_ids =
+                        taken_names
+                        .iter()
+                        .map(|n| self.builder.regex.literal(n.to_string()))
+                        .collect::<Vec<_>>();
+                    let taken = self.builder.regex.select(taken_name_ids);
+                    let not_taken = self.builder.regex.not(taken);
+                    let valid = self.builder.regex.regex(r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#.to_string());
+                    let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
+                    let rx = RegexSpec::RegexId(valid_and_not_taken);
+                    self.builder.lexeme(rx, false)
+                };
+                let colon = self.builder.string(&self.options.key_separator);
+                let item = self.builder.join(&[name, colon, property]);
+                let seq = self.sequence(item);
+                items.push((seq, false));
+            }
         }
         let opener = self.builder.string("{");
         let inner = self.ordered_sequence(&items, false, &mut HashMap::<(&[(NodeRef, bool)], bool), NodeRef>::new());
@@ -712,6 +732,13 @@ impl Compiler {
         regex: Option<&str>,
         format: Option<&str>,
     ) -> Result<NodeRef> {
+        if let Some(max_length) = max_length {
+            if min_length > max_length {
+                return Err(anyhow!(UnsatisfiableSchemaError {
+                    message: format!("minLength ({}) is greater than maxLength ({})", min_length, max_length),
+                }));
+            }
+        }
 
         let mut regex = regex;
 
@@ -755,31 +782,33 @@ impl Compiler {
         min_items: u64,
         max_items: Option<u64>,
     ) -> Result<NodeRef> {
-        let anything_goes = json!({});
-        let item_schema = if item_schema.as_bool() == Some(true) {
-            &anything_goes
-        } else {
-            item_schema
-        };
-        let item_schema_is_false = item_schema.as_bool() == Some(false);
+        let mut max_items = max_items;
 
-        if item_schema_is_false && prefix_items.len() < min_items as usize {
-            bail!(
-                "PrefixItems has too few elements ({}) to satisfy minItems ({}) but no extra items were allowed",
-                prefix_items.len(),
-                min_items
-            );
-        }
-
-        if let Some(max_items_value) = max_items {
-            if max_items_value < min_items {
-                bail!(
-                    "maxItems ({}) can't be less than minItems ({})",
-                    max_items_value,
-                    min_items
-                );
+        if let Some(max_items) = max_items {
+            if min_items > max_items {
+                return Err(anyhow!(UnsatisfiableSchemaError {
+                    message: format!("minItems ({}) is greater than maxItems ({})", min_items, max_items),
+                }));
             }
         }
+
+        let additional_item_grm = match self.gen_json(item_schema) {
+            Ok(node) => Some(node),
+            Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
+                // If it's not an UnsatisfiableSchemaError, just propagate it normally
+                None => { return Err(e) },
+                // Item is optional; don't raise UnsatisfiableSchemaError
+                Some(_) if prefix_items.len() >= min_items as usize => {
+                    None
+                },
+                // Item is required; add context and propagate UnsatisfiableSchemaError
+                Some(_) => {
+                    return Err(e.context(UnsatisfiableSchemaError {
+                        message: format!("required item is unsatisfiable"),
+                    }));
+                }
+            }
+        };
 
         let mut required_items = vec![];
         let mut optional_items = vec![];
@@ -794,16 +823,28 @@ impl Compiler {
                 required_items.push(self.gen_json(item)?);
             }
         } else {
-            let item_schema_compiled = if item_schema_is_false {
-                None
-            } else {
-                Some(self.gen_json(item_schema)?)
-            };
-
             for i in 0..n_to_add {
                 let item = if i < prefix_items.len() {
-                    self.gen_json(&prefix_items[i])?
-                } else if let Some(compiled) = &item_schema_compiled {
+                    match self.gen_json(&prefix_items[i]) {
+                        Ok(node) => node,
+                        Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
+                            // If it's not an UnsatisfiableSchemaError, just propagate it normally
+                            None => { return Err(e) },
+                            // Item is optional; don't raise UnsatisfiableSchemaError.
+                            // Set max_items to the current index, as we can't satisfy any more items.
+                            Some(_) if i >= min_items as usize => {
+                                max_items = Some(i as u64);
+                                break;
+                            },
+                            // Item is required; add context and propagate UnsatisfiableSchemaError
+                            Some(_) => {
+                                return Err(e.context(UnsatisfiableSchemaError {
+                                    message: format!("prefixItems[{}] is unsatisfiable but minItems is {}", i, min_items),
+                                }));
+                            }
+                        }
+                    }
+                } else if let Some(compiled) = &additional_item_grm {
                     compiled.clone()
                 } else {
                     break;
@@ -816,9 +857,9 @@ impl Compiler {
                 }
             }
 
-            if max_items.is_none() && !item_schema_is_false {
+            if max_items.is_none() && !additional_item_grm.is_none() {
                 // Add an infinite tail of items
-                optional_items.push(self.sequence(item_schema_compiled.unwrap()));
+                optional_items.push(self.sequence(additional_item_grm.unwrap()));
             }
         }
 
