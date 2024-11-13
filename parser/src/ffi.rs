@@ -213,6 +213,7 @@ pub struct LlgConstraintInit {
 }
 
 #[derive(Clone)]
+#[repr(C)]
 pub struct LlgConstraintStep {
     /// The constraint to compute mask for.
     pub constraint: *mut LlgConstraint,

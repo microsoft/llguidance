@@ -9,8 +9,6 @@
 
 typedef struct LlgConstraint LlgConstraint;
 
-typedef struct LlgConstraintStep LlgConstraintStep;
-
 typedef struct LlgTokenizer LlgTokenizer;
 
 typedef struct LlgParserLimits {
@@ -109,6 +107,21 @@ typedef struct LlgCommitResult {
    */
   bool is_stop;
 } LlgCommitResult;
+
+typedef struct LlgConstraintStep {
+  /**
+   * The constraint to compute mask for.
+   */
+  struct LlgConstraint *constraint;
+  /**
+   * Pointer to memory where the mask should be written.
+   */
+  uint32_t *mask_dest;
+  /**
+   * The length of the mask_dest array in bytes (not elements).
+   */
+  size_t mask_byte_len;
+} LlgConstraintStep;
 
 /**
  * Function which llg calls when an operation is done.
