@@ -199,9 +199,12 @@ impl RowInfo {
 // Tokens are broken down into single bytes when they go into this stack,
 // and the bytes are assembled into lexemes when the 'LexerState' items are
 // removed from the stack.
+//
+// The stack of lexer states also manages a virtual stack of Earley sets, via the
+// 'row_idx' field.  The current Earley table/stack is rows 0 through 'row_idx'.
 #[derive(Clone, Copy)]
 struct LexerState {
-    row_idx: u32,
+    row_idx: u32, // Index of corresponding row (Earley set)
     lexer_state: StateID, // state after consuming 'byte'
     byte: Option<u8>,
 }
@@ -534,10 +537,12 @@ impl ParserState {
         self.lexer_stack[self.lexer_stack.len() - 1]
     }
 
-    // Current size of the Earley table --
-    // that is, the number of Earley sets.
+    /// Current size of the Earley table -- that is,
+    /// the number of Earley sets.
     #[inline(always)]
     pub fn num_rows(&self) -> usize {
+        /// The number of rows is taken, not from the physical Earley table,
+        /// but from the virtual Earley stack kept in the lexer state.
         self.lexer_state().row_idx as usize + 1
     }
 
@@ -802,6 +807,9 @@ impl ParserState {
         self.row_infos.pop();
     }
 
+    /// force_bytes() forces bytes into the parser, definitively.
+    /// They must be, at each point, the only bytes allowed by
+    /// the parser.  force_bytes() returns a 'Vec' of the bytes pushed.
     pub fn force_bytes(&mut self, shared: &mut SharedState) -> Vec<u8> {
         self.assert_definitive();
         trace!("force_bytes lexer_stack {}", self.lexer_stack.len());
@@ -910,10 +918,15 @@ impl ParserState {
         self.advance_lexer_or_parser(shared, res, curr)
     }
 
+    /// The current Earley set (row) as kept track of
+    /// in the lexer stack.
     fn curr_row(&self) -> &Row {
         &self.rows[self.lexer_state().row_idx as usize]
     }
 
+    /// forced_byte() finds the unique byte allowed by the
+    /// parser at this point, and returns it.  If there is
+    /// no such byte, forced_byte() returns 'None'.
     fn forced_byte(&mut self, shared: &mut SharedState) -> Option<u8> {
         if self.is_accepting(shared) {
             debug!("  in accept state, not forcing");
@@ -1280,8 +1293,12 @@ impl ParserState {
             let idx = self.num_rows();
             let row = self.scratch.work_row(allowed_lexemes);
             if self.rows.len() == 0 || self.rows.len() == idx {
+                // If the physical 'rows' Vec is full, we push a new row
+                // otherwise ...
                 self.rows.push(row);
             } else {
+                // ... we put the new row at the end of the virtual
+                // stack as tracked by the lexer.
                 self.rows[idx] = row;
             }
 
