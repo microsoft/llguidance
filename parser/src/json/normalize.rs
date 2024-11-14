@@ -4,6 +4,15 @@ use serde_json::{Map, Value};
 
 const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
 
+fn limited_str(node: &Value) -> String {
+    let s = node.to_string();
+    if s.len() > 100 {
+        format!("{}...", &s[..100])
+    } else {
+        s
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 enum Schema {
     Any,
@@ -304,118 +313,212 @@ fn try_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
     match tp {
         "null" => Ok(Schema::Null),
         "boolean" => Ok(Schema::Boolean),
-        "number" | "integer" => {
-            let minimum = schema.get("minimum").and_then(|v| v.as_f64());
-            let maximum = schema.get("maximum").and_then(|v| v.as_f64());
-            let exclusive_minimum = schema.get("exclusiveMinimum").and_then(|v| v.as_f64());
-            let exclusive_maximum = schema.get("exclusiveMaximum").and_then(|v| v.as_f64());
-            Ok(Schema::Number {
-                minimum,
-                maximum,
-                exclusive_minimum,
-                exclusive_maximum,
-                integer: tp == "integer",
-            })
-        }
-        "string" => {
-            let min_length = schema
-                .get("minLength")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let max_length = schema.get("maxLength").and_then(|v| v.as_u64());
-            let pattern = schema
-                .get("pattern")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let format = schema
-                .get("format")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            Ok(Schema::String {
-                min_length,
-                max_length,
-                pattern,
-                format,
-            })
-        }
-        "array" => {
-            let min_items = schema.get("minItems").and_then(|v| v.as_u64()).unwrap_or(0);
-            let max_items = schema.get("maxItems").and_then(|v| v.as_u64());
-            let prefix_items = schema
-                .get("prefixItems")
-                .map(|v| {
-                    v.as_array()
-                        .ok_or_else(|| anyhow!("prefixItems must be an array"))
-                })
-                .transpose()?
-                .map(|items| {
-                    items
-                        .iter()
-                        .map(|item| Schema::try_from(item.to_owned()))
-                        .collect::<Result<Vec<Schema>>>()
-                })
-                .transpose()?
-                .unwrap_or_default();
-            let items = schema
-                .get("items")
-                .map(|v| Schema::try_from(v.to_owned()))
-                .transpose()?;
-            Ok(Schema::Array {
-                min_items,
-                max_items,
-                prefix_items,
-                items: items.map(Box::new),
-            })
-        }
-        "object" => {
-            let properties = schema
-                .get("properties")
-                .map(|v| {
-                    v.as_object()
-                        .ok_or_else(|| anyhow!("properties must be an object"))
-                })
-                .transpose()?
-                .map(|props| {
-                    props
-                        .iter()
-                        .map(|(k, v)| {
-                            Schema::try_from(v.to_owned()).map(|schema| (k.clone(), schema))
-                        })
-                        .collect::<Result<IndexMap<String, Schema>>>()
-                })
-                .transpose()?
-                .unwrap_or_default();
-            let additional_properties = schema
-                .get("additionalProperties")
-                .map(|v| Schema::try_from(v.to_owned()))
-                .transpose()?;
-            let required = schema
-                .get("required")
-                .map(|v| {
-                    v.as_array()
-                        .ok_or_else(|| anyhow!("required must be an array"))
-                })
-                .transpose()?
-                .map(|items| {
-                    items
-                        .iter()
-                        .map(|item| {
-                            item.as_str()
-                                .ok_or_else(|| anyhow!("required items must be strings"))
-                                .map(|s| s.to_string())
-                        })
-                        .collect::<Result<Vec<String>>>()
-                })
-                .transpose()?
-                .unwrap_or_default();
-            Ok(Schema::Object {
-                properties,
-                additional_properties: additional_properties.map(Box::new),
-                required: IndexSet::from_iter(required),
-            })
-        }
+        "number" | "integer" => try_numeric(
+            schema.get("minimum"),
+            schema.get("maximum"),
+            schema.get("exclusiveMinimum"),
+            schema.get("exclusiveMaximum"),
+            tp == "integer",
+        ),
+        "string" => try_string(
+            schema.get("minLength"),
+            schema.get("maxLength"),
+            schema.get("pattern"),
+            schema.get("format"),
+        ),
+        "array" => try_array(
+            schema.get("minItems"),
+            schema.get("maxItems"),
+            schema.get("prefixItems"),
+            schema.get("items"),
+        ),
+        "object" => try_object(
+            schema.get("properties"),
+            schema.get("additionalProperties"),
+            schema.get("required"),
+        ),
         _ => bail!("Invalid type: {}", tp),
     }
+}
+
+fn try_numeric(
+    minimum: Option<&Value>,
+    maximum: Option<&Value>,
+    exclusive_minimum: Option<&Value>,
+    exclusive_maximum: Option<&Value>,
+    integer: bool,
+) -> Result<Schema> {
+    let minimum = match minimum {
+        None => None,
+        Some(val) => Some(
+            val.as_f64()
+                .ok_or_else(|| anyhow!("Expected f64 for 'minimum', got {}", limited_str(val)))?,
+        ),
+    };
+    let maximum = match maximum {
+        None => None,
+        Some(val) => Some(
+            val.as_f64()
+                .ok_or_else(|| anyhow!("Expected f64 for 'maximum', got {}", limited_str(val)))?,
+        ),
+    };
+    let exclusive_minimum = match exclusive_minimum {
+        // Draft4-style boolean values
+        None | Some(Value::Bool(false)) => None,
+        Some(Value::Bool(true)) => minimum,
+        // Draft2020-12-style numeric values
+        Some(value) => Some(value.as_f64().ok_or_else(|| {
+            anyhow!(
+                "Expected f64 for 'exclusiveMinimum', got {}",
+                limited_str(value)
+            )
+        })?),
+    };
+    let exclusive_maximum = match exclusive_maximum {
+        // Draft4-style boolean values
+        None | Some(Value::Bool(false)) => None,
+        Some(Value::Bool(true)) => maximum,
+        // Draft2020-12-style numeric values
+        Some(value) => Some(value.as_f64().ok_or_else(|| {
+            anyhow!(
+                "Expected f64 for 'exclusiveMaximum', got {}",
+                limited_str(value)
+            )
+        })?),
+    };
+    Ok(Schema::Number {
+        minimum,
+        maximum,
+        exclusive_minimum,
+        exclusive_maximum,
+        integer: integer,
+    })
+}
+
+fn try_string(
+    min_length: Option<&Value>,
+    max_length: Option<&Value>,
+    pattern: Option<&Value>,
+    format: Option<&Value>,
+) -> Result<Schema> {
+    let min_length = match min_length {
+        None => 0,
+        Some(val) => val
+            .as_u64()
+            .ok_or_else(|| anyhow!("Expected u64 for 'minLength', got {}", limited_str(val)))?,
+    };
+    let max_length = match max_length {
+        None => None,
+        Some(val) => Some(
+            val.as_u64()
+                .ok_or_else(|| anyhow!("Expected u64 for 'maxLength', got {}", limited_str(val)))?,
+        ),
+    };
+    let pattern = match pattern {
+        None => None,
+        Some(val) => Some(
+            val.as_str()
+                .ok_or_else(|| anyhow!("Expected string for 'pattern', got {}", limited_str(val)))?
+                .to_string(),
+        ),
+    };
+    let format = match format {
+        None => None,
+        Some(val) => Some(
+            val.as_str()
+                .ok_or_else(|| anyhow!("Expected string for 'format', got {}", limited_str(val)))?
+                .to_string(),
+        ),
+    };
+    Ok(Schema::String {
+        min_length,
+        max_length,
+        pattern,
+        format,
+    })
+}
+
+fn try_array(
+    min_items: Option<&Value>,
+    max_items: Option<&Value>,
+    prefix_items: Option<&Value>,
+    items: Option<&Value>,
+) -> Result<Schema> {
+    let min_items = match min_items {
+        None => 0,
+        Some(val) => val
+            .as_u64()
+            .ok_or_else(|| anyhow!("Expected u64 for 'minItems', got {}", limited_str(val)))?,
+    };
+    let max_items = match max_items {
+        None => None,
+        Some(val) => Some(
+            val.as_u64()
+                .ok_or_else(|| anyhow!("Expected u64 for 'maxItems', got {}", limited_str(val)))?,
+        ),
+    };
+    let prefix_items = match prefix_items {
+        None => vec![],
+        Some(val) => val
+            .as_array()
+            .ok_or_else(|| anyhow!("Expected array for 'prefixItems', got {}", limited_str(val)))?
+            .iter()
+            .map(|item| Schema::try_from(item.to_owned()))
+            .collect::<Result<Vec<Schema>>>()?,
+    };
+    let items = match items {
+        None => None,
+        Some(val) => Some(Box::new(Schema::try_from(val.to_owned())?)),
+    };
+    Ok(Schema::Array {
+        min_items,
+        max_items,
+        prefix_items,
+        items,
+    })
+}
+
+fn try_object(
+    properties: Option<&Value>,
+    additional_properties: Option<&Value>,
+    required: Option<&Value>,
+) -> Result<Schema> {
+    let properties = match properties {
+        None => IndexMap::new(),
+        Some(val) => val
+            .as_object()
+            .ok_or_else(|| anyhow!("Expected object for 'properties', got {}", limited_str(val)))?
+            .iter()
+            .map(|(k, v)| Schema::try_from(v.to_owned()).map(|v| (k.clone(), v)))
+            .collect::<Result<IndexMap<String, Schema>>>()?,
+    };
+    let additional_properties = match additional_properties {
+        None => None,
+        Some(val) => Some(Box::new(Schema::try_from(val.to_owned())?)),
+    };
+    let required = match required {
+        None => IndexSet::new(),
+        Some(val) => val
+            .as_array()
+            .ok_or_else(|| anyhow!("Expected array for 'required', got {}", limited_str(val)))?
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Expected string for 'required' item, got {}",
+                            limited_str(item)
+                        )
+                    })
+                    .map(|s| s.to_string())
+            })
+            .collect::<Result<IndexSet<String>>>()?,
+    };
+    Ok(Schema::Object {
+        properties,
+        additional_properties,
+        required,
+    })
 }
 
 fn merge(schemas: Vec<&Schema>) -> Result<Schema> {
@@ -600,7 +703,7 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
                     (Some(add), None) => Some(Box::new(*add.clone())),
                     (Some(add1), Some(add2)) => Some(Box::new(merge_two(&add1, &add2)?)),
                 },
-                required: req1.union(req2).cloned().collect()
+                required: req1.union(req2).cloned().collect(),
             })
         }
         //TODO: get types for error message
