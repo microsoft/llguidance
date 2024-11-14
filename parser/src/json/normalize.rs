@@ -433,15 +433,17 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
         (_, Schema::Any) => Ok(schema0.to_owned()),
         (Schema::Unsatisfiable { .. }, _) => Ok(schema0.to_owned()),
         (_, Schema::Unsatisfiable { .. }) => Ok(schema1.to_owned()),
-        (
-            Schema::OneOf { .. } | Schema::AnyOf { .. },
-            Schema::OneOf { .. } | Schema::AnyOf { .. },
-        ) => merge_oneof_anyof(schema0, schema1),
-        (Schema::OneOf { .. } | Schema::AnyOf { .. }, _) => {
-            merge_oneof_anyof(schema0, &Schema::AnyOf { options: vec![schema1.to_owned()] })
+        (Schema::OneOf { options }, _) => {
+            Ok(Schema::OneOf { options: options.iter().map(|opt| merge_two(opt, schema1)).collect::<Result<Vec<_>>>()? })
         },
-        (_, Schema::OneOf { .. } | Schema::AnyOf { .. }) => {
-            merge_oneof_anyof(&Schema::AnyOf { options: vec![schema0.to_owned()] }, schema1)
+        (_, Schema::OneOf { options }) => {
+            Ok(Schema::OneOf { options: options.iter().map(|opt| merge_two(schema0, opt)).collect::<Result<Vec<_>>>()? })
+        },
+        (Schema::AnyOf { options }, _) => {
+            Ok(Schema::AnyOf { options: options.iter().map(|opt| merge_two(opt, schema1)).collect::<Result<Vec<_>>>()? })
+        },
+        (_, Schema::AnyOf { options }) => {
+            Ok(Schema::AnyOf { options: options.iter().map(|opt| merge_two(schema0, opt)).collect::<Result<Vec<_>>>()? })
         },
         (Schema::Null, Schema::Null) => Ok(Schema::Null),
         (Schema::Boolean, Schema::Boolean) => Ok(Schema::Boolean),
@@ -611,45 +613,6 @@ fn opt_min<T: PartialOrd>(a: Option<T>, b: Option<T>) -> Option<T> {
         (None, Some(b)) => Some(b),
         (None, None) => None,
     }
-}
-
-fn merge_oneof_anyof(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
-    let (options0, options1) = match (schema0, schema1) {
-        (
-            Schema::AnyOf { options: options0 } | Schema::OneOf { options: options0 },
-            Schema::AnyOf { options: options1 } | Schema::OneOf { options: options1 },
-        ) => (options0, options1),
-        _ => bail!("merge_oneof_anyof called with invalid schemas"),
-    };
-    let mut new_options = Vec::new();
-    for item0 in options0 {
-        for item1 in options1 {
-            let merged_item = merge(vec![item0, item1])?;
-            new_options.push(merged_item);
-        }
-    }
-    let valid_options = new_options
-        .iter()
-        .filter_map(|schema| match schema {
-            Schema::Unsatisfiable { .. } => None,
-            _ => Some(schema.to_owned()),
-        })
-        .collect::<Vec<Schema>>();
-    if valid_options.is_empty() {
-        // Return the first unsatisfiable schema for debug-ability
-        // TODO: think through ownership and don't return a clone if possible
-        return Ok(new_options[0].clone());
-    }
-
-    // OneOf takes precedence over AnyOf
-    if matches!(schema0, Schema::OneOf { .. }) || matches!(schema1, Schema::OneOf { .. }) {
-        return Ok(Schema::OneOf {
-            options: valid_options,
-        });
-    }
-    Ok(Schema::AnyOf {
-        options: valid_options,
-    })
 }
 
 mod test {
