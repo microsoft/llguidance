@@ -2,8 +2,8 @@ use anyhow::{anyhow, bail, Result};
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
-const TYPES: [&str; 7] = [
-    "null", "boolean", "integer", "number", "string", "array", "object",
+const TYPES: [&str; 6] = [
+    "null", "boolean", "number", "string", "array", "object",
 ];
 
 #[derive(Debug, PartialEq, Clone)]
@@ -54,173 +54,244 @@ enum Schema {
     Ref(Box<Schema>),
 }
 
-fn normalize(schema: &Value) -> Result<Schema> {
-    match schema.as_bool() {
-        Some(true) => return Ok(Schema::Any),
-        Some(false) => {
-            return Ok(Schema::Unsatisfiable {
-                reason: "schema is false".to_string(),
-            })
-        }
-        None => {}
-    }
-
-    // Get the schema as an object
-    // TODO: validate against metaschema & check for unimplemented keys
-    let schema = schema
-        .as_object()
-        .ok_or_else(|| anyhow!("schema must be an object or boolean"))?;
-
-    if schema.is_empty() {
-        // TODO: should be ok to have ignored keys here
-        return Ok(Schema::Any);
-    }
-
-    if let Some(instance) = schema.get("const") {
-        // TODO: validate the instance against the schema, maybe returning Schema::Unsatisfiable
-        return Ok(Schema::Const {
-            value: instance.clone(),
-        });
-    }
-
-    if let Some(instances) = schema.get("enum") {
-        let instances = instances
-            .as_array()
-            .ok_or_else(|| anyhow!("enum must be an array"))?;
-        if instances.is_empty() {
-            return Ok(Schema::Unsatisfiable {
-                reason: "enum is empty".to_string(),
-            });
-        }
-        // TODO: validate the instances against the schema, maybe returning Schema::Unsatisfiable
-        return Ok(Schema::Enum {
-            options: instances.clone(),
-        });
-    }
-
-    // Make a mutable copy of the schema so we can modify it
-    let mut schema = schema.clone();
-
-    if let Some(all_of) = schema.remove("allOf") {
-        let all_of = all_of
-            .as_array()
-            .ok_or_else(|| anyhow!("allOf must be an array"))?;
-        let siblings = normalize(&Value::Object(schema))?;
-        if all_of.is_empty() || matches!(siblings, Schema::Unsatisfiable { .. }) {
-            return Ok(siblings);
-        }
-        let options = all_of
-            .iter()
-            .map(normalize)
-            .collect::<Result<Vec<Schema>>>()?;
-        let merged = merge(options.iter().chain(vec![&siblings]).collect())?;
-        return Ok(merged);
-    }
-
-    if let Some(any_of) = schema.remove("anyOf") {
-        let any_of = any_of
-            .as_array()
-            .ok_or_else(|| anyhow!("anyOf must be an array"))?;
-        let siblings = normalize(&Value::Object(schema))?;
-        if matches!(siblings, Schema::Unsatisfiable { .. }) {
-            return Ok(siblings);
-        }
-        if any_of.is_empty() {
-            return Ok(Schema::Unsatisfiable {
-                reason: "anyOf is empty".to_string(),
-            });
-        }
-        let options = any_of
-            .iter()
-            .filter_map(|value| match normalize(value) {
-                Ok(subschema) => {
-                    let merged = merge(vec![&subschema, &siblings]);
-                    match merged {
-                        Ok(Schema::Unsatisfiable { .. }) => None,
-                        _ => Some(merged),
-                    }
+impl Schema {
+    fn normalize(self) -> Result<Schema> {
+        match self {
+            Schema::Any => Ok(self),
+            Schema::Unsatisfiable { .. } => Ok(self),
+            Schema::Null => Ok(self),
+            Schema::Boolean => Ok(self),
+            Schema::Number { .. } => {
+                // TODO: validation logic, maybe returning Schema::Unsatisfiable
+                Ok(self)
+            },
+            Schema::String { .. } => {
+                // TODO: validation logic, maybe returning Schema::Unsatisfiable
+                Ok(self)
+            },
+            Schema::Array { min_items, max_items, prefix_items, items } => {
+                // TODO: validation logic, maybe returning Schema::Unsatisfiable
+                Ok(Schema::Array {
+                    min_items,
+                    max_items,
+                    prefix_items: prefix_items
+                        .into_iter()
+                        .map(|v| v.normalize())
+                        .collect::<Result<Vec<_>>>()?,
+                    items: items
+                        .map(|v| v.normalize().map(Box::new))
+                        .transpose()?
+                })
+            },
+            Schema::Object { properties, additional_properties, required } => {
+                // TODO: validation logic, maybe returning Schema::Unsatisfiable
+                Ok(Schema::Object { 
+                    properties: properties
+                        .into_iter()
+                        .map(|(k, v)| {
+                            v.normalize()
+                            .map(|v| (k, v))
+                        })
+                        .collect::<Result<IndexMap<_, _>>>()?,
+                    additional_properties: additional_properties
+                        .map(|v| v.normalize().map(Box::new))
+                        .transpose()?,
+                    required: required
+                })
+            },
+            Schema::Const { .. } => Ok(self),
+            Schema::Enum { options } => {
+                if options.is_empty() {
+                    return Ok(Schema::Unsatisfiable {
+                        reason: "enum is empty".to_string(),
+                    });
                 }
-                Err(_) => None,
-            })
-            .collect::<Result<Vec<Schema>>>()?;
-        if options.is_empty() {
-            return Ok(Schema::Unsatisfiable {
-                reason: "all anyOf options are unsatisfiable".to_string(),
-            });
-        }
-        return Ok(Schema::AnyOf { options });
-    }
-
-    // TODO: refactor to share code with anyOf
-    if let Some(one_of) = schema.remove("oneOf") {
-        let one_of = one_of
-            .as_array()
-            .ok_or_else(|| anyhow!("oneOf must be an array"))?;
-        let siblings = normalize(&Value::Object(schema))?;
-        if matches!(siblings, Schema::Unsatisfiable { .. }) {
-            return Ok(siblings);
-        }
-        if one_of.is_empty() {
-            return Ok(Schema::Unsatisfiable {
-                reason: "oneOf is empty".to_string(),
-            });
-        }
-        let options = one_of
-            .iter()
-            .filter_map(|value| match normalize(value) {
-                Ok(subschema) => {
-                    let merged = merge(vec![&subschema, &siblings]);
-                    match merged {
-                        Ok(Schema::Unsatisfiable { .. }) => None,
-                        _ => Some(merged),
-                    }
+                Ok(Schema::Enum { options })
+            },
+            Schema::AnyOf { options } => {
+                if options.is_empty() {
+                    return Ok(Schema::Unsatisfiable {
+                        reason: "anyOf is empty".to_string(),
+                    });
                 }
-                Err(_) => None,
-            })
-            .collect::<Result<Vec<Schema>>>()?;
-        if options.is_empty() {
-            return Ok(Schema::Unsatisfiable {
-                reason: "all oneOf options are unsatisfiable".to_string(),
-            });
+                let mut unsats = Vec::new();
+                let mut valid = Vec::new();
+                for option in options {
+                    let normed = option.normalize()?;
+                    match normed {
+                        Schema::Unsatisfiable { .. } => unsats.push(normed),
+                        // Flatten nested anyOfs
+                        Schema::AnyOf { options: nested } => valid.extend(nested),
+                        _ => valid.push(normed),
+                    }
+                };
+                if valid.is_empty() {
+                    // Return the first unsatisfiable schema for debug-ability
+                    return Ok(unsats.swap_remove(0))
+                }
+                if valid.len() == 1 {
+                    return Ok(valid.swap_remove(0))
+                }
+                Ok(Schema::AnyOf { options: valid })
+            },
+            Schema::OneOf { options } => {
+                if options.is_empty() {
+                    return Ok(Schema::Unsatisfiable {
+                        reason: "oneOf is empty".to_string(),
+                    });
+                }
+                let mut unsats = Vec::new();
+                let mut valid = Vec::new();
+                for option in options {
+                    let normed = option.normalize()?;
+                    match normed {
+                        Schema::Unsatisfiable { .. } => unsats.push(normed),
+                        // Flatten nested oneOfs: (A⊕B)⊕(C⊕D) = A⊕B⊕C⊕D
+                        Schema::OneOf { options: nested } => valid.extend(nested),
+                        _ => valid.push(normed),
+                    }
+                };
+                if valid.is_empty() {
+                    // Return the first unsatisfiable schema for debug-ability
+                    return Ok(unsats.swap_remove(0))
+                }
+                if valid.len() == 1 {
+                    return Ok(valid.swap_remove(0))
+                }
+                Ok(Schema::OneOf { options: valid })
+            },
+            // TODO: ?
+            Schema::Ref(..) => Ok(self)
         }
-        return Ok(Schema::OneOf { options });
     }
-
-    if let Some(_) = schema.remove("$ref") {
-        bail!("Ref not implemented")
-    }
-
-    let types = match schema.remove("type") {
-        Some(Value::String(tp)) => {
-            return normalize_type(&schema, &tp);
-        }
-        Some(Value::Array(types)) => types
-            .iter()
-            .map(|tp| match tp.as_str() {
-                Some(tp) => Ok(tp.to_string()),
-                None => bail!("type must be a string"),
-            })
-            .collect::<Result<Vec<String>>>()?,
-        Some(_) => bail!("type must be a string or array"),
-        None => TYPES.iter().map(|s| s.to_string()).collect(),
-    };
-    let options = types
-        .iter()
-        .map(|tp| normalize_type(&schema, &tp))
-        .filter_map(|result| match result {
-            Ok(Schema::Unsatisfiable { .. }) => None,
-            _ => Some(result),
-        })
-        .collect::<Result<Vec<Schema>>>()?;
-    if options.is_empty() {
-        return Ok(Schema::Unsatisfiable {
-            reason: "no valid types".to_string(),
-        });
-    }
-    Ok(Schema::AnyOf { options })
 }
 
-fn normalize_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
+impl TryFrom<Value> for Schema {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Some(b) = value.as_bool() {
+            return Ok({
+                if b {
+                    Schema::Any
+                } else {
+                    Schema::Unsatisfiable {
+                        reason: "schema is false".to_string(),
+                    }
+                }
+            });
+        }
+
+        // Get the schema as an object
+        // TODO: validate against metaschema & check for unimplemented keys
+        let schemadict = value
+            .as_object()
+            .ok_or_else(|| anyhow!("schema must be an object or boolean"))?;
+
+        if schemadict.is_empty() {
+            // TODO: should be ok to have ignored keys here
+            return Ok(Schema::Any);
+        }
+
+        if let Some(instance) = schemadict.get("const") {
+            // TODO: validate the instance against the schema, maybe returning Schema::Unsatisfiable
+            return Ok(Schema::Const {
+                value: instance.clone(),
+            });
+        }
+
+        if let Some(instances) = schemadict.get("enum") {
+            let instances = instances
+                .as_array()
+                .ok_or_else(|| anyhow!("enum must be an array"))?;
+            // TODO: validate the instances against the schema, maybe returning Schema::Unsatisfiable
+            return Ok(Schema::Enum {
+                options: instances.clone(),
+            });
+        }
+
+        // Make a mutable copy of the schema so we can modify it
+        let mut schemadict = schemadict.clone();
+
+        if let Some(all_of) = schemadict.remove("allOf") {
+            let all_of = all_of
+                .as_array()
+                .ok_or_else(|| anyhow!("allOf must be an array"))?;
+            let siblings = Schema::try_from(Value::Object(schemadict))?;
+            // Short-circuit if schema is already unsatisfiable
+            if matches!(siblings, Schema::Unsatisfiable { .. }) {
+                return Ok(siblings);
+            }
+            let options = all_of
+                .iter()
+                .map(|value| Schema::try_from(value.to_owned()))
+                .collect::<Result<Vec<_>>>()?;
+            let merged = merge(options.iter().chain(vec![&siblings]).collect())?;
+            return Ok(merged);
+        }
+
+        if let Some(any_of) = schemadict.remove("anyOf") {
+            let any_of = any_of
+                .as_array()
+                .ok_or_else(|| anyhow!("anyOf must be an array"))?;
+            let siblings = Schema::try_from(Value::Object(schemadict))?;
+            // Short-circuit if schema is already unsatisfiable
+            if matches!(siblings, Schema::Unsatisfiable { .. }) {
+                return Ok(siblings);
+            }
+            let options = any_of
+                .iter()
+                .map(|value| Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings)))
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(Schema::AnyOf { options });
+        }
+
+        // TODO: refactor to share code with anyOf
+        if let Some(one_of) = schemadict.remove("oneOf") {
+            let one_of = one_of
+                .as_array()
+                .ok_or_else(|| anyhow!("oneOf must be an array"))?;
+            let siblings = Schema::try_from(Value::Object(schemadict))?;
+            // Short-circuit if schema is already unsatisfiable
+            if matches!(siblings, Schema::Unsatisfiable { .. }) {
+                return Ok(siblings);
+            }
+            let options = one_of
+                .iter()
+                .map(|value| Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings)))
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(Schema::OneOf { options });
+        }
+
+        if let Some(_) = schemadict.remove("$ref") {
+            bail!("Ref not implemented")
+        }
+
+        let types = match schemadict.remove("type") {
+            Some(Value::String(tp)) => {
+                return try_type(&schemadict, &tp);
+            }
+            Some(Value::Array(types)) => types
+                .iter()
+                .map(|tp| match tp.as_str() {
+                    Some(tp) => Ok(tp.to_string()),
+                    None => bail!("type must be a string"),
+                })
+                .collect::<Result<Vec<String>>>()?,
+            Some(_) => bail!("type must be a string or array"),
+            None => TYPES.iter().map(|s| s.to_string()).collect(),
+        };
+
+        let options = types
+            .iter()
+            .map(|tp| try_type(&schemadict, &tp))
+            .collect::<Result<Vec<Schema>>>()?;
+        Ok(Schema::AnyOf { options })
+    }
+
+}
+
+fn try_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
     match tp {
         "null" => Ok(Schema::Null),
         "boolean" => Ok(Schema::Boolean),
@@ -271,12 +342,12 @@ fn normalize_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
                 .map(|items| {
                     items
                         .iter()
-                        .map(|item| normalize(item))
+                        .map(|item| Schema::try_from(item.to_owned()))
                         .collect::<Result<Vec<Schema>>>()
                 })
                 .transpose()?
                 .unwrap_or_default();
-            let items = schema.get("items").map(|v| normalize(v)).transpose()?;
+            let items = schema.get("items").map(|v| Schema::try_from(v.to_owned())).transpose()?;
             Ok(Schema::Array {
                 min_items,
                 max_items,
@@ -295,14 +366,14 @@ fn normalize_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
                 .map(|props| {
                     props
                         .iter()
-                        .map(|(k, v)| normalize(v).map(|schema| (k.clone(), schema)))
+                        .map(|(k, v)| Schema::try_from(v.to_owned()).map(|schema| (k.clone(), schema)))
                         .collect::<Result<IndexMap<String, Schema>>>()
                 })
                 .transpose()?
                 .unwrap_or_default();
             let additional_properties = schema
                 .get("additionalProperties")
-                .map(|v| normalize(v))
+                .map(|v| Schema::try_from(v.to_owned()))
                 .transpose()?;
             let required = schema
                 .get("required")
@@ -351,26 +422,26 @@ fn merge(schemas: Vec<&Schema>) -> Result<Schema> {
     // TODO: can we avoid cloning here?
     let mut merged = schemas[0].to_owned();
     for subschema in &schemas[1..] {
-        merged = merge_two((&merged, subschema))?;
+        merged = merge_two(&merged, subschema)?;
     }
     Ok(merged.to_owned())
 }
 
-fn merge_two(schemas: (&Schema, &Schema)) -> Result<Schema> {
-    match schemas {
-        (Schema::Any, _) => Ok(schemas.1.to_owned()),
-        (_, Schema::Any) => Ok(schemas.0.to_owned()),
-        (Schema::Unsatisfiable { .. }, _) => Ok(schemas.0.to_owned()),
-        (_, Schema::Unsatisfiable { .. }) => Ok(schemas.1.to_owned()),
+fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
+    match (schema0, schema1) {
+        (Schema::Any, _) => Ok(schema1.to_owned()),
+        (_, Schema::Any) => Ok(schema0.to_owned()),
+        (Schema::Unsatisfiable { .. }, _) => Ok(schema0.to_owned()),
+        (_, Schema::Unsatisfiable { .. }) => Ok(schema1.to_owned()),
         (
             Schema::OneOf { .. } | Schema::AnyOf { .. },
             Schema::OneOf { .. } | Schema::AnyOf { .. },
-        ) => merge_oneof_anyof(schemas),
+        ) => merge_oneof_anyof(schema0, schema1),
         (Schema::OneOf { .. } | Schema::AnyOf { .. }, _) => {
-            merge_oneof_anyof((schemas.0, &Schema::AnyOf { options: vec![schemas.1.to_owned()] }))
+            merge_oneof_anyof(schema0, &Schema::AnyOf { options: vec![schema1.to_owned()] })
         },
         (_, Schema::OneOf { .. } | Schema::AnyOf { .. }) => {
-            merge_oneof_anyof((&Schema::AnyOf { options: vec![schemas.0.to_owned()] }, schemas.1))
+            merge_oneof_anyof(&Schema::AnyOf { options: vec![schema0.to_owned()] }, schema1)
         },
         (Schema::Null, Schema::Null) => Ok(Schema::Null),
         (Schema::Boolean, Schema::Boolean) => Ok(Schema::Boolean),
@@ -394,7 +465,7 @@ fn merge_two(schemas: (&Schema, &Schema)) -> Result<Schema> {
             maximum: opt_min(*max1, *max2),
             exclusive_minimum: opt_max(*emin1, *emin2),
             exclusive_maximum: opt_min(*emax1, *emax2),
-            integer: *int1 && *int2,
+            integer: *int1 || *int2,
         }),
         (
             Schema::String {
@@ -455,13 +526,13 @@ fn merge_two(schemas: (&Schema, &Schema)) -> Result<Schema> {
             max_items: opt_min(*max1, *max2),
             prefix_items: zip_default(prefix1, prefix2, &Schema::Any)
                 .iter()
-                .map(|(item1, item2)| merge_two((item1, item2)))
+                .map(|(item1, item2)| merge_two(item1, item2))
                 .collect::<Result<Vec<Schema>>>()?,
             items: match (items1, items2) {
                 (None, None) => None,
                 (None, Some(item)) => Some(Box::new(*item.clone())),
                 (Some(item), None) => Some(Box::new(*item.clone())),
-                (Some(item1), Some(item2)) => Some(Box::new(merge_two((&item1, &item2))?)),
+                (Some(item1), Some(item2)) => Some(Box::new(merge_two(&item1, &item2)?)),
             },
         }),
         (
@@ -479,9 +550,9 @@ fn merge_two(schemas: (&Schema, &Schema)) -> Result<Schema> {
             let mut new_props = IndexMap::new();
             for key in props1.keys().chain(props2.keys()) {
                 let new_schema = match (props1.get(key), props2.get(key), add1, add2) {
-                    (Some(schema1), Some(schema2), _, _) => merge_two((schema1, schema2))?,
-                    (Some(schema1), None, _, Some(add)) => merge_two((schema1, &add))?,
-                    (None, Some(schema2), Some(add), _) => merge_two((&add, schema2))?,
+                    (Some(schema1), Some(schema2), _, _) => merge_two(schema1, schema2)?,
+                    (Some(schema1), None, _, Some(add)) => merge_two(schema1, &add)?,
+                    (None, Some(schema2), Some(add), _) => merge_two(&add, schema2)?,
                     (Some(schema1), None, _, None) => schema1.to_owned(),
                     (None, Some(schema2), None, _) => schema2.to_owned(),
                     (None, None, _, _) => bail!("should not happen"),
@@ -494,7 +565,7 @@ fn merge_two(schemas: (&Schema, &Schema)) -> Result<Schema> {
                     (None, None) => None,
                     (None, Some(add)) => Some(Box::new(*add.clone())),
                     (Some(add), None) => Some(Box::new(*add.clone())),
-                    (Some(add1), Some(add2)) => Some(Box::new(merge_two((&add1, &add2))?)),
+                    (Some(add1), Some(add2)) => Some(Box::new(merge_two(&add1, &add2)?)),
                 },
                 required: req1.iter().chain(req2.iter()).cloned().collect(),
             })
@@ -542,18 +613,18 @@ fn opt_min<T: PartialOrd>(a: Option<T>, b: Option<T>) -> Option<T> {
     }
 }
 
-fn merge_oneof_anyof(schemas: (&Schema, &Schema)) -> Result<Schema> {
-    let (schema1_options, schema2_options) = match schemas {
+fn merge_oneof_anyof(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
+    let (options0, options1) = match (schema0, schema1) {
         (
+            Schema::AnyOf { options: options0 } | Schema::OneOf { options: options0 },
             Schema::AnyOf { options: options1 } | Schema::OneOf { options: options1 },
-            Schema::AnyOf { options: options2 } | Schema::OneOf { options: options2 },
-        ) => (options1, options2),
+        ) => (options0, options1),
         _ => bail!("merge_oneof_anyof called with invalid schemas"),
     };
     let mut new_options = Vec::new();
-    for item1 in schema1_options {
-        for item2 in schema2_options {
-            let merged_item = merge(vec![item1, item2])?;
+    for item0 in options0 {
+        for item1 in options1 {
+            let merged_item = merge(vec![item0, item1])?;
             new_options.push(merged_item);
         }
     }
@@ -571,7 +642,7 @@ fn merge_oneof_anyof(schemas: (&Schema, &Schema)) -> Result<Schema> {
     }
 
     // OneOf takes precedence over AnyOf
-    if matches!(schemas.0, Schema::OneOf { .. }) || matches!(schemas.1, Schema::OneOf { .. }) {
+    if matches!(schema0, Schema::OneOf { .. }) || matches!(schema1, Schema::OneOf { .. }) {
         return Ok(Schema::OneOf {
             options: valid_options,
         });
@@ -594,7 +665,9 @@ mod test {
             "format": "email",
             "minimum": 10,
         });
-        let schema = normalize(&schema).unwrap();
+        let schema = Schema::try_from(schema).unwrap();
+        println!("{:?}", schema);
+        let schema = schema.normalize().unwrap();
         println!("{:?}", schema);
     }
 
@@ -612,12 +685,14 @@ mod test {
                 },
             ],
             "allOf" : [
-                {"type": "string"}
+                {"type": "integer"}
             ],
             "pattern": "^[a-z]+$",
             "maximum": 11
         });
-        let schema = normalize(&schema).unwrap();
+        let schema = Schema::try_from(schema).unwrap();
+        println!("{:?}", schema);
+        let schema = schema.normalize().unwrap();
         println!("{:?}", schema);
     }
 }
