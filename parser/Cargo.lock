@@ -562,6 +562,7 @@ dependencies = [
  "anyhow",
  "cbindgen",
  "derivre",
+ "indexmap",
  "instant",
  "jsonschema",
  "lazy_static",
