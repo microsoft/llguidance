@@ -50,6 +50,7 @@ enum Schema {
     OneOf {
         options: Vec<Schema>,
     },
+    #[allow(dead_code)]
     Ref(Box<Schema>),
 }
 
