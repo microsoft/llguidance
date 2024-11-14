@@ -15,6 +15,7 @@ use std::{
 
 use anyhow::{bail, ensure, Result};
 use derivre::{RegexAst, StateID};
+use instant::Instant;
 use serde::{Deserialize, Serialize};
 use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie, TokenId};
 
@@ -61,8 +62,8 @@ pub struct ParserStats {
     pub num_lex_errors: usize,
     pub num_lexemes: usize,
     pub all_items: usize,
-
     pub lexer_cost: u64,
+    pub compute_time_us: u64,
 }
 
 impl ParserStats {
@@ -74,8 +75,21 @@ impl ParserStats {
             num_lexemes: self.num_lexemes - previous.num_lexemes,
             num_lex_errors: self.num_lex_errors - previous.num_lex_errors,
             all_items: self.all_items - previous.all_items,
-
             lexer_cost: self.lexer_cost - previous.lexer_cost,
+            compute_time_us: self.compute_time_us - previous.compute_time_us,
+        }
+    }
+
+    pub fn max(&self, other: &ParserStats) -> ParserStats {
+        ParserStats {
+            rows: self.rows.max(other.rows),
+            definitive_bytes: self.definitive_bytes.max(other.definitive_bytes),
+            lexer_ops: self.lexer_ops.max(other.lexer_ops),
+            num_lexemes: self.num_lexemes.max(other.num_lexemes),
+            num_lex_errors: self.num_lex_errors.max(other.num_lex_errors),
+            all_items: self.all_items.max(other.all_items),
+            lexer_cost: self.lexer_cost.max(other.lexer_cost),
+            compute_time_us: self.compute_time_us.max(other.compute_time_us),
         }
     }
 }
@@ -407,6 +421,7 @@ impl ParserState {
         computer: &dyn BiasComputer,
         start: &[u8],
     ) -> SimpleVob {
+        let t0 = Instant::now();
         let dfa = &mut shared.lexer.dfa;
         dfa.set_fuel(self.limits.step_lexer_fuel);
         dfa.set_max_states(self.limits.max_lexer_states);
@@ -437,6 +452,8 @@ impl ParserState {
         if start.is_empty() && self.lexer_allows_eos(shared) {
             set.allow_token(computer.trie().eos_token());
         }
+
+        self.stats.compute_time_us += t0.elapsed().as_micros() as u64;
 
         set
     }

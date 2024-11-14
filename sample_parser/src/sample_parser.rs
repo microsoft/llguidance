@@ -83,11 +83,15 @@ fn main() {
             black_box(constraint.temperature);
             let sampled_token = tokens[idx];
 
+            let p_stats = constraint.parser.last_step_stats();
             println!(
-                "SAMPLE {}: {} {}",
+                "SAMPLE {}: {} {}; stats: {} lex, {} rows, {} us",
                 idx,
                 sampled_token,
-                tok_env.tok_trie().token_dbg(sampled_token)
+                tok_env.tok_trie().token_dbg(sampled_token),
+                p_stats.lexer_cost,
+                p_stats.all_items,
+                p_stats.compute_time_us,
             );
             Some(sampled_token)
         } else {
@@ -130,6 +134,8 @@ fn main() {
     send_output(&constraint.flush_logs());
     // the stop reason should be likely also sent to the user
     println!("Stop reason: {:?}", constraint.parser.stop_reason());
+
+    println!("Max step stats: {:?}", constraint.parser.max_step_stats());
 }
 
 fn read_file_to_string(filename: &str) -> String {

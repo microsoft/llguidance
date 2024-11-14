@@ -22,6 +22,8 @@ pub struct TokenParser {
     pub logger: Logger,
     pub limits: ParserLimits,
     pub bias_computer: Arc<dyn BiasComputer>,
+    last_step_stats: ParserStats,
+    max_step_stats: ParserStats,
     pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
@@ -93,6 +95,8 @@ impl TokenParser {
             inference_caps,
             limits,
             pending_bogus_backtrack: 0,
+            max_step_stats: ParserStats::default(),
+            last_step_stats: ParserStats::default(),
             mid_process_start_time,
             mid_process_was_accepting: false,
             no_bias_this_mid_process: false,
@@ -131,6 +135,14 @@ impl TokenParser {
 
     pub fn parser_stats(&self) -> &ParserStats {
         self.parser.stats()
+    }
+
+    pub fn last_step_stats(&self) -> &ParserStats {
+        &self.last_step_stats
+    }
+
+    pub fn max_step_stats(&self) -> &ParserStats {
+        &self.max_step_stats
     }
 
     pub fn num_tokens(&self) -> usize {
@@ -633,7 +645,6 @@ impl TokenParser {
             return StepResult::noop();
         }
 
-        let pre = instant::Instant::now();
         let pre_stats = self.parser.stats().clone();
         let mut set = self
             .parser
@@ -643,7 +654,9 @@ impl TokenParser {
             let err = format!("lexer error: {}", err);
             return self.stop(&err, StopReason::LexerTooComplex);
         }
-        self.last_bias_time = pre.elapsed();
+        self.last_bias_time = Duration::from_micros(p_stats.compute_time_us);
+        self.last_step_stats = p_stats.clone();
+        self.max_step_stats = self.max_step_stats.max(&p_stats);
 
         if inner_accepting {
             let mut all_accepting = true;
@@ -682,9 +695,10 @@ impl TokenParser {
 
         infoln!(
             self,
-            "step-stats: {:?}; {} lex fuel; {}",
-            start_time.elapsed(),
+            "step-stats: {}us; {} lex fuel; {} items; {}",
+            start_time.elapsed().as_micros(),
             p_stats.lexer_cost,
+            p_stats.all_items,
             self.parser.lexer_stats(),
         );
 
