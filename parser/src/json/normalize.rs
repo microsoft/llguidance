@@ -58,7 +58,7 @@ enum Schema {
         options: Vec<Schema>,
     },
     #[allow(dead_code)]
-    Ref(Box<Schema>),
+    Ref(String),
 }
 
 impl Schema {
@@ -283,8 +283,17 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
         return Ok(Schema::OneOf { options });
     }
 
-    if let Some(_) = schemadict.remove("$ref") {
-        bail!("Ref not implemented")
+    if let Some(reference) = schemadict.remove("$ref") {
+        let reference = reference
+            .as_str()
+            .ok_or_else(|| anyhow!("$ref must be a string, got {}", limited_str(&reference)))?
+            .to_string();
+        let siblings = Schema::try_from(Value::Object(schemadict))?;
+        // Short-circuit if schema is already unsatisfiable
+        if matches!(siblings, Schema::Unsatisfiable { .. }) {
+            return Ok(siblings);
+        }
+        return Ok(merge_two(&siblings, &Schema::Ref(reference))?);
     }
 
     let types = match schemadict.remove("type") {
@@ -302,6 +311,7 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
         None => TYPES.iter().map(|s| s.to_string()).collect(),
     };
 
+    // Shouldn't need siblings here since we've already handled allOf, anyOf, oneOf, and $ref
     let options = types
         .iter()
         .map(|tp| try_type(&schemadict, &tp))
@@ -528,7 +538,10 @@ fn merge(schemas: Vec<&Schema>) -> Result<Schema> {
     if schemas.iter().all(|schema| matches!(schema, Schema::Any)) {
         return Ok(Schema::Any);
     }
-    if let Some(unsat) = schemas.iter().find(|schema| matches!(schema, Schema::Unsatisfiable { .. })) {
+    if let Some(unsat) = schemas
+        .iter()
+        .find(|schema| matches!(schema, Schema::Unsatisfiable { .. }))
+    {
         // Return the first unsatisfiable schema for debug-ability
         return Ok((*unsat).to_owned());
     }
@@ -550,6 +563,12 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
         (_, Schema::Any) => Ok(schema0.to_owned()),
         (Schema::Unsatisfiable { .. }, _) => Ok(schema0.to_owned()),
         (_, Schema::Unsatisfiable { .. }) => Ok(schema1.to_owned()),
+        (Schema::Ref(reference), _) => {
+            Err(anyhow!("$ref with siblings not implemented: {}", reference))
+        }
+        (_, Schema::Ref(reference)) => {
+            Err(anyhow!("$ref with siblings not implemented: {}", reference))
+        }
         (Schema::OneOf { options }, _) => Ok(Schema::OneOf {
             options: options
                 .iter()
