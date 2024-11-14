@@ -170,125 +170,128 @@ impl TryFrom<Value> for Schema {
     type Error = anyhow::Error;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Some(b) = value.as_bool() {
-            return Ok({
-                if b {
-                    Schema::Any
-                } else {
-                    Schema::Unsatisfiable {
-                        reason: "schema is false".to_string(),
-                    }
+        schema_from_value_inner(value)?.normalize()
+    }
+}
+
+fn schema_from_value_inner(value: Value) -> Result<Schema> {
+    if let Some(b) = value.as_bool() {
+        return Ok({
+            if b {
+                Schema::Any
+            } else {
+                Schema::Unsatisfiable {
+                    reason: "schema is false".to_string(),
                 }
-            });
-        }
-
-        // Get the schema as an object
-        // TODO: validate against metaschema & check for unimplemented keys
-        let schemadict = value
-            .as_object()
-            .ok_or_else(|| anyhow!("schema must be an object or boolean"))?;
-
-        if schemadict.is_empty() {
-            // TODO: should be ok to have ignored keys here
-            return Ok(Schema::Any);
-        }
-
-        if let Some(instance) = schemadict.get("const") {
-            // TODO: validate the instance against the schema, maybe returning Schema::Unsatisfiable
-            return Ok(Schema::Const {
-                value: instance.clone(),
-            });
-        }
-
-        if let Some(instances) = schemadict.get("enum") {
-            let instances = instances
-                .as_array()
-                .ok_or_else(|| anyhow!("enum must be an array"))?;
-            // TODO: validate the instances against the schema, maybe returning Schema::Unsatisfiable
-            return Ok(Schema::Enum {
-                options: instances.clone(),
-            });
-        }
-
-        // Make a mutable copy of the schema so we can modify it
-        let mut schemadict = schemadict.clone();
-
-        if let Some(all_of) = schemadict.remove("allOf") {
-            let all_of = all_of
-                .as_array()
-                .ok_or_else(|| anyhow!("allOf must be an array"))?;
-            let siblings = Schema::try_from(Value::Object(schemadict))?;
-            // Short-circuit if schema is already unsatisfiable
-            if matches!(siblings, Schema::Unsatisfiable { .. }) {
-                return Ok(siblings);
             }
-            let options = all_of
-                .iter()
-                .map(|value| Schema::try_from(value.to_owned()))
-                .collect::<Result<Vec<_>>>()?;
-            let merged = merge(options.iter().chain(vec![&siblings]).collect())?;
-            return Ok(merged);
-        }
-
-        if let Some(any_of) = schemadict.remove("anyOf") {
-            let any_of = any_of
-                .as_array()
-                .ok_or_else(|| anyhow!("anyOf must be an array"))?;
-            let siblings = Schema::try_from(Value::Object(schemadict))?;
-            // Short-circuit if schema is already unsatisfiable
-            if matches!(siblings, Schema::Unsatisfiable { .. }) {
-                return Ok(siblings);
-            }
-            let options = any_of
-                .iter()
-                .map(|value| Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings)))
-                .collect::<Result<Vec<_>>>()?;
-            return Ok(Schema::AnyOf { options });
-        }
-
-        // TODO: refactor to share code with anyOf
-        if let Some(one_of) = schemadict.remove("oneOf") {
-            let one_of = one_of
-                .as_array()
-                .ok_or_else(|| anyhow!("oneOf must be an array"))?;
-            let siblings = Schema::try_from(Value::Object(schemadict))?;
-            // Short-circuit if schema is already unsatisfiable
-            if matches!(siblings, Schema::Unsatisfiable { .. }) {
-                return Ok(siblings);
-            }
-            let options = one_of
-                .iter()
-                .map(|value| Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings)))
-                .collect::<Result<Vec<_>>>()?;
-            return Ok(Schema::OneOf { options });
-        }
-
-        if let Some(_) = schemadict.remove("$ref") {
-            bail!("Ref not implemented")
-        }
-
-        let types = match schemadict.remove("type") {
-            Some(Value::String(tp)) => {
-                return try_type(&schemadict, &tp);
-            }
-            Some(Value::Array(types)) => types
-                .iter()
-                .map(|tp| match tp.as_str() {
-                    Some(tp) => Ok(tp.to_string()),
-                    None => bail!("type must be a string"),
-                })
-                .collect::<Result<Vec<String>>>()?,
-            Some(_) => bail!("type must be a string or array"),
-            None => TYPES.iter().map(|s| s.to_string()).collect(),
-        };
-
-        let options = types
-            .iter()
-            .map(|tp| try_type(&schemadict, &tp))
-            .collect::<Result<Vec<Schema>>>()?;
-        Ok(Schema::AnyOf { options })
+        });
     }
 
+    // Get the schema as an object
+    // TODO: validate against metaschema & check for unimplemented keys
+    let schemadict = value
+        .as_object()
+        .ok_or_else(|| anyhow!("schema must be an object or boolean"))?;
+
+    if schemadict.is_empty() {
+        // TODO: should be ok to have ignored keys here
+        return Ok(Schema::Any);
+    }
+
+    if let Some(instance) = schemadict.get("const") {
+        // TODO: validate the instance against the schema, maybe returning Schema::Unsatisfiable
+        return Ok(Schema::Const {
+            value: instance.clone(),
+        });
+    }
+
+    if let Some(instances) = schemadict.get("enum") {
+        let instances = instances
+            .as_array()
+            .ok_or_else(|| anyhow!("enum must be an array"))?;
+        // TODO: validate the instances against the schema, maybe returning Schema::Unsatisfiable
+        return Ok(Schema::Enum {
+            options: instances.clone(),
+        });
+    }
+
+    // Make a mutable copy of the schema so we can modify it
+    let mut schemadict = schemadict.clone();
+
+    if let Some(all_of) = schemadict.remove("allOf") {
+        let all_of = all_of
+            .as_array()
+            .ok_or_else(|| anyhow!("allOf must be an array"))?;
+        let siblings = Schema::try_from(Value::Object(schemadict))?;
+        // Short-circuit if schema is already unsatisfiable
+        if matches!(siblings, Schema::Unsatisfiable { .. }) {
+            return Ok(siblings);
+        }
+        let options = all_of
+            .iter()
+            .map(|value| Schema::try_from(value.to_owned()))
+            .collect::<Result<Vec<_>>>()?;
+        let merged = merge(options.iter().chain(vec![&siblings]).collect())?;
+        return Ok(merged);
+    }
+
+    if let Some(any_of) = schemadict.remove("anyOf") {
+        let any_of = any_of
+            .as_array()
+            .ok_or_else(|| anyhow!("anyOf must be an array"))?;
+        let siblings = Schema::try_from(Value::Object(schemadict))?;
+        // Short-circuit if schema is already unsatisfiable
+        if matches!(siblings, Schema::Unsatisfiable { .. }) {
+            return Ok(siblings);
+        }
+        let options = any_of
+            .iter()
+            .map(|value| Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings)))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok(Schema::AnyOf { options });
+    }
+
+    // TODO: refactor to share code with anyOf
+    if let Some(one_of) = schemadict.remove("oneOf") {
+        let one_of = one_of
+            .as_array()
+            .ok_or_else(|| anyhow!("oneOf must be an array"))?;
+        let siblings = Schema::try_from(Value::Object(schemadict))?;
+        // Short-circuit if schema is already unsatisfiable
+        if matches!(siblings, Schema::Unsatisfiable { .. }) {
+            return Ok(siblings);
+        }
+        let options = one_of
+            .iter()
+            .map(|value| Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings)))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok(Schema::OneOf { options });
+    }
+
+    if let Some(_) = schemadict.remove("$ref") {
+        bail!("Ref not implemented")
+    }
+
+    let types = match schemadict.remove("type") {
+        Some(Value::String(tp)) => {
+            return try_type(&schemadict, &tp);
+        }
+        Some(Value::Array(types)) => types
+            .iter()
+            .map(|tp| match tp.as_str() {
+                Some(tp) => Ok(tp.to_string()),
+                None => bail!("type must be a string"),
+            })
+            .collect::<Result<Vec<String>>>()?,
+        Some(_) => bail!("type must be a string or array"),
+        None => TYPES.iter().map(|s| s.to_string()).collect(),
+    };
+
+    let options = types
+        .iter()
+        .map(|tp| try_type(&schemadict, &tp))
+        .collect::<Result<Vec<Schema>>>()?;
+    Ok(Schema::AnyOf { options })
 }
 
 fn try_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
@@ -630,8 +633,6 @@ mod test {
         });
         let schema = Schema::try_from(schema).unwrap();
         println!("{:?}", schema);
-        let schema = schema.normalize().unwrap();
-        println!("{:?}", schema);
     }
 
     #[test]
@@ -655,8 +656,6 @@ mod test {
         });
         let schema = Schema::try_from(schema).unwrap();
         println!("{:?}", schema);
-        let schema = schema.normalize().unwrap();
-        println!("{:?}", schema);
     }
 
     #[test]
@@ -674,7 +673,7 @@ mod test {
             ],
             "oneOf": [
                 {
-                    "type": ["string"],
+                    "type": ["string", "integer"],
                     "maxLength": 1,
                 },
                 {
@@ -685,8 +684,6 @@ mod test {
             "pattern": "^[a-z]+$",
         });
         let schema = Schema::try_from(schema).unwrap();
-        println!("{:?}", schema);
-        let schema = schema.normalize().unwrap();
         println!("{:?}", schema);
     }
 }
