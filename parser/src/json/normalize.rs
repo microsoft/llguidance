@@ -2,9 +2,7 @@ use anyhow::{anyhow, bail, Result};
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
-const TYPES: [&str; 6] = [
-    "null", "boolean", "number", "string", "array", "object",
-];
+const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
 
 #[derive(Debug, PartialEq, Clone)]
 enum Schema {
@@ -64,12 +62,17 @@ impl Schema {
             Schema::Number { .. } => {
                 // TODO: validation logic, maybe returning Schema::Unsatisfiable
                 Ok(self)
-            },
+            }
             Schema::String { .. } => {
                 // TODO: validation logic, maybe returning Schema::Unsatisfiable
                 Ok(self)
-            },
-            Schema::Array { min_items, max_items, prefix_items, items } => {
+            }
+            Schema::Array {
+                min_items,
+                max_items,
+                prefix_items,
+                items,
+            } => {
                 // TODO: validation logic, maybe returning Schema::Unsatisfiable
                 Ok(Schema::Array {
                     min_items,
@@ -78,27 +81,26 @@ impl Schema {
                         .into_iter()
                         .map(|v| v.normalize())
                         .collect::<Result<Vec<_>>>()?,
-                    items: items
-                        .map(|v| v.normalize().map(Box::new))
-                        .transpose()?
+                    items: items.map(|v| v.normalize().map(Box::new)).transpose()?,
                 })
-            },
-            Schema::Object { properties, additional_properties, required } => {
+            }
+            Schema::Object {
+                properties,
+                additional_properties,
+                required,
+            } => {
                 // TODO: validation logic, maybe returning Schema::Unsatisfiable
-                Ok(Schema::Object { 
+                Ok(Schema::Object {
                     properties: properties
                         .into_iter()
-                        .map(|(k, v)| {
-                            v.normalize()
-                            .map(|v| (k, v))
-                        })
+                        .map(|(k, v)| v.normalize().map(|v| (k, v)))
                         .collect::<Result<IndexMap<_, _>>>()?,
                     additional_properties: additional_properties
                         .map(|v| v.normalize().map(Box::new))
                         .transpose()?,
-                    required: required
+                    required: required,
                 })
-            },
+            }
             Schema::Const { .. } => Ok(self),
             Schema::Enum { options } => {
                 if options.is_empty() {
@@ -107,7 +109,7 @@ impl Schema {
                     });
                 }
                 Ok(Schema::Enum { options })
-            },
+            }
             Schema::AnyOf { options } => {
                 if options.is_empty() {
                     return Ok(Schema::Unsatisfiable {
@@ -124,16 +126,16 @@ impl Schema {
                         Schema::AnyOf { options: nested } => valid.extend(nested),
                         _ => valid.push(normed),
                     }
-                };
+                }
                 if valid.is_empty() {
                     // Return the first unsatisfiable schema for debug-ability
-                    return Ok(unsats.swap_remove(0))
+                    return Ok(unsats.swap_remove(0));
                 }
                 if valid.len() == 1 {
-                    return Ok(valid.swap_remove(0))
+                    return Ok(valid.swap_remove(0));
                 }
                 Ok(Schema::AnyOf { options: valid })
-            },
+            }
             Schema::OneOf { options } => {
                 if options.is_empty() {
                     return Ok(Schema::Unsatisfiable {
@@ -150,18 +152,18 @@ impl Schema {
                         Schema::OneOf { options: nested } => valid.extend(nested),
                         _ => valid.push(normed),
                     }
-                };
+                }
                 if valid.is_empty() {
                     // Return the first unsatisfiable schema for debug-ability
-                    return Ok(unsats.swap_remove(0))
+                    return Ok(unsats.swap_remove(0));
                 }
                 if valid.len() == 1 {
-                    return Ok(valid.swap_remove(0))
+                    return Ok(valid.swap_remove(0));
                 }
                 Ok(Schema::OneOf { options: valid })
-            },
+            }
             // TODO: ?
-            Schema::Ref(..) => Ok(self)
+            Schema::Ref(..) => Ok(self),
         }
     }
 }
@@ -246,7 +248,9 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
         }
         let options = any_of
             .iter()
-            .map(|value| Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings)))
+            .map(|value| {
+                Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings))
+            })
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::AnyOf { options });
     }
@@ -263,7 +267,9 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
         }
         let options = one_of
             .iter()
-            .map(|value| Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings)))
+            .map(|value| {
+                Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings))
+            })
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::OneOf { options });
     }
@@ -350,7 +356,10 @@ fn try_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
                 })
                 .transpose()?
                 .unwrap_or_default();
-            let items = schema.get("items").map(|v| Schema::try_from(v.to_owned())).transpose()?;
+            let items = schema
+                .get("items")
+                .map(|v| Schema::try_from(v.to_owned()))
+                .transpose()?;
             Ok(Schema::Array {
                 min_items,
                 max_items,
@@ -369,7 +378,9 @@ fn try_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
                 .map(|props| {
                     props
                         .iter()
-                        .map(|(k, v)| Schema::try_from(v.to_owned()).map(|schema| (k.clone(), schema)))
+                        .map(|(k, v)| {
+                            Schema::try_from(v.to_owned()).map(|schema| (k.clone(), schema))
+                        })
                         .collect::<Result<IndexMap<String, Schema>>>()
                 })
                 .transpose()?
@@ -436,18 +447,30 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
         (_, Schema::Any) => Ok(schema0.to_owned()),
         (Schema::Unsatisfiable { .. }, _) => Ok(schema0.to_owned()),
         (_, Schema::Unsatisfiable { .. }) => Ok(schema1.to_owned()),
-        (Schema::OneOf { options }, _) => {
-            Ok(Schema::OneOf { options: options.iter().map(|opt| merge_two(opt, schema1)).collect::<Result<Vec<_>>>()? })
-        },
-        (_, Schema::OneOf { options }) => {
-            Ok(Schema::OneOf { options: options.iter().map(|opt| merge_two(schema0, opt)).collect::<Result<Vec<_>>>()? })
-        },
-        (Schema::AnyOf { options }, _) => {
-            Ok(Schema::AnyOf { options: options.iter().map(|opt| merge_two(opt, schema1)).collect::<Result<Vec<_>>>()? })
-        },
-        (_, Schema::AnyOf { options }) => {
-            Ok(Schema::AnyOf { options: options.iter().map(|opt| merge_two(schema0, opt)).collect::<Result<Vec<_>>>()? })
-        },
+        (Schema::OneOf { options }, _) => Ok(Schema::OneOf {
+            options: options
+                .iter()
+                .map(|opt| merge_two(opt, schema1))
+                .collect::<Result<Vec<_>>>()?,
+        }),
+        (_, Schema::OneOf { options }) => Ok(Schema::OneOf {
+            options: options
+                .iter()
+                .map(|opt| merge_two(schema0, opt))
+                .collect::<Result<Vec<_>>>()?,
+        }),
+        (Schema::AnyOf { options }, _) => Ok(Schema::AnyOf {
+            options: options
+                .iter()
+                .map(|opt| merge_two(opt, schema1))
+                .collect::<Result<Vec<_>>>()?,
+        }),
+        (_, Schema::AnyOf { options }) => Ok(Schema::AnyOf {
+            options: options
+                .iter()
+                .map(|opt| merge_two(schema0, opt))
+                .collect::<Result<Vec<_>>>()?,
+        }),
         (Schema::Null, Schema::Null) => Ok(Schema::Null),
         (Schema::Boolean, Schema::Boolean) => Ok(Schema::Boolean),
         (
