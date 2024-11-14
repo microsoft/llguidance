@@ -658,4 +658,35 @@ mod test {
         let schema = schema.normalize().unwrap();
         println!("{:?}", schema);
     }
+
+    #[test]
+    fn test_normalize_3() {
+        let schema = json!({
+            "anyOf": [
+                {
+                    "type": "string",
+                    "minLength": 1,
+                },
+                {
+                    "type": "number",
+                    "minimum": 10,
+                },
+            ],
+            "oneOf": [
+                {
+                    "type": ["string"],
+                    "maxLength": 1,
+                },
+                {
+                    "type": "number",
+                    "maximum": 11,
+                },
+            ],
+            "pattern": "^[a-z]+$",
+        });
+        let schema = Schema::try_from(schema).unwrap();
+        println!("{:?}", schema);
+        let schema = schema.normalize().unwrap();
+        println!("{:?}", schema);
+    }
 }
