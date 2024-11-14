@@ -528,20 +528,20 @@ fn merge(schemas: Vec<&Schema>) -> Result<Schema> {
     if schemas.iter().all(|schema| matches!(schema, Schema::Any)) {
         return Ok(Schema::Any);
     }
-    if schemas
-        .iter()
-        .any(|schema| matches!(schema, Schema::Unsatisfiable { .. }))
-    {
+    if let Some(unsat) = schemas.iter().find(|schema| matches!(schema, Schema::Unsatisfiable { .. })) {
         // Return the first unsatisfiable schema for debug-ability
-        // TODO: think through ownership and don't return a clone if possible
-        return Ok(schemas[0].to_owned());
+        return Ok((*unsat).to_owned());
     }
     // TODO: can we avoid cloning here?
     let mut merged = schemas[0].to_owned();
     for subschema in &schemas[1..] {
         merged = merge_two(&merged, subschema)?;
+        if matches!(merged, Schema::Unsatisfiable { .. }) {
+            // Early exit if the schema is already unsatisfiable
+            break;
+        }
     }
-    Ok(merged.to_owned())
+    Ok(merged)
 }
 
 fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
