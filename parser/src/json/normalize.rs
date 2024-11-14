@@ -203,12 +203,20 @@ fn normalize(schema: &Value) -> Result<Schema> {
         Some(_) => bail!("type must be a string or array"),
         None => TYPES.iter().map(|s| s.to_string()).collect(),
     };
-    Ok(Schema::AnyOf {
-        options: types
-            .iter()
-            .map(|tp| normalize_type(&schema, &tp))
-            .collect::<Result<Vec<Schema>>>()?,
-    })
+    let options = types
+        .iter()
+        .map(|tp| normalize_type(&schema, &tp))
+        .filter_map(|result| match result {
+            Ok(Schema::Unsatisfiable { .. }) => None,
+            _ => Some(result),
+        })
+        .collect::<Result<Vec<Schema>>>()?;
+    if options.is_empty() {
+        return Ok(Schema::Unsatisfiable {
+            reason: "no valid types".to_string(),
+        });
+    }
+    Ok(Schema::AnyOf { options })
 }
 
 fn normalize_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
@@ -357,42 +365,12 @@ fn merge_two(schemas: (&Schema, &Schema)) -> Result<Schema> {
             Schema::OneOf { .. } | Schema::AnyOf { .. },
             Schema::OneOf { .. } | Schema::AnyOf { .. },
         ) => merge_oneof_anyof(schemas),
-        (Schema::OneOf { options }, _) => {
-            let new_options = options
-                .iter()
-                .map(|option| merge_two((option, schemas.1)))
-                .collect::<Result<Vec<Schema>>>()?;
-            Ok(Schema::OneOf {
-                options: new_options,
-            })
-        }
-        (_, Schema::OneOf { options }) => {
-            let new_options = options
-                .iter()
-                .map(|option| merge_two((schemas.0, option)))
-                .collect::<Result<Vec<Schema>>>()?;
-            Ok(Schema::OneOf {
-                options: new_options,
-            })
-        }
-        (Schema::AnyOf { options }, _) => {
-            let new_options = options
-                .iter()
-                .map(|option| merge_two((option, schemas.1)))
-                .collect::<Result<Vec<Schema>>>()?;
-            Ok(Schema::AnyOf {
-                options: new_options,
-            })
-        }
-        (_, Schema::AnyOf { options }) => {
-            let new_options = options
-                .iter()
-                .map(|option| merge_two((schemas.0, option)))
-                .collect::<Result<Vec<Schema>>>()?;
-            Ok(Schema::AnyOf {
-                options: new_options,
-            })
-        }
+        (Schema::OneOf { .. } | Schema::AnyOf { .. }, _) => {
+            merge_oneof_anyof((schemas.0, &Schema::AnyOf { options: vec![schemas.1.to_owned()] }))
+        },
+        (_, Schema::OneOf { .. } | Schema::AnyOf { .. }) => {
+            merge_oneof_anyof((&Schema::AnyOf { options: vec![schemas.0.to_owned()] }, schemas.1))
+        },
         (Schema::Null, Schema::Null) => Ok(Schema::Null),
         (Schema::Boolean, Schema::Boolean) => Ok(Schema::Boolean),
         (
@@ -498,7 +476,7 @@ fn merge_two(schemas: (&Schema, &Schema)) -> Result<Schema> {
             },
         ) => {
             let mut new_props = IndexMap::new();
-            for (key) in props1.keys().chain(props2.keys()) {
+            for key in props1.keys().chain(props2.keys()) {
                 let new_schema = match (props1.get(key), props2.get(key), add1, add2) {
                     (Some(schema1), Some(schema2), _, _) => merge_two((schema1, schema2))?,
                     (Some(schema1), None, _, Some(add)) => merge_two((schema1, &add))?,
@@ -604,7 +582,6 @@ fn merge_oneof_anyof(schemas: (&Schema, &Schema)) -> Result<Schema> {
 
 mod test {
     use super::*;
-    use regex_syntax::ast::print;
     use serde_json::json;
 
     #[test]
@@ -632,6 +609,9 @@ mod test {
                     "type": "number",
                     "minimum": 10,
                 },
+            ],
+            "allOf" : [
+                {"type": "string"}
             ],
             "pattern": "^[a-z]+$",
             "maximum": 11
