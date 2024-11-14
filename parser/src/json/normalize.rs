@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use serde_json::{Map, Value};
 
 const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
@@ -34,7 +34,7 @@ enum Schema {
     Object {
         properties: IndexMap<String, Schema>,
         additional_properties: Option<Box<Schema>>,
-        required: Vec<String>,
+        required: IndexSet<String>,
     },
     Const {
         value: Value,
@@ -411,7 +411,7 @@ fn try_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
             Ok(Schema::Object {
                 properties,
                 additional_properties: additional_properties.map(Box::new),
-                required,
+                required: IndexSet::from_iter(required),
             })
         }
         _ => bail!("Invalid type: {}", tp),
@@ -600,7 +600,7 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
                     (Some(add), None) => Some(Box::new(*add.clone())),
                     (Some(add1), Some(add2)) => Some(Box::new(merge_two(&add1, &add2)?)),
                 },
-                required: req1.iter().chain(req2.iter()).cloned().collect(),
+                required: req1.union(req2).cloned().collect()
             })
         }
         //TODO: get types for error message
