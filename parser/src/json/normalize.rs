@@ -552,10 +552,15 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
         ) => Ok(Schema::Array {
             min_items: *min1.max(min2),
             max_items: opt_min(*max1, *max2),
-            prefix_items: zip_default(prefix1, prefix2, &Schema::Any)
-                .iter()
-                .map(|(item1, item2)| merge_two(item1, item2))
-                .collect::<Result<Vec<Schema>>>()?,
+            prefix_items: zip_default(
+                prefix1,
+                prefix2,
+                items2.as_deref().unwrap_or(&Schema::Any),
+                items1.as_deref().unwrap_or(&Schema::Any),
+            )
+            .iter()
+            .map(|(item1, item2)| merge_two(item1, item2))
+            .collect::<Result<Vec<Schema>>>()?,
             items: match (items1, items2) {
                 (None, None) => None,
                 (None, Some(item)) => Some(Box::new(*item.clone())),
@@ -605,9 +610,14 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
     }
 }
 
-fn zip_default<'a, T>(arr1: &'a [T], arr2: &'a [T], default: &'a T) -> Vec<(&'a T, &'a T)> {
-    let iter1 = arr1.iter().chain(std::iter::repeat(default));
-    let iter2 = arr2.iter().chain(std::iter::repeat(default));
+fn zip_default<'a, T>(
+    arr1: &'a [T],
+    arr2: &'a [T],
+    default1: &'a T,
+    default2: &'a T,
+) -> Vec<(&'a T, &'a T)> {
+    let iter1 = arr1.iter().chain(std::iter::repeat(default1));
+    let iter2 = arr2.iter().chain(std::iter::repeat(default2));
     iter1.zip(iter2).take(arr1.len().max(arr2.len())).collect()
 }
 
