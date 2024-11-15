@@ -457,6 +457,7 @@ fn compile_numeric(
                 .ok_or_else(|| anyhow!("Expected f64 for 'maximum', got {}", limited_str(val)))?,
         ),
     };
+    // TODO: actually use ctx.draft to determine which style of exclusiveMinimum/Maximum to use
     let exclusive_minimum = match exclusive_minimum {
         // Draft4-style boolean values
         None | Some(Value::Bool(false)) => None,
