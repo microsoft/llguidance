@@ -29,6 +29,11 @@ typedef struct LlgParserLimits {
    */
   uint64_t step_lexer_fuel;
   /**
+   * Number of Earley items created for the whole token mask.
+   * Default: 100_000 (~3ms)
+   */
+  size_t step_max_items;
+  /**
    * Maximum number of lexer states.
    * Default: 10_000
    */

@@ -85,7 +85,7 @@ fn main() {
 
             let p_stats = constraint.parser.last_step_stats();
             println!(
-                "SAMPLE {}: {} {}; stats: {} lex, {} rows, {} us",
+                "SAMPLE {}: {} {}; stats: {} lex, {} items, {} us",
                 idx,
                 sampled_token,
                 tok_env.tok_trie().token_dbg(sampled_token),

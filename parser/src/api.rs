@@ -378,6 +378,10 @@ pub struct ParserLimits {
     /// Default: 500_000 (~10ms)
     pub step_lexer_fuel: u64,
 
+    /// Number of Earley items created for the whole token mask.
+    /// Default: 100_000 (~3ms)
+    pub step_max_items: usize,
+
     /// Maximum number of lexer states.
     /// Default: 10_000
     pub max_lexer_states: usize,
@@ -395,6 +399,7 @@ impl Default for ParserLimits {
             step_lexer_fuel: 500_000,      // 500k => 10ms
             max_lexer_states: 10_000,      // ?
             max_grammar_size: 500_000,     // fhir schema => 200k
+            step_max_items: 100_000,       //
         }
     }
 }

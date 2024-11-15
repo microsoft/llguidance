@@ -4,7 +4,7 @@ use crate::{
     api::{GenGrammarOptions, ParserLimits, StopReason, TopLevelGrammar},
     earley::{
         grammars_from_json, BiasComputer, CGrammar, CSymIdx, DefaultBiasComputer, Parser,
-        ParserStats,
+        ParserError, ParserStats,
     },
     infoln, warn, Logger,
 };
@@ -384,6 +384,10 @@ impl TokenParser {
         r
     }
 
+    fn stop_for_parser_error(&mut self, pref: &str, err: ParserError) -> StepResult {
+        self.stop(&format!("{}{}", pref, err.message()), err.stop_reason())
+    }
+
     fn mid_process_inner(&mut self, mut arg: StepArg) -> StepResult {
         let start_time = instant::Instant::now();
 
@@ -650,13 +654,13 @@ impl TokenParser {
             .parser
             .compute_bias(&*self.bias_computer, &token_prefix);
         let p_stats = self.parser.stats().delta(&pre_stats);
-        if let Some(err) = self.parser.lexer_error() {
-            let err = format!("lexer error: {}", err);
-            return self.stop(&err, StopReason::LexerTooComplex);
-        }
         self.last_bias_time = Duration::from_micros(p_stats.compute_time_us);
         self.last_step_stats = p_stats.clone();
         self.max_step_stats = self.max_step_stats.max(&p_stats);
+
+        if let Some(err) = self.parser.get_error() {
+            return self.stop_for_parser_error("", err);
+        }
 
         if inner_accepting {
             let mut all_accepting = true;
@@ -668,9 +672,8 @@ impl TokenParser {
                         let (is_accepting, mask) = pentry
                             .parser
                             .compute_bias_after_gen_grammar(&*self.bias_computer, pentry.symidx);
-                        if let Some(err) = pentry.parser.lexer_error() {
-                            let err = format!("lexer error (inner): {}", err);
-                            return self.stop(&err, StopReason::LexerTooComplex);
+                        if let Some(err) = pentry.parser.get_error() {
+                            return self.stop_for_parser_error("inner parser: ", err);
                         }
                         infoln!(self, "bias for upper parser: {}", trie.token_set_dbg(&mask));
                         pentry.mask = Some(mask);

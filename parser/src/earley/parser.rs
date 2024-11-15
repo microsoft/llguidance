@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie, TokenId};
 
 use crate::{
-    api::{GenGrammarOptions, ParserLimits},
+    api::{GenGrammarOptions, ParserLimits, StopReason},
     earley::lexer::Lexer,
 };
 
@@ -237,6 +237,8 @@ struct ParserState {
     trie_gen_grammar: Option<CSymIdx>,
     trie_gen_grammar_accepting: bool,
     limits: ParserLimits,
+    max_all_items: usize,
+    parser_error: Option<String>,
 }
 
 #[derive(Clone)]
@@ -371,6 +373,7 @@ impl ParserState {
             last_collapse: 0,
             token_idx: 0,
             byte_idx: 0,
+            max_all_items: usize::MAX,
             options,
             trie_gen_grammar: None,
             trie_gen_grammar_accepting: false,
@@ -380,6 +383,7 @@ impl ParserState {
                 lexer_state,
                 byte: None,
             }],
+            parser_error: None,
         };
 
         // Initialize the Earley table with the predictions in
@@ -426,11 +430,22 @@ impl ParserState {
         dfa.set_fuel(self.limits.step_lexer_fuel);
         dfa.set_max_states(self.limits.max_lexer_states);
 
+        self.max_all_items = self.stats.all_items + self.limits.step_max_items as usize;
+
         let mut r = ParserRecognizer {
             shared,
             state: self,
         };
         let mut set = computer.compute_bias(&mut r, start);
+
+        if self.stats.all_items > self.max_all_items && self.parser_error.is_none() {
+            self.parser_error = Some(format!(
+                "Too many items (limit {}); try avoiding single-byte/short lexemes",
+                self.limits.step_max_items
+            ));
+        }
+
+        self.max_all_items = usize::MAX;
 
         self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
 
@@ -1528,6 +1543,10 @@ impl ParserState {
     // This is never inlined anyways, so better make it formal
     #[inline(never)]
     fn advance_parser(&mut self, shared: &mut SharedState, pre_lexeme: PreLexeme) -> bool {
+        if self.stats.all_items > self.max_all_items {
+            return false;
+        }
+
         // this byte will be applied to the next lexeme
         let transition_byte = if pre_lexeme.byte_next_row {
             pre_lexeme.byte
@@ -1732,6 +1751,27 @@ fn item_to_string(g: &CGrammar, item: &Item) -> String {
     )
 }
 
+pub enum ParserError {
+    LexerError(String),
+    ParserError(String),
+}
+
+impl ParserError {
+    pub fn stop_reason(&self) -> StopReason {
+        match self {
+            ParserError::LexerError(_) => StopReason::LexerTooComplex,
+            ParserError::ParserError(_) => StopReason::ParserTooComplex,
+        }
+    }
+
+    pub fn message(&self) -> String {
+        match self {
+            ParserError::LexerError(s) => format!("lexer error: {}", s),
+            ParserError::ParserError(s) => format!("parser error: {}", s),
+        }
+    }
+}
+
 impl Parser {
     pub fn new(
         grammar: Arc<CGrammar>,
@@ -1792,9 +1832,15 @@ impl Parser {
         shared.lexer.dfa.stats()
     }
 
-    pub fn lexer_error(&self) -> Option<String> {
+    pub fn get_error(&self) -> Option<ParserError> {
         let shared = self.shared.lock().unwrap();
-        shared.lexer.dfa.get_error()
+        if let Some(e) = shared.lexer.dfa.get_error() {
+            return Some(ParserError::LexerError(e));
+        }
+        if let Some(e) = &self.state.parser_error {
+            return Some(ParserError::ParserError(e.clone()));
+        }
+        None
     }
 
     pub fn with_recognizer<T>(&mut self, f: impl FnOnce(&mut ParserRecognizer) -> T) -> T {
