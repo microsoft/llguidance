@@ -6,6 +6,7 @@ use jsonschema::Uri;
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use serde_json::{Map, Value};
 
+const DEFAULT_ROOT_URI: &str = "json-schema:///";
 const DEFAULT_DRAFT: Draft = Draft::Draft202012;
 const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
 
@@ -233,7 +234,7 @@ pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>
     let draft = draft_for(contents);
     let resource_ref = draft.create_resource_ref(contents);
     let resource = draft.create_resource(contents.clone());
-    let base_uri = resource.id().unwrap_or("").to_string();
+    let base_uri = resource.id().unwrap_or(DEFAULT_ROOT_URI).to_string();
 
     let registry = Registry::try_new(&base_uri, resource)?;
 
