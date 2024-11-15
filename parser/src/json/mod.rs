@@ -1,4 +1,4 @@
 pub mod compiler;
 mod formats;
-mod normalize;
+mod schema;
 mod numeric;

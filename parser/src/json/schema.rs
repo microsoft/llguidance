@@ -1,3 +1,5 @@
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
 use anyhow::{anyhow, bail, Result};
 use indexmap::{IndexMap, IndexSet};
 use jsonschema::Uri;
@@ -17,7 +19,7 @@ fn limited_str(node: &Value) -> String {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Schema {
+pub enum Schema {
     Any,
     Unsatisfiable {
         reason: String,
@@ -62,7 +64,7 @@ enum Schema {
     },
     Ref {
         uri: String,
-        schema: Box<Schema>,
+        schema: Option<Box<Schema>>
     },
 }
 
@@ -186,7 +188,7 @@ struct Context<'a> {
     resolver: Resolver<'a>,
     // TODO: actually use this to handle draft-specific behavior
     draft: Draft,
-    // maybe... seen: Set<Schema>
+    refs: Rc<RefCell<HashMap<String, Rc<RefCell<Schema>>>>>,
 }
 
 impl<'a> Context<'a> {
@@ -195,6 +197,7 @@ impl<'a> Context<'a> {
         Ok(Context {
             resolver: resolver,
             draft: resource.draft(),
+            refs: Rc::clone(&self.refs),
         })
     }
 
@@ -205,13 +208,25 @@ impl<'a> Context<'a> {
             .create_resource_ref(contents)
     }
 
-    fn get_abspath(&self, reference: &str) -> Result<Uri<String>> {
+    fn normalize_ref(&self, reference: &str) -> Result<Uri<String>> {
         Ok(self.resolver.resolve_against(&self.resolver.base_uri().borrow(), reference)?.normalize())
     }
 
-    fn lookup(&'a self, reference: &str) -> Result<ResourceRef> {
+    fn lookup_resource(&'a self, reference: &str) -> Result<ResourceRef> {
         let resolved = self.resolver.lookup(reference)?;
         Ok(self.as_resource_ref(&resolved.contents()))
+    }
+
+    fn insert_ref(&self, uri: &str, schema: Schema) {
+        self.refs.borrow_mut().insert(uri.to_string(), Rc::new(RefCell::new(schema)));
+    }
+
+    fn get_ref(&self, uri: &str) -> Option<Schema> {
+        self.refs.borrow().get(uri).map(|schema| schema.borrow().clone())
+    }
+
+    fn get_ref_mut(&self, uri: &str) -> Option<Rc<RefCell<Schema>>> {
+        self.refs.borrow().get(uri).cloned()
     }
 }
 
@@ -219,7 +234,7 @@ fn draft_for(value: &Value) -> Draft {
     DEFAULT_DRAFT.detect(value).unwrap_or(DEFAULT_DRAFT)
 }
 
-fn build_schema(contents: &Value) -> Result<Schema> {
+pub fn build_schema(contents: &Value) -> Result<Schema> {
     let draft = draft_for(contents);
     let resource_ref = draft.create_resource_ref(contents);
     let resource = draft.create_resource(contents.clone());
@@ -231,6 +246,7 @@ fn build_schema(contents: &Value) -> Result<Schema> {
     let ctx = Context {
         resolver: resolver,
         draft: draft,
+        refs: Rc::new(RefCell::new(HashMap::new())),
     };
 
     compile_resource(&ctx, resource_ref)
@@ -344,19 +360,47 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             .as_str()
             .ok_or_else(|| anyhow!("$ref must be a string, got {}", limited_str(&reference)))?
             .to_string();
+
         let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
-        // Short-circuit if schema is already unsatisfiable
-        if matches!(siblings, Schema::Unsatisfiable { .. }) {
-            return Ok(siblings);
-        }
-        let uri = ctx.get_abspath(&reference)?;
-        let resource = ctx.lookup(&reference)?;
-        let resolved_schema = compile_resource(ctx, resource)?;
-        if siblings != Schema::Any {
+        if siblings == Schema::Any {
+            let uri = ctx.normalize_ref(&reference)?.into_string();
+            if let Some(schema) = ctx.get_ref(&uri) {
+                return Ok(schema);
+            }
+            let placeholder = Schema::Ref {
+                uri: uri.clone(),
+                schema: None,
+            };
+            ctx.insert_ref(uri.as_str(), placeholder);
+            let resource = ctx.lookup_resource(&reference)?;
+            let resolved_schema = compile_resource(ctx, resource)?;
+            let mut placeholder = ctx.get_ref_mut(&uri);
+            if let Some(placeholder) = placeholder.as_mut() {
+                if matches!(*placeholder.borrow(), Schema::Ref { .. }) {
+                    *placeholder.borrow_mut() = Schema::Ref {
+                        uri: uri.clone(),
+                        schema: Some(Box::new(resolved_schema)),
+                    };
+                }
+                return Ok(placeholder.borrow().clone());
+            }
+            bail!("$ref placeholder not found");
+        } else {
             bail!("$ref with siblings not implemented")
         }
-        // TODO: recursion...
-        return Ok(Schema::Ref { uri: uri.into_string(), schema: Box::new(resolved_schema) });
+
+        // // Short-circuit if schema is already unsatisfiable
+        // if matches!(siblings, Schema::Unsatisfiable { .. }) {
+        //     return Ok(siblings);
+        // }
+        // let uri = ctx.normalize_ref(&reference)?;
+        // let resource = ctx.lookup_resource(&reference)?;
+        // let resolved_schema = compile_resource(ctx, resource)?;
+        // if siblings != Schema::Any {
+        //     bail!("$ref with siblings not implemented")
+        // }
+        // // TODO: recursion...
+        // return Ok(Schema::Ref { uri: uri.into_string(), schema: Box::new(resolved_schema) });
     }
 
     let types = match schemadict.remove("type") {
@@ -839,6 +883,25 @@ fn opt_min<T: PartialOrd>(a: Option<T>, b: Option<T>) -> Option<T> {
 mod test {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn test_linked_list_simple() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "number",
+                },
+                "next": {
+                    "$ref": "#",
+                },
+            },
+            "additionalProperties": false,
+            "required": ["value"],
+        });
+        let schema = build_schema(&schema).unwrap();
+        println!("{:?}", schema);
+    }
 
     #[test]
     fn test_normalize_3() {
