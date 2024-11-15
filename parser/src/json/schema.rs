@@ -359,9 +359,9 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             .ok_or_else(|| anyhow!("$ref must be a string, got {}", limited_str(&reference)))?
             .to_string();
 
+        let uri: String = ctx.normalize_ref(&reference)?.into_string();
         let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         if siblings == Schema::Any {
-            let uri = ctx.normalize_ref(&reference)?.into_string();
             let placeholder = Schema::Ref {
                 uri: uri.clone()
             };
@@ -375,7 +375,12 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             ctx.insert_ref(uri.as_str(), resolved_schema.clone());
             return Ok(placeholder);
         } else {
-            bail!("$ref with siblings not implemented")
+            if ctx.contains_ref(uri.as_str()) {
+                bail!("Recursive $refs with sibling keys not implemented")
+            }
+            let resource = ctx.lookup_resource(&reference)?;
+            let resolved_schema = compile_resource(ctx, resource)?;
+            return Ok(merge_two(&siblings, &resolved_schema)?);
         }
     }
 
