@@ -64,7 +64,6 @@ pub enum Schema {
     },
     Ref {
         uri: String,
-        schema: Option<Box<Schema>>
     },
 }
 
@@ -188,7 +187,7 @@ struct Context<'a> {
     resolver: Resolver<'a>,
     // TODO: actually use this to handle draft-specific behavior
     draft: Draft,
-    refs: Rc<RefCell<HashMap<String, Rc<RefCell<Schema>>>>>,
+    defs: Rc<RefCell<HashMap<String, Schema>>>,
 }
 
 impl<'a> Context<'a> {
@@ -197,7 +196,7 @@ impl<'a> Context<'a> {
         Ok(Context {
             resolver: resolver,
             draft: resource.draft(),
-            refs: Rc::clone(&self.refs),
+            defs: Rc::clone(&self.defs),
         })
     }
 
@@ -218,15 +217,11 @@ impl<'a> Context<'a> {
     }
 
     fn insert_ref(&self, uri: &str, schema: Schema) {
-        self.refs.borrow_mut().insert(uri.to_string(), Rc::new(RefCell::new(schema)));
+        self.defs.borrow_mut().insert(uri.to_string(), schema);
     }
 
-    fn get_ref(&self, uri: &str) -> Option<Schema> {
-        self.refs.borrow().get(uri).map(|schema| schema.borrow().clone())
-    }
-
-    fn get_ref_mut(&self, uri: &str) -> Option<Rc<RefCell<Schema>>> {
-        self.refs.borrow().get(uri).cloned()
+    fn contains_ref(&self, uri: &str) -> bool {
+        self.defs.borrow().contains_key(uri)
     }
 }
 
@@ -234,7 +229,7 @@ fn draft_for(value: &Value) -> Draft {
     DEFAULT_DRAFT.detect(value).unwrap_or(DEFAULT_DRAFT)
 }
 
-pub fn build_schema(contents: &Value) -> Result<Schema> {
+pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>)> {
     let draft = draft_for(contents);
     let resource_ref = draft.create_resource_ref(contents);
     let resource = draft.create_resource(contents.clone());
@@ -246,10 +241,12 @@ pub fn build_schema(contents: &Value) -> Result<Schema> {
     let ctx = Context {
         resolver: resolver,
         draft: draft,
-        refs: Rc::new(RefCell::new(HashMap::new())),
+        defs: Rc::new(RefCell::new(HashMap::new())),
     };
 
-    compile_resource(&ctx, resource_ref)
+    let schema = compile_resource(&ctx, resource_ref)?;
+    let definitions = ctx.defs.take();
+    Ok((schema, definitions))
 }
 
 fn compile_resource(ctx: &Context, resource: ResourceRef) -> Result<Schema> {
@@ -364,43 +361,21 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         if siblings == Schema::Any {
             let uri = ctx.normalize_ref(&reference)?.into_string();
-            if let Some(schema) = ctx.get_ref(&uri) {
-                return Ok(schema);
-            }
             let placeholder = Schema::Ref {
-                uri: uri.clone(),
-                schema: None,
+                uri: uri.clone()
             };
-            ctx.insert_ref(uri.as_str(), placeholder);
+            if ctx.contains_ref(uri.as_str()) {
+                // We've already built this ref, so we can just return it
+                return Ok(placeholder);
+            }
+            ctx.insert_ref(uri.as_str(), placeholder.clone());
             let resource = ctx.lookup_resource(&reference)?;
             let resolved_schema = compile_resource(ctx, resource)?;
-            let mut placeholder = ctx.get_ref_mut(&uri);
-            if let Some(placeholder) = placeholder.as_mut() {
-                if matches!(*placeholder.borrow(), Schema::Ref { .. }) {
-                    *placeholder.borrow_mut() = Schema::Ref {
-                        uri: uri.clone(),
-                        schema: Some(Box::new(resolved_schema)),
-                    };
-                }
-                return Ok(placeholder.borrow().clone());
-            }
-            bail!("$ref placeholder not found");
+            ctx.insert_ref(uri.as_str(), resolved_schema.clone());
+            return Ok(placeholder);
         } else {
             bail!("$ref with siblings not implemented")
         }
-
-        // // Short-circuit if schema is already unsatisfiable
-        // if matches!(siblings, Schema::Unsatisfiable { .. }) {
-        //     return Ok(siblings);
-        // }
-        // let uri = ctx.normalize_ref(&reference)?;
-        // let resource = ctx.lookup_resource(&reference)?;
-        // let resolved_schema = compile_resource(ctx, resource)?;
-        // if siblings != Schema::Any {
-        //     bail!("$ref with siblings not implemented")
-        // }
-        // // TODO: recursion...
-        // return Ok(Schema::Ref { uri: uri.into_string(), schema: Box::new(resolved_schema) });
     }
 
     let types = match schemadict.remove("type") {
