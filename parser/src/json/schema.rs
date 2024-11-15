@@ -68,6 +68,18 @@ pub enum Schema {
     },
 }
 
+impl From<bool> for Schema {
+    fn from(b: bool) -> Schema {
+        if b {
+            Schema::Any
+        } else {
+            Schema::Unsatisfiable {
+                reason: "Schema is false".to_string(),
+            }
+        }
+    }
+}
+
 impl Schema {
     fn normalize(self) -> Result<Schema> {
         match self {
@@ -231,6 +243,10 @@ fn draft_for(value: &Value) -> Draft {
 }
 
 pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>)> {
+    if let Some(b) = contents.as_bool() {
+        return Ok((b.into(), HashMap::new()));
+    }
+
     let draft = draft_for(contents);
     let resource_ref = draft.create_resource_ref(contents);
     let resource = draft.create_resource(contents.clone());
@@ -261,15 +277,7 @@ fn compile_contents(ctx: &Context, contents: &Value) -> Result<Schema> {
 
 fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
     if let Some(b) = contents.as_bool() {
-        return Ok({
-            if b {
-                Schema::Any
-            } else {
-                Schema::Unsatisfiable {
-                    reason: "schema is false".to_string(),
-                }
-            }
-        });
+        return Ok(b.into());
     }
 
     // Get the schema as an object
