@@ -573,8 +573,8 @@ impl ParserState {
     /// the number of Earley sets.
     #[inline(always)]
     pub fn num_rows(&self) -> usize {
-        /// The number of rows is taken, not from the physical Earley table,
-        /// but from the virtual Earley stack kept in the lexer state.
+        // The number of rows is taken, not from the physical Earley table,
+        // but from the virtual Earley stack kept in the lexer state.
         self.lexer_state().row_idx as usize + 1
     }
 
