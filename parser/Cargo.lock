@@ -523,7 +523,7 @@ dependencies = [
  "num-cmp",
  "once_cell",
  "percent-encoding",
- "referencing",
+ "referencing 0.24.3",
  "regex-syntax",
  "serde",
  "serde_json",
@@ -566,6 +566,7 @@ dependencies = [
  "instant",
  "jsonschema",
  "lazy_static",
+ "referencing 0.26.1",
  "regex-syntax",
  "rustc-hash",
  "serde",
@@ -726,6 +727,19 @@ name = "referencing"
 version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfd514950c8d8153064fad28508b884838e9ce6a1d8571bda01db4dfaa1e7be3"
+dependencies = [
+ "ahash",
+ "fluent-uri",
+ "once_cell",
+ "percent-encoding",
+ "serde_json",
+]
+
+[[package]]
+name = "referencing"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb853437e467c693ac1dc8c1520105a31b8c2588544ff2f3cfa5a7c706c6c069"
 dependencies = [
  "ahash",
  "fluent-uri",

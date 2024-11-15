@@ -1,7 +1,9 @@
 use anyhow::{anyhow, bail, Result};
 use indexmap::{IndexMap, IndexSet};
+use referencing::{Draft, Registry, Resolver, ResourceRef};
 use serde_json::{Map, Value};
 
+const DEFAULT_DRAFT: Draft = Draft::Draft202012;
 const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
 
 fn limited_str(node: &Value) -> String {
@@ -57,8 +59,7 @@ enum Schema {
     OneOf {
         options: Vec<Schema>,
     },
-    #[allow(dead_code)]
-    Ref(String),
+    Ref(Box<Schema>),
 }
 
 impl Schema {
@@ -177,16 +178,67 @@ impl Schema {
     }
 }
 
-impl TryFrom<Value> for Schema {
-    type Error = anyhow::Error;
+struct Context<'a> {
+    resolver: Resolver<'a>,
+    // TODO: actually use this to handle draft-specific behavior
+    draft: Draft,
+    // maybe... seen: Set<Schema>
+}
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        schema_from_value_inner(value)?.normalize()
+impl<'a> Context<'a> {
+    fn in_subresource(&'a self, resource: ResourceRef) -> Result<Context<'a>> {
+        let resolver = self.resolver.in_subresource(resource)?;
+        Ok(Context {
+            resolver: resolver,
+            draft: resource.draft(),
+        })
+    }
+
+    fn as_resource_ref<'r>(&'a self, contents: &'r Value) -> ResourceRef<'r> {
+        self.draft
+            .detect(contents)
+            .unwrap_or(DEFAULT_DRAFT)
+            .create_resource_ref(contents)
+    }
+
+    fn lookup(&'a self, reference: &str) -> Result<ResourceRef> {
+        let resolved = self.resolver.lookup(reference)?;
+        Ok(self.as_resource_ref(&resolved.contents()))
     }
 }
 
-fn schema_from_value_inner(value: Value) -> Result<Schema> {
-    if let Some(b) = value.as_bool() {
+fn draft_for(value: &Value) -> Draft {
+    DEFAULT_DRAFT.detect(value).unwrap_or(DEFAULT_DRAFT)
+}
+
+fn build_schema(contents: &Value) -> Result<Schema> {
+    let draft = draft_for(contents);
+    let resource_ref = draft.create_resource_ref(contents);
+    let resource = draft.create_resource(contents.clone());
+    let base_uri = resource.id().unwrap_or("").to_string();
+
+    let registry = Registry::try_new(&base_uri, resource)?;
+
+    let resolver = registry.try_resolver(&base_uri)?;
+    let ctx = Context {
+        resolver: resolver,
+        draft: draft,
+    };
+
+    compile_resource(&ctx, resource_ref)?.normalize()
+}
+
+fn compile_resource(ctx: &Context, resource: ResourceRef) -> Result<Schema> {
+    let ctx = ctx.in_subresource(resource)?;
+    compile_contents(&ctx, resource.contents())
+}
+
+fn compile_contents(ctx: &Context, contents: &Value) -> Result<Schema> {
+    compile_contents_inner(ctx, contents)?.normalize()
+}
+
+fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
+    if let Some(b) = contents.as_bool() {
         return Ok({
             if b {
                 Schema::Any
@@ -200,7 +252,7 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
 
     // Get the schema as an object
     // TODO: validate against metaschema & check for unimplemented keys
-    let schemadict = value
+    let schemadict = contents
         .as_object()
         .ok_or_else(|| anyhow!("schema must be an object or boolean"))?;
 
@@ -233,14 +285,14 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
         let all_of = all_of
             .as_array()
             .ok_or_else(|| anyhow!("allOf must be an array"))?;
-        let siblings = Schema::try_from(Value::Object(schemadict))?;
+        let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         // Short-circuit if schema is already unsatisfiable
         if matches!(siblings, Schema::Unsatisfiable { .. }) {
             return Ok(siblings);
         }
         let options = all_of
             .iter()
-            .map(|value| Schema::try_from(value.to_owned()))
+            .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
         let merged = merge(options.iter().chain(vec![&siblings]).collect())?;
         return Ok(merged);
@@ -250,16 +302,14 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
         let any_of = any_of
             .as_array()
             .ok_or_else(|| anyhow!("anyOf must be an array"))?;
-        let siblings = Schema::try_from(Value::Object(schemadict))?;
+        let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         // Short-circuit if schema is already unsatisfiable
         if matches!(siblings, Schema::Unsatisfiable { .. }) {
             return Ok(siblings);
         }
         let options = any_of
             .iter()
-            .map(|value| {
-                Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings))
-            })
+            .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::AnyOf { options });
     }
@@ -269,16 +319,14 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
         let one_of = one_of
             .as_array()
             .ok_or_else(|| anyhow!("oneOf must be an array"))?;
-        let siblings = Schema::try_from(Value::Object(schemadict))?;
+        let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         // Short-circuit if schema is already unsatisfiable
         if matches!(siblings, Schema::Unsatisfiable { .. }) {
             return Ok(siblings);
         }
         let options = one_of
             .iter()
-            .map(|value| {
-                Schema::try_from(value.to_owned()).and_then(|schema| merge_two(&schema, &siblings))
-            })
+            .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::OneOf { options });
     }
@@ -288,17 +336,23 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
             .as_str()
             .ok_or_else(|| anyhow!("$ref must be a string, got {}", limited_str(&reference)))?
             .to_string();
-        let siblings = Schema::try_from(Value::Object(schemadict))?;
+        let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         // Short-circuit if schema is already unsatisfiable
         if matches!(siblings, Schema::Unsatisfiable { .. }) {
             return Ok(siblings);
         }
-        return Ok(merge_two(&siblings, &Schema::Ref(reference))?);
+        let resource = ctx.lookup(&reference)?;
+        let resolved_schema = compile_resource(ctx, resource)?;
+        if siblings != Schema::Any {
+            bail!("$ref with siblings not implemented")
+        }
+        // TODO: recursion...
+        return Ok(Schema::Ref(Box::new(resolved_schema)));
     }
 
     let types = match schemadict.remove("type") {
         Some(Value::String(tp)) => {
-            return try_type(&schemadict, &tp);
+            return compile_type(ctx, &tp, &schemadict);
         }
         Some(Value::Array(types)) => types
             .iter()
@@ -314,35 +368,37 @@ fn schema_from_value_inner(value: Value) -> Result<Schema> {
     // Shouldn't need siblings here since we've already handled allOf, anyOf, oneOf, and $ref
     let options = types
         .iter()
-        .map(|tp| try_type(&schemadict, &tp))
+        .map(|tp| compile_type(ctx, &tp, &schemadict))
         .collect::<Result<Vec<Schema>>>()?;
     Ok(Schema::AnyOf { options })
 }
 
-fn try_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
+fn compile_type(ctx: &Context, tp: &str, schema: &Map<String, Value>) -> Result<Schema> {
     match tp {
         "null" => Ok(Schema::Null),
         "boolean" => Ok(Schema::Boolean),
-        "number" | "integer" => try_numeric(
+        "number" | "integer" => compile_numeric(
             schema.get("minimum"),
             schema.get("maximum"),
             schema.get("exclusiveMinimum"),
             schema.get("exclusiveMaximum"),
             tp == "integer",
         ),
-        "string" => try_string(
+        "string" => compile_string(
             schema.get("minLength"),
             schema.get("maxLength"),
             schema.get("pattern"),
             schema.get("format"),
         ),
-        "array" => try_array(
+        "array" => compile_array(
+            ctx,
             schema.get("minItems"),
             schema.get("maxItems"),
             schema.get("prefixItems"),
             schema.get("items"),
         ),
-        "object" => try_object(
+        "object" => compile_object(
+            ctx,
             schema.get("properties"),
             schema.get("additionalProperties"),
             schema.get("required"),
@@ -351,7 +407,7 @@ fn try_type(schema: &Map<String, Value>, tp: &str) -> Result<Schema> {
     }
 }
 
-fn try_numeric(
+fn compile_numeric(
     minimum: Option<&Value>,
     maximum: Option<&Value>,
     exclusive_minimum: Option<&Value>,
@@ -405,7 +461,7 @@ fn try_numeric(
     })
 }
 
-fn try_string(
+fn compile_string(
     min_length: Option<&Value>,
     max_length: Option<&Value>,
     pattern: Option<&Value>,
@@ -448,7 +504,8 @@ fn try_string(
     })
 }
 
-fn try_array(
+fn compile_array(
+    ctx: &Context,
     min_items: Option<&Value>,
     max_items: Option<&Value>,
     prefix_items: Option<&Value>,
@@ -473,12 +530,12 @@ fn try_array(
             .as_array()
             .ok_or_else(|| anyhow!("Expected array for 'prefixItems', got {}", limited_str(val)))?
             .iter()
-            .map(|item| Schema::try_from(item.to_owned()))
+            .map(|item| compile_resource(&ctx, ctx.as_resource_ref(item)))
             .collect::<Result<Vec<Schema>>>()?,
     };
     let items = match items {
         None => None,
-        Some(val) => Some(Box::new(Schema::try_from(val.to_owned())?)),
+        Some(val) => Some(Box::new(compile_resource(&ctx, ctx.as_resource_ref(val))?)),
     };
     Ok(Schema::Array {
         min_items,
@@ -488,7 +545,8 @@ fn try_array(
     })
 }
 
-fn try_object(
+fn compile_object(
+    ctx: &Context,
     properties: Option<&Value>,
     additional_properties: Option<&Value>,
     required: Option<&Value>,
@@ -499,12 +557,12 @@ fn try_object(
             .as_object()
             .ok_or_else(|| anyhow!("Expected object for 'properties', got {}", limited_str(val)))?
             .iter()
-            .map(|(k, v)| Schema::try_from(v.to_owned()).map(|v| (k.clone(), v)))
+            .map(|(k, v)| compile_resource(&ctx, ctx.as_resource_ref(v)).map(|v| (k.clone(), v)))
             .collect::<Result<IndexMap<String, Schema>>>()?,
     };
     let additional_properties = match additional_properties {
         None => None,
-        Some(val) => Some(Box::new(Schema::try_from(val.to_owned())?)),
+        Some(val) => Some(Box::new(compile_resource(&ctx, ctx.as_resource_ref(val))?)),
     };
     let required = match required {
         None => IndexSet::new(),
@@ -563,12 +621,8 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
         (_, Schema::Any) => Ok(schema0.to_owned()),
         (Schema::Unsatisfiable { .. }, _) => Ok(schema0.to_owned()),
         (_, Schema::Unsatisfiable { .. }) => Ok(schema1.to_owned()),
-        (Schema::Ref(reference), _) => {
-            Err(anyhow!("$ref with siblings not implemented: {}", reference))
-        }
-        (_, Schema::Ref(reference)) => {
-            Err(anyhow!("$ref with siblings not implemented: {}", reference))
-        }
+        (Schema::Ref(_), _) => Err(anyhow!("$ref with siblings not implemented")),
+        (_, Schema::Ref(_)) => Err(anyhow!("$ref with siblings not implemented")),
         (Schema::OneOf { options }, _) => Ok(Schema::OneOf {
             options: options
                 .iter()
@@ -778,42 +832,6 @@ mod test {
     use serde_json::json;
 
     #[test]
-    fn test_normalize() {
-        let schema = json!({
-            "minLength": 1,
-            "maxLength": 10,
-            "pattern": "^[a-z]+$",
-            "format": "email",
-            "minimum": 10,
-        });
-        let schema = Schema::try_from(schema).unwrap();
-        println!("{:?}", schema);
-    }
-
-    #[test]
-    fn test_normalize_2() {
-        let schema = json!({
-            "anyOf": [
-                {
-                    "type": "string",
-                    "minLength": 1,
-                },
-                {
-                    "type": "number",
-                    "minimum": 10,
-                },
-            ],
-            "allOf" : [
-                {"type": "integer"}
-            ],
-            "pattern": "^[a-z]+$",
-            "maximum": 11
-        });
-        let schema = Schema::try_from(schema).unwrap();
-        println!("{:?}", schema);
-    }
-
-    #[test]
     fn test_normalize_3() {
         let schema = json!({
             "anyOf": [
@@ -838,7 +856,37 @@ mod test {
             ],
             "pattern": "^[a-z]+$",
         });
-        let schema = Schema::try_from(schema).unwrap();
+        let schema = build_schema(&schema).unwrap();
+        println!("{:?}", schema);
+    }
+
+    #[test]
+    fn test_ref() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "foo": {
+                    "$ref": "#ooo",
+                },
+                "bar": {
+                    "$id": "baz.com",
+                    "type": "array",
+                    "prefixItems": [
+                        {
+                            "$ref": "#/prefixItems/1"
+                        },
+                        {
+                            "type": "number",
+                        },
+                    ],
+                },
+                "baz": {
+                    "$anchor": "ooo",
+                    "type": "number",
+                },
+            },
+        });
+        let schema = build_schema(&schema).unwrap();
         println!("{:?}", schema);
     }
 }
