@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use indexmap::{IndexMap, IndexSet};
+use jsonschema::Uri;
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use serde_json::{Map, Value};
 
@@ -59,7 +60,10 @@ enum Schema {
     OneOf {
         options: Vec<Schema>,
     },
-    Ref(Box<Schema>),
+    Ref {
+        uri: String,
+        schema: Box<Schema>,
+    },
 }
 
 impl Schema {
@@ -173,7 +177,7 @@ impl Schema {
                 Ok(Schema::OneOf { options: valid })
             }
             // TODO: ?
-            Schema::Ref(..) => Ok(self),
+            Schema::Ref{ .. } => Ok(self),
         }
     }
 }
@@ -201,6 +205,10 @@ impl<'a> Context<'a> {
             .create_resource_ref(contents)
     }
 
+    fn get_abspath(&self, reference: &str) -> Result<Uri<String>> {
+        Ok(self.resolver.resolve_against(&self.resolver.base_uri().borrow(), reference)?.normalize())
+    }
+
     fn lookup(&'a self, reference: &str) -> Result<ResourceRef> {
         let resolved = self.resolver.lookup(reference)?;
         Ok(self.as_resource_ref(&resolved.contents()))
@@ -225,7 +233,7 @@ fn build_schema(contents: &Value) -> Result<Schema> {
         draft: draft,
     };
 
-    compile_resource(&ctx, resource_ref)?.normalize()
+    compile_resource(&ctx, resource_ref)
 }
 
 fn compile_resource(ctx: &Context, resource: ResourceRef) -> Result<Schema> {
@@ -341,13 +349,14 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         if matches!(siblings, Schema::Unsatisfiable { .. }) {
             return Ok(siblings);
         }
+        let uri = ctx.get_abspath(&reference)?;
         let resource = ctx.lookup(&reference)?;
         let resolved_schema = compile_resource(ctx, resource)?;
         if siblings != Schema::Any {
             bail!("$ref with siblings not implemented")
         }
         // TODO: recursion...
-        return Ok(Schema::Ref(Box::new(resolved_schema)));
+        return Ok(Schema::Ref { uri: uri.into_string(), schema: Box::new(resolved_schema) });
     }
 
     let types = match schemadict.remove("type") {
@@ -621,8 +630,8 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
         (_, Schema::Any) => Ok(schema0.to_owned()),
         (Schema::Unsatisfiable { .. }, _) => Ok(schema0.to_owned()),
         (_, Schema::Unsatisfiable { .. }) => Ok(schema1.to_owned()),
-        (Schema::Ref(_), _) => Err(anyhow!("$ref with siblings not implemented")),
-        (_, Schema::Ref(_)) => Err(anyhow!("$ref with siblings not implemented")),
+        (Schema::Ref { .. }, _) => Err(anyhow!("$ref with siblings not implemented")),
+        (_, Schema::Ref { .. }) => Err(anyhow!("$ref with siblings not implemented")),
         (Schema::OneOf { options }, _) => Ok(Schema::OneOf {
             options: options
                 .iter()
