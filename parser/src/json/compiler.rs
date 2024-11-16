@@ -743,14 +743,16 @@ impl Compiler {
 
         if !optional_items.is_empty() {
             let first = optional_items[0];
-            let tail = optional_items
-                .into_iter()
-                .skip(1)
-                .rev()
-                .fold(first, |acc, item| {
-                    let j = self.builder.join(&[comma, item, acc]);
-                    self.builder.optional(j)
-                });
+            let tail =
+                optional_items
+                    .into_iter()
+                    .skip(1)
+                    .rev()
+                    .fold(self.builder.empty(), |acc, item| {
+                        let j = self.builder.join(&[comma, item, acc]);
+                        self.builder.optional(j)
+                    });
+            let tail = self.builder.join(&[first, tail]);
 
             if !required_items.is_empty() {
                 let j = self.builder.join(&[comma, tail]);
