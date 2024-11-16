@@ -83,32 +83,32 @@ const NUMERIC_KEYS: [&str; 4] = ["minimum", "maximum", "exclusiveMinimum", "excl
 
 const CHAR_REGEX: &str = r#"(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])"#;
 
-fn validate_json_node_keys(node: &Value) -> Result<()> {
-    let node = node
-        .as_object()
-        .ok_or_else(|| anyhow!("Expected object as json schema, got: {}", limited_str(node)))
-        .unwrap();
+// fn validate_json_node_keys(node: &Value) -> Result<()> {
+//     let node = node
+//         .as_object()
+//         .ok_or_else(|| anyhow!("Expected object as json schema, got: {}", limited_str(node)))
+//         .unwrap();
 
-    for key in node.keys() {
-        let key = &key.as_str();
-        if KEYWORDS.contains(key)
-            || IGNORED_KEYS.contains(key)
-            || DEFS_KEYS.contains(key)
-            || ARRAY_KEYS.contains(key)
-            || OBJECT_KEYS.contains(key)
-            || STRING_KEYS.contains(key)
-            || NUMERIC_KEYS.contains(key)
-        {
-            continue;
-        }
-        if key.starts_with("x-") || key.starts_with("$xsd-") {
-            continue;
-        }
-        bail!("Unknown key in JSON schema: {:?}", key);
-    }
+//     for key in node.keys() {
+//         let key = &key.as_str();
+//         if KEYWORDS.contains(key)
+//             || IGNORED_KEYS.contains(key)
+//             || DEFS_KEYS.contains(key)
+//             || ARRAY_KEYS.contains(key)
+//             || OBJECT_KEYS.contains(key)
+//             || STRING_KEYS.contains(key)
+//             || NUMERIC_KEYS.contains(key)
+//         {
+//             continue;
+//         }
+//         if key.starts_with("x-") || key.starts_with("$xsd-") {
+//             continue;
+//         }
+//         bail!("Unknown key in JSON schema: {:?}", key);
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 fn check_number_bounds(
     minimum: Option<f64>,
