@@ -191,7 +191,7 @@ impl Schema {
                 Ok(Schema::OneOf { options: valid })
             }
             // TODO: ?
-            Schema::Ref{ .. } => Ok(self),
+            Schema::Ref { .. } => Ok(self),
         }
     }
 }
@@ -221,7 +221,10 @@ impl<'a> Context<'a> {
     }
 
     fn normalize_ref(&self, reference: &str) -> Result<Uri<String>> {
-        Ok(self.resolver.resolve_against(&self.resolver.base_uri().borrow(), reference)?.normalize())
+        Ok(self
+            .resolver
+            .resolve_against(&self.resolver.base_uri().borrow(), reference)?
+            .normalize())
     }
 
     fn lookup_resource(&'a self, reference: &str) -> Result<ResourceRef> {
@@ -370,9 +373,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         let uri: String = ctx.normalize_ref(&reference)?.into_string();
         let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         if siblings == Schema::Any {
-            let placeholder = Schema::Ref {
-                uri: uri.clone()
-            };
+            let placeholder = Schema::Ref { uri: uri.clone() };
             if ctx.contains_ref(uri.as_str()) {
                 // We've already built this ref, so we can just return it
                 return Ok(placeholder);

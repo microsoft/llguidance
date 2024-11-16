@@ -258,7 +258,7 @@ impl TokenParser {
         self.error_message.clone()
     }
 
-    // advance_parser() is a top-level method in this file.  
+    // advance_parser() is a top-level method in this file.
     // This advance_parser() is called indirectly via the advance_parser() method
     // of the llguidance LLInterpreter interface,
     //

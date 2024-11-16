@@ -3,9 +3,9 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 use std::{collections::HashMap, vec};
 
-use super::schema::{build_schema, Schema};
 use super::formats::lookup_format;
 use super::numeric::{rx_float_range, rx_int_range};
+use super::schema::{build_schema, Schema};
 use crate::{
     api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
     GrammarBuilder, NodeRef,
@@ -37,7 +37,9 @@ impl std::fmt::Display for UnsatisfiableSchemaError {
     }
 }
 
-const TYPES: [&str; 7] = ["null", "boolean", "integer", "number", "string", "array", "object"];
+const TYPES: [&str; 7] = [
+    "null", "boolean", "integer", "number", "string", "array", "object",
+];
 const KEYWORDS: [&str; 10] = [
     "anyOf",
     "oneOf",
@@ -89,7 +91,14 @@ fn validate_json_node_keys(node: &Value) -> Result<()> {
 
     for key in node.keys() {
         let key = &key.as_str();
-        if KEYWORDS.contains(key) || IGNORED_KEYS.contains(key) || DEFS_KEYS.contains(key) || ARRAY_KEYS.contains(key) || OBJECT_KEYS.contains(key) || STRING_KEYS.contains(key) || NUMERIC_KEYS.contains(key) {
+        if KEYWORDS.contains(key)
+            || IGNORED_KEYS.contains(key)
+            || DEFS_KEYS.contains(key)
+            || ARRAY_KEYS.contains(key)
+            || OBJECT_KEYS.contains(key)
+            || STRING_KEYS.contains(key)
+            || NUMERIC_KEYS.contains(key)
+        {
             continue;
         }
         if key.starts_with("x-") || key.starts_with("$xsd-") {
@@ -101,7 +110,12 @@ fn validate_json_node_keys(node: &Value) -> Result<()> {
     Ok(())
 }
 
-fn check_number_bounds(minimum: Option<f64>, maximum: Option<f64>, exclusive_minimum: bool, exclusive_maximum: bool) -> Result<()> {
+fn check_number_bounds(
+    minimum: Option<f64>,
+    maximum: Option<f64>,
+    exclusive_minimum: bool,
+    exclusive_maximum: bool,
+) -> Result<()> {
     if let (Some(min), Some(max)) = (minimum, maximum) {
         if min > max {
             return Err(anyhow!(UnsatisfiableSchemaError {
@@ -109,10 +123,21 @@ fn check_number_bounds(minimum: Option<f64>, maximum: Option<f64>, exclusive_min
             }));
         }
         if min == max && (exclusive_minimum || exclusive_maximum) {
-            let minimum_repr = if exclusive_minimum { "exclusiveMinimum" } else { "minimum" };
-            let maximum_repr = if exclusive_maximum { "exclusiveMaximum" } else { "maximum" };
+            let minimum_repr = if exclusive_minimum {
+                "exclusiveMinimum"
+            } else {
+                "minimum"
+            };
+            let maximum_repr = if exclusive_maximum {
+                "exclusiveMaximum"
+            } else {
+                "maximum"
+            };
             return Err(anyhow!(UnsatisfiableSchemaError {
-                message: format!("{} ({}) is equal to {} ({})", minimum_repr, min, maximum_repr, max),
+                message: format!(
+                    "{} ({}) is equal to {} ({})",
+                    minimum_repr, min, maximum_repr, max
+                ),
             }));
         }
     }
@@ -230,8 +255,8 @@ impl Compiler {
                 minimum,
                 maximum,
                 exclusive_minimum,
-                exclusive_maximum ,
-                integer
+                exclusive_maximum,
+                integer,
             } => {
                 let (minimum, exclusive_minimum) = match (minimum, exclusive_minimum) {
                     (Some(min), Some(xmin)) => {
@@ -262,24 +287,38 @@ impl Compiler {
                 } else {
                     self.json_number(minimum, maximum, exclusive_minimum, exclusive_maximum)
                 }
-            },
+            }
             Schema::String {
                 min_length,
                 max_length,
                 pattern,
                 format,
-            } => self.gen_json_string(*min_length, *max_length, pattern.as_deref(), format.as_deref()),
+            } => self.gen_json_string(
+                *min_length,
+                *max_length,
+                pattern.as_deref(),
+                format.as_deref(),
+            ),
             Schema::Array {
                 min_items,
                 max_items,
                 prefix_items,
                 items,
-            } => self.gen_json_array(prefix_items, items.as_deref().unwrap_or(&true.into()), *min_items, *max_items),
+            } => self.gen_json_array(
+                prefix_items,
+                items.as_deref().unwrap_or(&true.into()),
+                *min_items,
+                *max_items,
+            ),
             Schema::Object {
                 properties,
                 additional_properties,
                 required,
-            } => self.gen_json_object(properties, additional_properties.as_deref().unwrap_or(&true.into()), required.iter().cloned().collect()),
+            } => self.gen_json_object(
+                properties,
+                additional_properties.as_deref().unwrap_or(&true.into()),
+                required.iter().cloned().collect(),
+            ),
             Schema::Const { value } => self.gen_json_const(value.clone()),
             Schema::Enum { options } => self.gen_json_enum(options.clone()),
             Schema::AnyOf { options } => self.process_any_of(options.clone()),
@@ -289,14 +328,16 @@ impl Compiler {
     }
 
     fn process_any_of(&mut self, options: Vec<Schema>) -> Result<NodeRef> {
-        let options = options.iter()
+        let options = options
+            .iter()
             .map(|v| self.gen_json(v))
             .collect::<Result<Vec<_>>>()?;
         Ok(self.builder.select(&options))
     }
 
     fn gen_json_enum(&mut self, options: Vec<Value>) -> Result<NodeRef> {
-        let options = options.into_iter()
+        let options = options
+            .into_iter()
             .map(|v| self.gen_json_const(v))
             .collect::<Result<Vec<_>>>()?;
         Ok(self.builder.select(&options))
@@ -306,15 +347,22 @@ impl Compiler {
         // Recursively build a grammar for a constant value (just to play nicely with separators and whitespace flexibility)
         match const_value {
             Value::Object(values) => {
-                let properties = IndexMap::from_iter(values.into_iter().map(|(k, v)| (k, Schema::Const { value: v })));
+                let properties = IndexMap::from_iter(
+                    values
+                        .into_iter()
+                        .map(|(k, v)| (k, Schema::Const { value: v })),
+                );
                 let required = properties.keys().cloned().collect();
                 self.gen_json_object(&properties, &false.into(), required)
-            },
+            }
             Value::Array(values) => {
                 let n_items = values.len() as u64;
-                let prefix_items = values.into_iter().map(|v| Schema::Const { value: v }).collect::<Vec<_>>();
+                let prefix_items = values
+                    .into_iter()
+                    .map(|v| Schema::Const { value: v })
+                    .collect::<Vec<_>>();
                 self.gen_json_array(&prefix_items, &false.into(), n_items, Some(n_items))
-            },
+            }
             _ => {
                 // let serde_json dump simple values
                 let const_str = json_dumps(&const_value);
@@ -332,7 +380,13 @@ impl Compiler {
         r
     }
 
-    fn json_int(&mut self, minimum: Option<f64>, maximum: Option<f64>, exclusive_minimum: bool, exclusive_maximum: bool) -> Result<NodeRef> {
+    fn json_int(
+        &mut self,
+        minimum: Option<f64>,
+        maximum: Option<f64>,
+        exclusive_minimum: bool,
+        exclusive_maximum: bool,
+    ) -> Result<NodeRef> {
         check_number_bounds(minimum, maximum, exclusive_minimum, exclusive_maximum)?;
         let minimum = match (minimum, exclusive_minimum) {
             (Some(min_val), true) => {
@@ -344,7 +398,8 @@ impl Compiler {
             }
             (Some(min_val), false) => Some(min_val.ceil()),
             _ => None,
-        }.map(|val| val as i64);
+        }
+        .map(|val| val as i64);
         let maximum = match (maximum, exclusive_maximum) {
             (Some(max_val), true) => {
                 if max_val.fract() != 0.0 {
@@ -352,16 +407,23 @@ impl Compiler {
                 } else {
                     Some(max_val - 1.0)
                 }
-            },
+            }
             (Some(max_val), false) => Some(max_val.floor()),
             _ => None,
-        }.map(|val| val as i64);
+        }
+        .map(|val| val as i64);
         // TODO: handle errors in rx_int_range; currently it just panics
         let rx = rx_int_range(minimum, maximum);
         Ok(self.lexeme(&rx))
     }
 
-    fn json_number(&mut self, minimum: Option<f64>, maximum: Option<f64>, exclusive_minimum: bool, exclusive_maximum: bool) -> Result<NodeRef> {
+    fn json_number(
+        &mut self,
+        minimum: Option<f64>,
+        maximum: Option<f64>,
+        exclusive_minimum: bool,
+        exclusive_maximum: bool,
+    ) -> Result<NodeRef> {
         check_number_bounds(minimum, maximum, exclusive_minimum, exclusive_maximum)?;
         // TODO: handle errors in rx_float_range; currently it just panics
         let rx = rx_float_range(minimum, maximum, !exclusive_minimum, !exclusive_maximum);
@@ -408,7 +470,11 @@ impl Compiler {
     ) -> Result<NodeRef> {
         let mut taken_names: Vec<String> = vec![];
         let mut items: Vec<(NodeRef, bool)> = vec![];
-        for name in properties.keys().chain(required.iter().filter(|n| !properties.contains_key(n.as_str()))) {
+        for name in properties.keys().chain(
+            required
+                .iter()
+                .filter(|n| !properties.contains_key(n.as_str())),
+        ) {
             let property_schema = properties.get(name).unwrap_or(additional_properties);
             let is_required = required.contains(name);
             // Quote (and escape) the name
@@ -417,19 +483,19 @@ impl Compiler {
                 Ok(node) => node,
                 Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
                     // If it's not an UnsatisfiableSchemaError, just propagate it normally
-                    None => { return Err(e) },
+                    None => return Err(e),
                     // Property is optional; don't raise UnsatisfiableSchemaError but mark name as taken
                     Some(_) if !is_required => {
                         taken_names.push(quoted_name);
                         continue;
-                    },
+                    }
                     // Property is required; add context and propagate UnsatisfiableSchemaError
                     Some(_) => {
                         return Err(e.context(UnsatisfiableSchemaError {
                             message: format!("required property '{}' is unsatisfiable", name),
                         }));
                     }
-                }
+                },
             };
             let name = self.builder.string(&quoted_name);
             taken_names.push(quoted_name);
@@ -445,19 +511,21 @@ impl Compiler {
                     return Err(e);
                 }
                 // Ignore UnsatisfiableSchemaError for additionalProperties
-            },
+            }
             Ok(property) => {
                 let name = if taken_names.is_empty() {
                     self.json_simple_string()
                 } else {
-                    let taken_name_ids =
-                        taken_names
+                    let taken_name_ids = taken_names
                         .iter()
                         .map(|n| self.builder.regex.literal(n.to_string()))
                         .collect::<Vec<_>>();
                     let taken = self.builder.regex.select(taken_name_ids);
                     let not_taken = self.builder.regex.not(taken);
-                    let valid = self.builder.regex.regex(r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#.to_string());
+                    let valid = self
+                        .builder
+                        .regex
+                        .regex(r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#.to_string());
                     let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
                     let rx = RegexSpec::RegexId(valid_and_not_taken);
                     self.builder.lexeme(rx, false)
@@ -474,7 +542,12 @@ impl Compiler {
         Ok(self.builder.join(&[opener, inner, closer]))
     }
 
-    fn ordered_sequence<'a>(&mut self, items: &'a[(NodeRef, bool)], prefixed: bool, cache: &mut HashMap::<(&'a[(NodeRef, bool)], bool), NodeRef>) -> NodeRef {
+    fn ordered_sequence<'a>(
+        &mut self,
+        items: &'a [(NodeRef, bool)],
+        prefixed: bool,
+        cache: &mut HashMap<(&'a [(NodeRef, bool)], bool), NodeRef>,
+    ) -> NodeRef {
         // Cache to reduce number of nodes from O(n^2) to O(n)
         if let Some(node) = cache.get(&(items, prefixed)) {
             return node.clone();
@@ -491,7 +564,7 @@ impl Compiler {
                 // If we know we have preceeding elements, we can safely just add a (',' + e)
                 let rest_seq = self.ordered_sequence(rest, true, cache);
                 self.builder.join(&[comma, item, rest_seq])
-            },
+            }
             (true, false) => {
                 // If we know we have preceeding elements, we can safely just add an optional(',' + e)
                 // TODO optimization: if the rest is all optional, we can nest the rest in the optional
@@ -499,24 +572,21 @@ impl Compiler {
                 let optional_comma_item = self.builder.optional(comma_item);
                 let rest_seq = self.ordered_sequence(rest, true, cache);
                 self.builder.join(&[optional_comma_item, rest_seq])
-            },
+            }
             (false, true) => {
                 // No preceding elements, so we just add the element (no comma)
                 let rest_seq = self.ordered_sequence(rest, true, cache);
                 self.builder.join(&[item, rest_seq])
-            },
+            }
             (false, false) => {
                 // No preceding elements, but our element is optional. If we add the element, the remaining
                 // will be prefixed, else they are not.
                 // TODO: same nested optimization as above
                 let prefixed_rest = self.ordered_sequence(rest, true, cache);
                 let unprefixed_rest = self.ordered_sequence(rest, false, cache);
-                let opts = [
-                    self.builder.join(&[item, prefixed_rest]),
-                    unprefixed_rest,
-                ];
+                let opts = [self.builder.join(&[item, prefixed_rest]), unprefixed_rest];
                 self.builder.select(&opts)
-            },
+            }
         };
         cache.insert((items, prefixed), node.clone());
         node
@@ -539,7 +609,10 @@ impl Compiler {
         if let Some(max_length) = max_length {
             if min_length > max_length {
                 return Err(anyhow!(UnsatisfiableSchemaError {
-                    message: format!("minLength ({}) is greater than maxLength ({})", min_length, max_length),
+                    message: format!(
+                        "minLength ({}) is greater than maxLength ({})",
+                        min_length, max_length
+                    ),
                 }));
             }
         }
@@ -591,7 +664,10 @@ impl Compiler {
         if let Some(max_items) = max_items {
             if min_items > max_items {
                 return Err(anyhow!(UnsatisfiableSchemaError {
-                    message: format!("minItems ({}) is greater than maxItems ({})", min_items, max_items),
+                    message: format!(
+                        "minItems ({}) is greater than maxItems ({})",
+                        min_items, max_items
+                    ),
                 }));
             }
         }
@@ -600,18 +676,16 @@ impl Compiler {
             Ok(node) => Some(node),
             Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
                 // If it's not an UnsatisfiableSchemaError, just propagate it normally
-                None => { return Err(e) },
+                None => return Err(e),
                 // Item is optional; don't raise UnsatisfiableSchemaError
-                Some(_) if prefix_items.len() >= min_items as usize => {
-                    None
-                },
+                Some(_) if prefix_items.len() >= min_items as usize => None,
                 // Item is required; add context and propagate UnsatisfiableSchemaError
                 Some(_) => {
                     return Err(e.context(UnsatisfiableSchemaError {
                         message: format!("required item is unsatisfiable"),
                     }));
                 }
-            }
+            },
         };
 
         let mut required_items = vec![];
@@ -628,20 +702,23 @@ impl Compiler {
                     Ok(node) => node,
                     Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
                         // If it's not an UnsatisfiableSchemaError, just propagate it normally
-                        None => { return Err(e) },
+                        None => return Err(e),
                         // Item is optional; don't raise UnsatisfiableSchemaError.
                         // Set max_items to the current index, as we can't satisfy any more items.
                         Some(_) if i >= min_items as usize => {
                             max_items = Some(i as u64);
                             break;
-                        },
+                        }
                         // Item is required; add context and propagate UnsatisfiableSchemaError
                         Some(_) => {
                             return Err(e.context(UnsatisfiableSchemaError {
-                                message: format!("prefixItems[{}] is unsatisfiable but minItems is {}", i, min_items),
+                                message: format!(
+                                    "prefixItems[{}] is unsatisfiable but minItems is {}",
+                                    i, min_items
+                                ),
                             }));
                         }
-                    }
+                    },
                 }
             } else if let Some(compiled) = &additional_item_grm {
                 compiled.clone()

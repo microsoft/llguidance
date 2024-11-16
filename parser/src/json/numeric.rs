@@ -237,10 +237,7 @@ pub fn rx_float_range(
                         left_inclusive,
                         false,
                     ),
-                    format!(
-                        "[1-9][0-9]{{{},}}(\\.[0-9]+)?",
-                        num_digits(left_int_part)
-                    ),
+                    format!("[1-9][0-9]{{{},}}(\\.[0-9]+)?", num_digits(left_int_part)),
                 ])
             }
         }
@@ -258,7 +255,10 @@ pub fn rx_float_range(
                     rx_float_range(Some(0.0), Some(right), true, right_inclusive),
                 ])
             } else {
-                format!("-{}", rx_float_range(Some(-right), None, right_inclusive, false))
+                format!(
+                    "-{}",
+                    rx_float_range(Some(-right), None, right_inclusive, false)
+                )
             }
         }
         (Some(left), Some(right)) => {
@@ -273,12 +273,7 @@ pub fn rx_float_range(
                 if right < 0.0 {
                     format!(
                         "(-{})",
-                        rx_float_range(
-                            Some(-right),
-                            Some(-left),
-                            right_inclusive,
-                            left_inclusive
-                        )
+                        rx_float_range(Some(-right), Some(-left), right_inclusive, left_inclusive)
                     )
                 } else {
                     let mut parts = vec![];
@@ -294,7 +289,7 @@ pub fn rx_float_range(
                         let pos_part = rx_float_range(
                             Some(0.0),
                             Some(right),
-                            true,  // always include 0
+                            true, // always include 0
                             right_inclusive,
                         );
                         parts.push(pos_part);
@@ -324,7 +319,10 @@ pub fn rx_float_range(
                     while rd.len() < ld.len() {
                         rd.push('0');
                     }
-                    let suff = format!("\\.{}", lexi_range(&ld, &rd, left_inclusive, right_inclusive));
+                    let suff = format!(
+                        "\\.{}",
+                        lexi_range(&ld, &rd, left_inclusive, right_inclusive)
+                    );
                     if ld.parse::<i64>().unwrap() == 0 {
                         format!("({}({})?)", left_rec, suff)
                     } else {
