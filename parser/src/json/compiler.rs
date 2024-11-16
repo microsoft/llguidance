@@ -1,7 +1,9 @@
 use anyhow::{anyhow, bail, Result};
+use indexmap::IndexMap;
 use serde_json::{json, Value};
 use std::{collections::HashMap, vec};
 
+use super::schema::{build_schema, Schema};
 use super::formats::lookup_format;
 use super::numeric::{rx_float_range, rx_int_range};
 use crate::{
@@ -79,15 +81,6 @@ const NUMERIC_KEYS: [&str; 4] = ["minimum", "maximum", "exclusiveMinimum", "excl
 
 const CHAR_REGEX: &str = r#"(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])"#;
 
-fn limited_str(node: &Value) -> String {
-    let s = node.to_string();
-    if s.len() > 100 {
-        format!("{}...", &s[..100])
-    } else {
-        s
-    }
-}
-
 fn validate_json_node_keys(node: &Value) -> Result<()> {
     let node = node
         .as_object()
@@ -141,7 +134,7 @@ macro_rules! cache {
         if $field.is_none() {
             $field = Some($gen);
         }
-        return $field.unwrap();
+        return Ok($field.unwrap());
     };
 }
 
@@ -179,87 +172,6 @@ fn mk_regex(rx: &str) -> RegexSpec {
     RegexSpec::Regex(rx.to_string())
 }
 
-trait OptionalField {
-    fn opt_u64(&self, key: &str) -> Result<Option<u64>>;
-    fn opt_f64(&self, key: &str) -> Result<Option<f64>>;
-    fn opt_str(&self, key: &str) -> Result<Option<&str>>;
-    fn opt_array(&self, key: &str) -> Result<Option<&Vec<Value>>>;
-    #[allow(dead_code)]
-    fn opt_bool(&self, key: &str) -> Result<Option<bool>>;
-    fn opt_object(&self, key: &str) -> Result<Option<&serde_json::Map<String, Value>>>;
-}
-
-fn expected_err(key: &str, val: &Value, expected: &str) -> anyhow::Error {
-    anyhow!(
-        "Expected {} for field {:?}, got: {}",
-        expected,
-        key,
-        limited_str(val)
-    )
-}
-
-impl OptionalField for Value {
-    fn opt_u64(&self, key: &str) -> Result<Option<u64>> {
-        if let Some(val) = self.get(key) {
-            val.as_u64()
-                .ok_or_else(|| expected_err(key, val, "unsigned integer"))
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn opt_f64(&self, key: &str) -> Result<Option<f64>> {
-        if let Some(val) = self.get(key) {
-            val.as_f64()
-                .ok_or_else(|| expected_err(key, val, "float"))
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn opt_str(&self, key: &str) -> Result<Option<&str>> {
-        if let Some(val) = self.get(key) {
-            val.as_str()
-                .ok_or_else(|| expected_err(key, val, "string"))
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn opt_array(&self, key: &str) -> Result<Option<&Vec<Value>>> {
-        if let Some(val) = self.get(key) {
-            val.as_array()
-                .ok_or_else(|| expected_err(key, val, "array"))
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn opt_bool(&self, key: &str) -> Result<Option<bool>> {
-        if let Some(val) = self.get(key) {
-            val.as_bool()
-                .ok_or_else(|| expected_err(key, val, "boolean"))
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn opt_object(&self, key: &str) -> Result<Option<&serde_json::Map<String, Value>>> {
-        if let Some(val) = self.get(key) {
-            val.as_object()
-                .ok_or_else(|| expected_err(key, val, "object"))
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-}
-
 impl Compiler {
     pub fn new(options: JsonCompileOptions) -> Self {
         Self {
@@ -282,7 +194,9 @@ impl Compiler {
             ..GrammarWithLexer::default()
         });
 
-        let root = self.gen_json(schema)?;
+        let (compiled_schema, definitions) = build_schema(schema)?;
+
+        let root = self.gen_json(&compiled_schema)?;
         self.builder.set_start_node(root);
 
         while let Some((path0, pl)) = self.pending_definitions.pop() {
@@ -296,240 +210,116 @@ impl Compiler {
             if node.is_null() {
                 bail!("Definition not found: {}", path0);
             }
-
-            let compiled = self.gen_json(node)?;
+            let schema = definitions.get(&path0).unwrap();
+            let compiled = self.gen_json(schema)?;
             self.builder.set_placeholder(pl, compiled);
         }
 
         Ok(())
     }
 
-    fn process_any_of(&mut self, obj: &Value) -> Result<NodeRef> {
-        let arr = obj.as_array().ok_or_else(|| anyhow!("Expected array in anyOf, got: {}", limited_str(obj)))?;
-        if arr.is_empty() {
-            return Err(anyhow!(UnsatisfiableSchemaError {
-                message: "anyOf has no schemas".to_string(),
-            }));
-        }
-        // Unwrap, filtering out unsatisfiable schemas
-        let options = arr.iter()
-            .map(|json_schema| self.gen_json(json_schema))
-            .filter_map(|res| {
-                match res {
-                    Ok(node) => Some(Ok(node)),
-                    Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
-                        // If it's not an UnsatisfiableSchemaError, just propagate it normally
-                        None => { Some(Err(e)) },
-                        // Ignore unsatisfiable schemas
-                        Some(_) => None,
+    fn gen_json(&mut self, json_schema: &Schema) -> Result<NodeRef> {
+        match json_schema {
+            Schema::Any => self.gen_json_any(),
+            Schema::Unsatisfiable { reason } => Err(anyhow!(UnsatisfiableSchemaError {
+                message: reason.to_string(),
+            })),
+            Schema::Null => Ok(self.builder.string("null")),
+            Schema::Boolean => Ok(self.lexeme(r"true|false")),
+            Schema::Number {
+                minimum,
+                maximum,
+                exclusive_minimum,
+                exclusive_maximum ,
+                integer
+            } => {
+                let (minimum, exclusive_minimum) = match (minimum, exclusive_minimum) {
+                    (Some(min), Some(xmin)) => {
+                        if xmin >= min {
+                            (Some(*xmin), true)
+                        } else {
+                            (Some(*min), false)
+                        }
                     }
+                    (Some(min), None) => (Some(*min), false),
+                    (None, Some(xmin)) => (Some(*xmin), true),
+                    (None, None) => (None, false),
+                };
+                let (maximum, exclusive_maximum) = match (maximum, exclusive_maximum) {
+                    (Some(max), Some(xmax)) => {
+                        if xmax <= max {
+                            (Some(*xmax), true)
+                        } else {
+                            (Some(*max), false)
+                        }
+                    }
+                    (Some(max), None) => (Some(*max), false),
+                    (None, Some(xmax)) => (Some(*xmax), true),
+                    (None, None) => (None, false),
+                };
+                if *integer {
+                    self.json_int(minimum, maximum, exclusive_minimum, exclusive_maximum)
+                } else {
+                    self.json_number(minimum, maximum, exclusive_minimum, exclusive_maximum)
                 }
-            })
-            .collect::<Result<Vec<NodeRef>>>()?;
-        if options.is_empty() {
-            // If all schemas are unsatisfiable, return an error
-            // We can't really point to any specific schema at fault, so just dump the whole anyOf
-            return Err(anyhow!(UnsatisfiableSchemaError {
-                message: format!("all schemas in anyOf are unsatisfiable: {}", json_dumps(obj)),
-            }));
+            },
+            Schema::String {
+                min_length,
+                max_length,
+                pattern,
+                format,
+            } => self.gen_json_string(*min_length, *max_length, pattern.as_deref(), format.as_deref()),
+            Schema::Array {
+                min_items,
+                max_items,
+                prefix_items,
+                items,
+            } => self.gen_json_array(prefix_items, items.as_deref().unwrap_or(&true.into()), *min_items, *max_items),
+            Schema::Object {
+                properties,
+                additional_properties,
+                required,
+            } => self.gen_json_object(properties, additional_properties.as_deref().unwrap_or(&true.into()), required.iter().cloned().collect()),
+            Schema::Const { value } => self.gen_json_const(value.clone()),
+            Schema::Enum { options } => self.gen_json_enum(options.clone()),
+            Schema::AnyOf { options } => self.process_any_of(options.clone()),
+            Schema::OneOf { options } => self.process_any_of(options.clone()),
+            Schema::Ref { uri, .. } => self.get_definition(uri),
         }
+    }
+
+    fn process_any_of(&mut self, options: Vec<Schema>) -> Result<NodeRef> {
+        let options = options.iter()
+            .map(|v| self.gen_json(v))
+            .collect::<Result<Vec<_>>>()?;
         Ok(self.builder.select(&options))
     }
 
-    fn gen_json(&mut self, json_schema: &Value) -> Result<NodeRef> {
-        if json_schema.as_bool() == Some(true) {
-            return Ok(self.gen_json_any());
-        }
-
-        if json_schema.as_bool() == Some(false) {
-            return Err(anyhow!(UnsatisfiableSchemaError {
-                message: "false schema".to_string(),
-            }));
-        }
-
-        if let Some(json_schema) = json_schema.as_object() {
-            // TODO: should be sufficient to have only ignored keys here
-            if json_schema.is_empty() {
-                return Ok(self.gen_json_any());
-            }
-        }
-
-        // eprintln!("gen_json: {}", limited_str(json_schema));
-        validate_json_node_keys(json_schema)?;
-
-        // Process anyOf
-        if let Some(any_of) = json_schema.get("anyOf") {
-            return self.process_any_of(any_of);
-        }
-
-        // Process oneOf (same handling as anyOf for now)
-        if let Some(one_of) = json_schema.get("oneOf") {
-            return self.process_any_of(one_of);
-        }
-
-        // Process allOf
-        if let Some(all_of_list) = json_schema.opt_array("allOf")? {
-            if all_of_list.len() != 1 {
-                bail!("Only support allOf with exactly one item");
-            }
-            return self.gen_json(&all_of_list[0]);
-        }
-
-        // Process $ref
-        if let Some(reference) = json_schema.get("$ref") {
-            let ref_str = reference.as_str().ok_or_else(|| {
-                anyhow!("Expected string in $ref, got: {}", limited_str(reference))
-            })?;
-            return self.get_definition(ref_str);
-        }
-
-        // Process const
-        if let Some(const_value) = json_schema.get("const") {
-            return self.gen_json_const(const_value);
-        }
-
-        // Process enum
-        if let Some(enum_array) = json_schema.opt_array("enum")? {
-            let options = enum_array
-                .iter()
-                .map(|opt| self.gen_json_const(opt))
-                .collect::<Result<Vec<_>, _>>()?;
-            return Ok(self.builder.select(&options));
-        }
-
-        // Process type
-        if let Some(tp) = json_schema.opt_str("type")? {
-            return self.gen_json_type(tp, json_schema)
-        }
-
-        let tps = TYPES.iter().map(|s| Value::String(s.to_string())).collect::<Vec<_>>();
-        let types = match json_schema.opt_array("type")? {
-            Some(types) => types,
-            None => &tps,
-        };
-
-        let nodes = types
-            .iter()
-            .map(|v| {
-                let tp = v.as_str().ok_or_else(|| {
-                    anyhow!("Expected string in type list, got: {}", limited_str(v))
-                })?;
-                self.gen_json_type(tp, json_schema)
-            })
+    fn gen_json_enum(&mut self, options: Vec<Value>) -> Result<NodeRef> {
+        let options = options.into_iter()
+            .map(|v| self.gen_json_const(v))
             .collect::<Result<Vec<_>>>()?;
-        Ok(self.builder.select(&nodes))
+        Ok(self.builder.select(&options))
     }
 
-    fn gen_json_const(&mut self, const_value: &Value) -> Result<NodeRef> {
+    fn gen_json_const(&mut self, const_value: Value) -> Result<NodeRef> {
         // Recursively build a grammar for a constant value (just to play nicely with separators and whitespace flexibility)
         match const_value {
             Value::Object(values) => {
-                let properties = values.iter()
-                    .map(|(k, v)| {
-                        (k.clone(), json!({"const": v}))
-                    })
-                    .collect::<serde_json::Map<_, _>>();
-                self.gen_json_object(&properties, &Value::Bool(false), properties.keys().cloned().collect())
+                let properties = IndexMap::from_iter(values.into_iter().map(|(k, v)| (k, Schema::Const { value: v })));
+                let required = properties.keys().cloned().collect();
+                self.gen_json_object(&properties, &false.into(), required)
             },
             Value::Array(values) => {
                 let n_items = values.len() as u64;
-                let prefix_items = values.iter().map(|v| json!({"const": v})).collect::<Vec<_>>();
-                self.gen_json_array(&prefix_items, &Value::Bool(false), n_items, Some(n_items))
+                let prefix_items = values.into_iter().map(|v| Schema::Const { value: v }).collect::<Vec<_>>();
+                self.gen_json_array(&prefix_items, &false.into(), n_items, Some(n_items))
             },
             _ => {
                 // let serde_json dump simple values
-                let const_str = json_dumps(const_value);
+                let const_str = json_dumps(&const_value);
                 Ok(self.builder.string(&const_str))
             }
-        }
-    }
-
-    fn gen_json_type(&mut self, target_type_str: &str, json_schema: &Value) -> Result<NodeRef> {
-        match target_type_str {
-            "null" => return Ok(self.builder.string("null")),
-            "boolean" => return Ok(self.lexeme(r"true|false")),
-            "integer" | "number" => {
-                let mut minimum = json_schema.opt_f64("minimum")?;
-                let mut maximum = json_schema.opt_f64("maximum")?;
-                let exclusive_minimum: bool = match json_schema.get("exclusiveMinimum") {
-                    // Draft4-style boolean
-                    Some(Value::Bool(b)) => *b,
-                    // Draft 2020-12 style number
-                    Some(Value::Number(n)) => {
-                        let n = n.as_f64()
-                            .ok_or_else(|| expected_err("exclusiveMinimum", &Value::Number(n.clone()), "unsigned integer"))?;
-                        match minimum {
-                            Some(min) if n < min => {
-                                false
-                            },
-                            _ => {
-                                minimum = Some(n);
-                                true
-                            }
-                        }
-                    },
-                    _ => false,
-                };
-                let exclusive_maximum: bool = match json_schema.get("exclusiveMaximum") {
-                    // Draft4-style boolean
-                    Some(Value::Bool(b)) => *b,
-                    // Draft 2020-12 style number
-                    Some(Value::Number(n)) => {
-                        let n = n.as_f64()
-                            .ok_or_else(|| expected_err("exclusiveMaximum", &Value::Number(n.clone()), "unsigned integer"))?;
-                        match maximum {
-                            Some(max) if n > max => {
-                                false
-                            },
-                            _ => {
-                                maximum = Some(n);
-                                true
-                            }
-                        }
-                    },
-                    _ => false,
-                };
-                if target_type_str == "integer" {
-                    return self.json_int(minimum, maximum, exclusive_minimum, exclusive_maximum);
-                } else {
-                    return self.json_number(minimum, maximum, exclusive_minimum, exclusive_maximum);
-                }
-            },
-            "string" => {
-                let min_length = json_schema.opt_u64("minLength")?.unwrap_or(0);
-                let max_length = json_schema.opt_u64("maxLength")?;
-                let pattern = json_schema.opt_str("pattern")?;
-                let format = json_schema.opt_str("format")?;
-                return self.gen_json_string(min_length, max_length, pattern, format);
-            }
-            "array" => {
-                let empty = vec![];
-                let prefix_items = json_schema.opt_array("prefixItems")?.unwrap_or(&empty);
-                let item_schema = json_schema.get("items").unwrap_or(&Value::Bool(true));
-                let min_items = json_schema.opt_u64("minItems")?.unwrap_or(0);
-                let max_items = json_schema.opt_u64("maxItems")?;
-                return self.gen_json_array(prefix_items, item_schema, min_items, max_items);
-            }
-            "object" => {
-                let empty = serde_json::Map::default();
-                let properties = json_schema.opt_object("properties")?.unwrap_or(&empty);
-                let additional_properties = json_schema
-                    .get("additionalProperties")
-                    .unwrap_or(&Value::Bool(true));
-                let required: Vec<String> = json_schema.opt_array("required")?
-                    .map(|values| {
-                        values.iter()
-                            .map(|v| {
-                                v.as_str()
-                                    .map(|s| s.to_string()) // Convert &str to String
-                                    .ok_or_else(|| expected_err("required", v, "array of string"))
-                            })
-                            .collect::<Result<Vec<_>, _>>()
-                    })
-                    .unwrap_or_else(|| Ok(vec![]))?;
-                return self.gen_json_object(properties, additional_properties, required);
-            }
-            _ => bail!("Unsupported type in schema: {}", target_type_str),
         }
     }
 
@@ -592,27 +382,19 @@ impl Compiler {
         Ok(r)
     }
 
-    fn gen_json_any(&mut self) -> NodeRef {
+    fn gen_json_any(&mut self) -> Result<NodeRef> {
         cache!(self.any_cache, {
             let json_any = self.builder.placeholder();
             self.any_cache = Some(json_any); // avoid infinite recursion
-            let all_jsons = json!([
-                {"type": "null"},
-                {"type": "boolean"},
-                {"type": "integer"},
-                {"type": "number"},
-                {"type": "string"},
-                {"type": "array", "items": true},
-                {"type": "object", "additionalProperties": true},
-            ]);
-            let ch = all_jsons
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|json_schema| self.gen_json(json_schema))
-                .collect::<Result<Vec<_>>>()
-                .unwrap();
-            let inner = self.builder.select(&ch);
+            let options = vec![
+                self.builder.string("null"),
+                self.builder.lexeme(mk_regex(r"true|false"), false),
+                self.json_number(None, None, false, false)?,
+                self.json_simple_string(),
+                self.gen_json_array(&[], &Schema::Any, 0, None)?,
+                self.gen_json_object(&IndexMap::new(), &Schema::Any, vec![])?,
+            ];
+            let inner = self.builder.select(&options);
             self.builder.set_placeholder(json_any, inner);
             json_any
         });
@@ -620,8 +402,8 @@ impl Compiler {
 
     fn gen_json_object(
         &mut self,
-        properties: &serde_json::Map<String, Value>,
-        additional_properties: &Value,
+        properties: &IndexMap<String, Schema>,
+        additional_properties: &Schema,
         required: Vec<String>,
     ) -> Result<NodeRef> {
         let mut taken_names: Vec<String> = vec![];
@@ -799,8 +581,8 @@ impl Compiler {
 
     fn gen_json_array(
         &mut self,
-        prefix_items: &[Value],
-        item_schema: &Value,
+        prefix_items: &[Schema],
+        item_schema: &Schema,
         min_items: u64,
         max_items: Option<u64>,
     ) -> Result<NodeRef> {
@@ -840,49 +622,43 @@ impl Compiler {
             max as usize
         });
 
-        if let Some(item_arr) = item_schema.as_array() {
-            for item in item_arr {
-                required_items.push(self.gen_json(item)?);
-            }
-        } else {
-            for i in 0..n_to_add {
-                let item = if i < prefix_items.len() {
-                    match self.gen_json(&prefix_items[i]) {
-                        Ok(node) => node,
-                        Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
-                            // If it's not an UnsatisfiableSchemaError, just propagate it normally
-                            None => { return Err(e) },
-                            // Item is optional; don't raise UnsatisfiableSchemaError.
-                            // Set max_items to the current index, as we can't satisfy any more items.
-                            Some(_) if i >= min_items as usize => {
-                                max_items = Some(i as u64);
-                                break;
-                            },
-                            // Item is required; add context and propagate UnsatisfiableSchemaError
-                            Some(_) => {
-                                return Err(e.context(UnsatisfiableSchemaError {
-                                    message: format!("prefixItems[{}] is unsatisfiable but minItems is {}", i, min_items),
-                                }));
-                            }
+        for i in 0..n_to_add {
+            let item = if i < prefix_items.len() {
+                match self.gen_json(&prefix_items[i]) {
+                    Ok(node) => node,
+                    Err(e) => match e.downcast_ref::<UnsatisfiableSchemaError>() {
+                        // If it's not an UnsatisfiableSchemaError, just propagate it normally
+                        None => { return Err(e) },
+                        // Item is optional; don't raise UnsatisfiableSchemaError.
+                        // Set max_items to the current index, as we can't satisfy any more items.
+                        Some(_) if i >= min_items as usize => {
+                            max_items = Some(i as u64);
+                            break;
+                        },
+                        // Item is required; add context and propagate UnsatisfiableSchemaError
+                        Some(_) => {
+                            return Err(e.context(UnsatisfiableSchemaError {
+                                message: format!("prefixItems[{}] is unsatisfiable but minItems is {}", i, min_items),
+                            }));
                         }
                     }
-                } else if let Some(compiled) = &additional_item_grm {
-                    compiled.clone()
-                } else {
-                    break;
-                };
-
-                if i < min_items as usize {
-                    required_items.push(item);
-                } else {
-                    optional_items.push(item);
                 }
-            }
+            } else if let Some(compiled) = &additional_item_grm {
+                compiled.clone()
+            } else {
+                break;
+            };
 
-            if max_items.is_none() && !additional_item_grm.is_none() {
-                // Add an infinite tail of items
-                optional_items.push(self.sequence(additional_item_grm.unwrap()));
+            if i < min_items as usize {
+                required_items.push(item);
+            } else {
+                optional_items.push(item);
             }
+        }
+
+        if max_items.is_none() && !additional_item_grm.is_none() {
+            // Add an infinite tail of items
+            optional_items.push(self.sequence(additional_item_grm.unwrap()));
         }
 
         let mut grammars: Vec<NodeRef> = vec![self.builder.string("[")];
