@@ -224,18 +224,10 @@ impl Compiler {
         let root = self.gen_json(&compiled_schema)?;
         self.builder.set_start_node(root);
 
-        while let Some((path0, pl)) = self.pending_definitions.pop() {
-            // path is #/foo/bar/baz, first split into elements
-            let path = path0.trim_start_matches("#/");
-            let path = path.split('/').collect::<Vec<_>>();
-            let mut node = schema;
-            for elem in path {
-                node = &node[elem];
-            }
-            if node.is_null() {
-                bail!("Definition not found: {}", path0);
-            }
-            let schema = definitions.get(&path0).unwrap();
+        while let Some((path, pl)) = self.pending_definitions.pop() {
+            let schema = definitions
+                .get(&path)
+                .ok_or_else(|| anyhow!("Definition not found: {}", path))?;
             let compiled = self.gen_json(schema)?;
             self.builder.set_placeholder(pl, compiled);
         }
