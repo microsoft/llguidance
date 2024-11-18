@@ -1,3 +1,10 @@
+/// This file implements regex vectors.  To match tokens to lexemes, llguidance uses
+/// a DFA whose nodes are regex vectors.  For more on this see
+/// S. Owens, J. Reppy, and A. Turon.
+/// Regular Expression Derivatives Reexamined".
+/// Journal of Functional Programming 19(2):173-190, March 2009.
+/// https://www.khoury.northeastern.edu/home/turon/re-deriv.pdf (retrieved 15 Nov 2024)
+
 use anyhow::{bail, Result};
 use derivre::raw::{DerivCache, ExprSet, NextByteCache, RelevanceCache, VecHashCons};
 use std::{fmt::Debug, u64};
@@ -58,6 +65,8 @@ impl RegexVec {
         &self.lazy
     }
 
+    /// Create and return the initial state of a DFA for this
+    /// regex vector
     pub fn initial_state(&mut self, selected: &SimpleVob) -> StateID {
         let mut vec_desc = vec![];
         for idx in selected.iter() {
@@ -108,6 +117,9 @@ impl RegexVec {
         res
     }
 
+    /// Given a transition (a from-state and a byte) of the DFA
+    /// for this regex vector, return the to-state.  It is taken
+    /// from the cache, if it is cached, and created otherwise.
     #[inline(always)]
     pub fn transition(&mut self, state: StateID, b: u8) -> StateID {
         let idx = self.alpha.map_state(state, b);
@@ -120,6 +132,9 @@ impl RegexVec {
         }
     }
 
+    /// "Subsumption" is a feature implementing regex containment.
+    /// subsume_possible() returns true if it's possible for this
+    /// state, false otherwise.
     pub fn subsume_possible(&mut self, state: StateID) -> bool {
         if state.is_dead() || self.has_error() {
             return false;
@@ -132,6 +147,8 @@ impl RegexVec {
         true
     }
 
+    /// Part of the interface for "subsumption", a feature implementing
+    /// regex containment.
     pub fn check_subsume(
         &mut self,
         state: StateID,
@@ -183,13 +200,16 @@ impl RegexVec {
             + self.rx_sets.num_bytes()
     }
 
+    // Find the lowest, or best, match in 'state'.  It is the first lazy regex.
+    // If there is no lazy regex, and all greedy lexemes have reached end of
+    // input (EOI), then it is the first greedy lexeme.  If neither of these
+    // criteria produce a choice for "best", 'None' is returned.
     fn lowest_match_inner(&mut self, state: StateID) -> Option<(usize, usize)> {
         let mut all_eoi = true;
         let mut eoi_candidate = None;
-        // fine the first lazy matching regex
-        // failing that, if all regexes are matching and force EOI, pick the first one
         for (idx, e) in iter_state(&self.rx_sets, state) {
             if !self.exprs.is_nullable(e) {
+                // The derivative of 'e' is nullable, so 'e' matches.
                 all_eoi = false;
                 continue;
             }
@@ -457,6 +477,8 @@ impl RegexVec {
         vec_desc.push(e.as_u32());
     }
 
+    /// Given a transition (from-state and byte), create the to-state.
+    /// It is assumed the to-state does not exist.
     fn transition_inner(&mut self, state: StateID, b: u8, idx: usize) -> StateID {
         assert!(state.is_valid());
 
