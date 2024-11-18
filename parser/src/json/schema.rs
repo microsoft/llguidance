@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use anyhow::{anyhow, bail, Result};
 use indexmap::{IndexMap, IndexSet};
-use jsonschema::Uri;
+use jsonschema::{validator_for, Uri, Validator};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use serde_json::{Map, Value};
 
@@ -245,6 +245,14 @@ fn draft_for(value: &Value) -> Draft {
     DEFAULT_DRAFT.detect(value).unwrap_or(DEFAULT_DRAFT)
 }
 
+fn instance_if_valid<'a>(instance: &'a Value, validator: &'a Validator) -> Option<&'a Value> {
+    if validator.is_valid(instance) {
+        Some(instance)
+    } else {
+        None
+    }
+}
+
 pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>)> {
     if let Some(b) = contents.as_bool() {
         return Ok((b.into(), HashMap::new()));
@@ -294,20 +302,37 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         return Ok(Schema::Any);
     }
 
+    // Short-circuit for const -- don't need to compile the rest of the schema
     if let Some(instance) = schemadict.get("const") {
-        // TODO: validate the instance against the schema, maybe returning Schema::Unsatisfiable
-        return Ok(Schema::Const {
-            value: instance.clone(),
+        let validator = validator_for(contents)?;
+        if let Some(instance) = instance_if_valid(instance, &validator) {
+            return Ok(Schema::Const {
+                value: instance.clone(),
+            });
+        }
+        return Ok(Schema::Unsatisfiable {
+            reason: format!("const instance is invalid against parent schema: {:?}", instance),
         });
     }
 
+    // Short-circuit for enum -- don't need to compile the rest of the schema
     if let Some(instances) = schemadict.get("enum") {
+        let validator: Validator = validator_for(contents)?;
         let instances = instances
             .as_array()
             .ok_or_else(|| anyhow!("enum must be an array"))?;
-        // TODO: validate the instances against the schema, maybe returning Schema::Unsatisfiable
+        let valid_instances = instances
+            .iter()
+            .filter_map(|instance| instance_if_valid(instance, &validator))
+            .cloned()
+            .collect::<Vec<_>>();
+        if valid_instances.is_empty() {
+            return Ok(Schema::Unsatisfiable {
+                reason: format!("enum instances all invalid against parent schema: {:?}", instances),
+            });
+        }
         return Ok(Schema::Enum {
-            options: instances.clone(),
+            options: valid_instances,
         });
     }
 
