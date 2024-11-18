@@ -385,7 +385,10 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             });
         }
         return Ok(Schema::Unsatisfiable {
-            reason: format!("const instance is invalid against parent schema: {:?}", instance),
+            reason: format!(
+                "const instance is invalid against parent schema: {:?}",
+                instance
+            ),
         });
     }
 
@@ -402,7 +405,10 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             .collect::<Vec<_>>();
         if valid_instances.is_empty() {
             return Ok(Schema::Unsatisfiable {
-                reason: format!("enum instances all invalid against parent schema: {:?}", instances),
+                reason: format!(
+                    "enum instances all invalid against parent schema: {:?}",
+                    instances
+                ),
             });
         }
         return Ok(Schema::Enum {
