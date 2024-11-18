@@ -37,78 +37,7 @@ impl std::fmt::Display for UnsatisfiableSchemaError {
     }
 }
 
-const TYPES: [&str; 7] = [
-    "null", "boolean", "integer", "number", "string", "array", "object",
-];
-const KEYWORDS: [&str; 10] = [
-    "anyOf",
-    "oneOf",
-    "allOf",
-    "$ref",
-    "const",
-    "enum",
-    "type",
-    "pattern",
-    "minLength",
-    "maxLength",
-];
-const IGNORED_KEYS: [&str; 19] = [
-    "$schema",
-    "$id",
-    "id",
-    "$comment",
-    "title",
-    "description",
-    "default",
-    "examples",
-    "authors",
-    "deprecationMessage",
-    "enumDescriptions",
-    "example",
-    "postActions",
-    "readOnly",
-    "markdownDescription",
-    "deprecated",
-    "dependencies",
-    "discriminator", // we hope it's part of the grammar anyways
-    "required",      // TODO: implement and remove from ignored list
-];
-// these are also just ignored
-const DEFS_KEYS: [&str; 4] = ["$defs", "definitions", "defs", "refs"];
-
-const ARRAY_KEYS: [&str; 4] = ["items", "prefixItems", "minItems", "maxItems"];
-const OBJECT_KEYS: [&str; 3] = ["properties", "additionalProperties", "required"];
-const STRING_KEYS: [&str; 4] = ["minLength", "maxLength", "pattern", "format"];
-const NUMERIC_KEYS: [&str; 4] = ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"];
-
 const CHAR_REGEX: &str = r#"(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])"#;
-
-// fn validate_json_node_keys(node: &Value) -> Result<()> {
-//     let node = node
-//         .as_object()
-//         .ok_or_else(|| anyhow!("Expected object as json schema, got: {}", limited_str(node)))
-//         .unwrap();
-
-//     for key in node.keys() {
-//         let key = &key.as_str();
-//         if KEYWORDS.contains(key)
-//             || IGNORED_KEYS.contains(key)
-//             || DEFS_KEYS.contains(key)
-//             || ARRAY_KEYS.contains(key)
-//             || OBJECT_KEYS.contains(key)
-//             || STRING_KEYS.contains(key)
-//             || NUMERIC_KEYS.contains(key)
-//         {
-//             continue;
-//         }
-//         if key.starts_with("x-") || key.starts_with("$xsd-") {
-//             continue;
-//         }
-//         bail!("Unknown key in JSON schema: {:?}", key);
-//     }
-
-//     Ok(())
-// }
 
 fn check_number_bounds(
     minimum: Option<f64>,

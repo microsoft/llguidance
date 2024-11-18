@@ -10,6 +10,58 @@ const DEFAULT_ROOT_URI: &str = "json-schema:///";
 const DEFAULT_DRAFT: Draft = Draft::Draft202012;
 const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
 
+// Keywords that are implemented in this module
+const IMPLEMENTED: [&str; 22] = [
+    // Core
+    "anyOf",
+    "oneOf",
+    "allOf",
+    "$ref",
+    "const",
+    "enum",
+    "type",
+    // Array
+    "items",
+    "prefixItems",
+    "minItems",
+    "maxItems",
+    // Object
+    "properties",
+    "additionalProperties",
+    "required",
+    // String
+    "minLength",
+    "maxLength",
+    "pattern",
+    "format",
+    // Number
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+];
+
+// Keywords that are used for metadata or annotations, not directly driving validation.
+// Note that some keywords like $id and $schema affect the behavior of other keywords, but
+// they can safely be ignored if other keywords aren't present
+const META_AND_ANNOTATIONS: [&str; 15] = [
+    "$anchor",
+    "$defs",
+    "definitions",
+    "$schema",
+    "$id",
+    "id",
+    "$comment",
+    "title",
+    "description",
+    "default",
+    "readOnly",
+    "writeOnly",
+    "examples",
+    "contentMediaType",
+    "contentEncoding",
+];
+
 fn limited_str(node: &Value) -> String {
     let s = node.to_string();
     if s.len() > 100 {
@@ -239,6 +291,16 @@ impl<'a> Context<'a> {
     fn contains_ref(&self, uri: &str) -> bool {
         self.defs.borrow().contains_key(uri)
     }
+
+    fn is_valid_keyword(&self, keyword: &str) -> bool {
+        if !self.draft.is_known_keyword(keyword)
+            || IMPLEMENTED.contains(&keyword)
+            || META_AND_ANNOTATIONS.contains(&keyword)
+        {
+            return true;
+        }
+        return false;
+    }
 }
 
 fn draft_for(value: &Value) -> Draft {
@@ -297,9 +359,21 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         .as_object()
         .ok_or_else(|| anyhow!("schema must be an object or boolean"))?;
 
-    if schemadict.is_empty() {
-        // TODO: should be ok to have ignored keys here
+    // We don't need to compile the schema if it's just meta and annotations
+    if schemadict
+        .keys()
+        .all(|k| META_AND_ANNOTATIONS.contains(&k.as_str()))
+    {
         return Ok(Schema::Any);
+    }
+
+    // Check for unimplemented keys and bail if any are found
+    let unimplemented_keys = schemadict
+        .keys()
+        .filter(|k| !ctx.is_valid_keyword(k))
+        .collect::<Vec<_>>();
+    if unimplemented_keys.len() > 0 {
+        bail!("Unimplemented keys: {:?}", unimplemented_keys);
     }
 
     // Short-circuit for const -- don't need to compile the rest of the schema
