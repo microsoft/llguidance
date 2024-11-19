@@ -865,6 +865,7 @@ dependencies = [
  "instant",
  "jsonschema",
  "lazy_static",
+ "rayon",
  "referencing 0.26.1",
  "regex-syntax",
  "rustc-hash",

@@ -318,6 +318,10 @@ impl Parser {
             let flags = inner[last_slash_idx + 1..].to_string();
             let regex = inner[1..last_slash_idx].to_string();
             Ok(Value::LiteralRegex(regex, flags))
+        } else if let Some(grammar_ref) = self.match_token_with_value(Token::GrammarRef) {
+            Ok(Value::GrammarRef(grammar_ref.value.clone()))
+        } else if let Some(special_token) = self.match_token_with_value(Token::SpecialToken) {
+            Ok(Value::SpecialToken(special_token.value.clone()))
         } else if let Some(name_token) = self
             .match_token_with_value(Token::Rule)
             .or_else(|| self.match_token_with_value(Token::Token))

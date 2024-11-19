@@ -3,8 +3,8 @@
 This library implements constrained decoding (also called constrained sampling or
 structured outputs) for Large Langauge Models (LLMs).
 It can enforce arbitrary context-free grammar on the output of LLM
-and is fast (on the order of 1ms of CPU time per token
-(for 100k tokenizer) with negligible startup costs).
+and is fast - on the order of 1ms of CPU time per token
+(for 100k tokenizer) with negligible startup costs.
 
 Following grammar formats are supported:
 - `llguidance` - [internal (JSON-based) format](./parser/src/api.rs)
@@ -36,20 +36,17 @@ The integration is ongoing in:
 
 ## Technical details
 
-Given a context-free grammar, a tokenizer, and prefix of tokens,
-llguidance computes a token mask (set of tokens from the tokenizer)
-that when added to current prefix of token can lead to a valid string in
-the language of the grammar.
-Computing a mask takes on the order of 1ms of single-core CPU time 
-for a tokenizer with 100k tokens.
-While this depends on the exact grammar, it holds eg. for grammars resulting from JSON schemas.
-There is also no significant startup cost.
+Given a context-free grammar, a tokenizer, and a prefix of tokens, llguidance computes a token mask - a set of tokens from the tokenizer - that, when added to the current token prefix, can lead to a valid string in the language defined by the grammar. Mask computation takes approximately 1ms of single-core CPU time for a tokenizer with 100k tokens. While this timing depends on the exact grammar, it holds, for example, for grammars derived from JSON schemas. There is no significant startup cost.
 
-The library implements a context-free grammar parser with Earley's algorithm
-on top of a lexer which uses [derivatives of regular expressions](https://github.com/microsoft/derivre).
-A lot of
-[low-level optimizations](https://github.com/microsoft/toktrie/blob/main/implementation.md)
-are implemented.
+The library implements a context-free grammar parser using Earley’s algorithm on top of a lexer based on [derivatives of regular expressions](https://github.com/microsoft/derivre). Mask computation is achieved by traversing the prefix tree (trie) of all possible tokens, leveraging [highly optimized](https://github.com/microsoft/toktrie/blob/main/implementation.md) code.
+
+### Comparison
+
+[LM-format-enforcer](https://github.com/noamgat/lm-format-enforcer) and [llama.cpp grammars](https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md) are similar to llguidance in that they dynamically build token masks for every step of the decoding process. Both are significantly slower - the former due to clean Python code and the latter due to the lack of a lexer and use of a backtracking parser, which, while elegant, is inefficient.
+
+[Outlines](https://github.com/dottxt-ai/outlines) builds an automaton from constraints and then pre-computes token masks for all automaton states, making sampling fast but inherently limiting constraint complexity and introducing significant startup cost and memory overhead. Llguidance computes token masks on the fly and has essentially no startup cost. The lexer’s automata are built lazily and are typically much smaller, as the context-free grammar imposes the top-level structure.
+
+In llguidance, online mask computation takes approximately 1ms of CPU time per sequence in a batch. Thus, with 16 cores and a 10ms forward pass, the library can handle batch sizes up to 160 without slowing down the model. (Note that a 10ms forward pass for small batch sizes typically increases to 20ms+ for batch sizes of 100-200.)
 
 ## Building
 

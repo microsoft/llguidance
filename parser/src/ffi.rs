@@ -149,6 +149,9 @@ pub type LlgTokenizeFn = Option<
     ) -> usize,
 >;
 
+/// Function which llg calls when an operation is done.
+pub type LlgCallback = Option<extern "C" fn(user_data: *const c_void)>;
+
 #[repr(C)]
 pub struct LlgTokenizerInit {
     /// The number of tokens in the vocabulary
@@ -209,12 +212,77 @@ pub struct LlgConstraintInit {
     pub limits: ParserLimits,
 }
 
+impl LlgConstraintInit {
+    pub fn logger(&self) -> Logger {
+        Logger::new(self.log_buffer_level, self.log_stderr_level)
+    }
+
+    pub fn inference_capabilities(&self) -> InferenceCapabilities {
+        InferenceCapabilities {
+            ff_tokens: self.ff_tokens_ok,
+            backtrack: self.backtrack_ok,
+            conditional_ff_tokens: false,
+            fork: false,
+        }
+    }
+
+    pub fn tok_env(&self) -> Result<TokEnv> {
+        if self.tokenizer.is_null() {
+            bail!("Tokenizer is null");
+        }
+        Ok(unsafe { (&*self.tokenizer).to_env() })
+    }
+
+    pub fn build_parser(
+        &self,
+        grammar: TopLevelGrammar,
+        extra_lexemes: Vec<String>,
+    ) -> Result<TokenParser> {
+        TokenParser::from_llguidance_json(
+            self.tok_env()?,
+            grammar,
+            self.logger(),
+            self.inference_capabilities(),
+            self.limits.clone(),
+            extra_lexemes,
+        )
+    }
+
+    pub fn build_constraint(&self, grammar: TopLevelGrammar) -> Result<Constraint> {
+        let parser = self.build_parser(grammar, vec![])?;
+        Ok(Constraint::new(parser))
+    }
+}
+
 #[derive(Clone)]
+#[repr(C)]
+pub struct LlgConstraintStep {
+    /// The constraint to compute mask for.
+    pub constraint: *mut LlgConstraint,
+    /// Pointer to memory where the mask should be written.
+    pub mask_dest: *mut u32,
+    /// The length of the mask_dest array in bytes (not elements).
+    pub mask_byte_len: usize,
+}
+
+unsafe impl Send for LlgConstraintStep {}
+
 pub struct LlgConstraint {
     local_error: Option<String>,
     last_logs: String,
-    constraint: Option<Constraint>,
+    pub(crate) constraint: Option<Constraint>,
     last_commit_result: CommitResult,
+}
+
+impl Clone for LlgConstraint {
+    fn clone(&self) -> Self {
+        LlgConstraint {
+            local_error: self.local_error.clone(),
+            last_logs: self.last_logs.clone(),
+            constraint: self.constraint.clone(),
+            last_commit_result: self.last_commit_result.clone(),
+        }
+    }
 }
 
 impl Default for LlgConstraint {
@@ -271,7 +339,7 @@ fn new_constraint_regex(init: &LlgConstraintInit, regex: *const c_char) -> Resul
         .to_str()
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in regex"))?;
     let grammar = TopLevelGrammar::from_regex(RegexNode::Regex(regex.to_string()));
-    new_constraint_core(init, grammar)
+    init.build_constraint(grammar)
 }
 
 fn new_constraint_lark(init: &LlgConstraintInit, lark: *const c_char) -> Result<Constraint> {
@@ -279,7 +347,7 @@ fn new_constraint_lark(init: &LlgConstraintInit, lark: *const c_char) -> Result<
         .to_str()
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in lark"))?;
     let grammar = lark_to_llguidance(lark)?;
-    new_constraint_core(init, grammar)
+    init.build_constraint(grammar)
 }
 
 fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> Result<Constraint> {
@@ -292,7 +360,7 @@ fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> 
     let grammar = opts
         .json_to_llg(&json_schema)
         .map_err(|e| anyhow::anyhow!("Error compiling JSON schema to LLG: {e}"))?;
-    new_constraint_core(init, grammar)
+    init.build_constraint(grammar)
 }
 
 fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Result<Constraint> {
@@ -301,7 +369,7 @@ fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Resu
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in grammar_json"))?;
     let grammar: TopLevelGrammar = serde_json::from_str(grammar_json)
         .map_err(|e| anyhow::anyhow!("Invalid JSON in grammar_json: {e}"))?;
-    new_constraint_core(init, grammar)
+    init.build_constraint(grammar)
 }
 
 fn new_constraint_any(
@@ -321,29 +389,6 @@ fn new_constraint_any(
     }
 }
 
-fn new_constraint_core(init: &LlgConstraintInit, grammar: TopLevelGrammar) -> Result<Constraint> {
-    if init.tokenizer.is_null() {
-        bail!("Tokenizer is null");
-    }
-
-    let tok_env = unsafe { (&*init.tokenizer).to_env() };
-    let tok_parser = TokenParser::from_llguidance_json(
-        tok_env,
-        grammar,
-        Logger::new(init.log_buffer_level, init.log_stderr_level),
-        InferenceCapabilities {
-            ff_tokens: init.ff_tokens_ok,
-            backtrack: init.backtrack_ok,
-            conditional_ff_tokens: false,
-            fork: false,
-        },
-        init.limits.clone(),
-        vec![],
-    )?;
-
-    Ok(Constraint::new(tok_parser))
-}
-
 impl LlgConstraint {
     fn get_error(&self) -> *const c_char {
         match &self.local_error {
@@ -360,7 +405,7 @@ impl LlgConstraint {
         }
     }
 
-    fn set_error(&mut self, e: &str) {
+    pub(crate) fn set_error(&mut self, e: &str) {
         self.constraint = None;
         self.local_error = Some(format!("{e}\0"));
     }
@@ -385,7 +430,7 @@ pub extern "C" fn llg_constraint_init_set_defaults(
     };
 }
 
-fn return_constraint(c: Result<Constraint>) -> *mut LlgConstraint {
+pub fn constraint_to_llg(c: Result<Constraint>) -> *mut LlgConstraint {
     let mut res = LlgConstraint::default();
 
     match c {
@@ -403,7 +448,7 @@ pub extern "C" fn llg_new_constraint(
     init: &LlgConstraintInit,
     grammar_json: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint(init, grammar_json))
+    constraint_to_llg(new_constraint(init, grammar_json))
 }
 
 /// Create a new constraint from a given regular expression
@@ -413,7 +458,7 @@ pub extern "C" fn llg_new_constraint_regex(
     init: &LlgConstraintInit,
     regex: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint_regex(init, regex))
+    constraint_to_llg(new_constraint_regex(init, regex))
 }
 
 /// Create a new constraint from a given JSON schema
@@ -423,7 +468,7 @@ pub extern "C" fn llg_new_constraint_json(
     init: &LlgConstraintInit,
     json_schema: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint_json(init, json_schema))
+    constraint_to_llg(new_constraint_json(init, json_schema))
 }
 
 /// Create a new constraint from a given lark grammar
@@ -433,7 +478,7 @@ pub extern "C" fn llg_new_constraint_lark(
     init: &LlgConstraintInit,
     lark: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint_lark(init, lark))
+    constraint_to_llg(new_constraint_lark(init, lark))
 }
 
 /// Create a new constraint with specified type
@@ -445,7 +490,7 @@ pub extern "C" fn llg_new_constraint_any(
     constraint_type: *const c_char,
     data: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint_any(init, constraint_type, data))
+    constraint_to_llg(new_constraint_any(init, constraint_type, data))
 }
 
 /// Get the error message from the constraint or null if there is no error.
@@ -454,6 +499,21 @@ pub extern "C" fn llg_new_constraint_any(
 #[no_mangle]
 pub extern "C" fn llg_get_error(cc: &LlgConstraint) -> *const c_char {
     cc.get_error()
+}
+
+/// Get the current temperature of the constraint.
+/// It is updated by mask computation.
+#[no_mangle]
+pub extern "C" fn llg_get_temperature(cc: &LlgConstraint) -> f32 {
+    cc.constraint.as_ref().map_or(0.0, |c| c.temperature)
+}
+
+/// Check if constraint is stopped (cannot be extended further).
+#[no_mangle]
+pub extern "C" fn llg_is_stopped(cc: &LlgConstraint) -> bool {
+    cc.constraint
+        .as_ref()
+        .map_or(true, |c| c.step_result().is_stop())
 }
 
 /// Compute mask for the next token sampling
@@ -509,6 +569,31 @@ pub extern "C" fn llg_commit_token(
         }
     }
     cc.get_error_code()
+}
+
+/// Compute mask for several constraints in parallel.
+#[no_mangle]
+pub extern "C" fn llg_par_compute_mask(
+    steps: *const LlgConstraintStep,
+    n_steps: usize,
+    user_data: *const c_void,
+    done_cb: LlgCallback,
+) {
+    if steps.is_null() {
+        panic!("llg_par_compute_mask: steps is null");
+    }
+
+    #[cfg(feature = "rayon")]
+    {
+        let steps = unsafe { std::slice::from_raw_parts(steps, n_steps).to_vec() };
+        crate::ffi_par::par_compute_mask(steps, user_data, done_cb);
+    }
+
+    #[cfg(not(feature = "rayon"))]
+    {
+        let _ = (steps, n_steps, user_data, done_cb);
+        panic!("llg_par_compute_mask: rayon feature is not enabled");
+    }
 }
 
 /// Clone the constraint

@@ -35,6 +35,8 @@ pub enum Token {
     Number,
     Newline,
     VBar,
+    SpecialToken, // <something>
+    GrammarRef, // @grammar_id or @7
     // special
     SKIP,
     EOF,
@@ -100,6 +102,8 @@ impl Token {
         (Token::Regexp, r#"/(\\.|[^/\\])+/[imslux]*"#),
         (Token::Number, r#"[+-]?[0-9]+"#),
         (Token::Newline, r"(\r?\n)+[ \t]*"),
+        (Token::SpecialToken, r"<[^<>\s]+>"),
+        (Token::GrammarRef, r"@[a-zA-Z0-9_\-]+"),
     ];
 }
 

@@ -1,0 +1,34 @@
+<rfc>
+<front>
+<title>Internet Email Format in XML</title>
+<author><address></address>
+</author>
+<date></date>
+</front>
+<middle>
+<section title="Introduction">
+<texttable>
+<ttcol>
+<cref>1</cref>
+Introduction to the XML format for email.
+</ttcol>
+</texttable>
+</section>
+<section title="Email Format">
+<texttable>
+<ttcol>
+<cref>2</cref>
+The XML format for email.
+</ttcol>
+</texttable>
+</section>
+<section title="Example">
+<texttable>
+<ttcol>
+<cref>3</cref>
+An example of an email in XML format.
+</ttcol>
+</texttable>
+</section>
+</middle>
+</rfc>

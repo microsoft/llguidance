@@ -29,6 +29,11 @@ typedef struct LlgParserLimits {
    */
   uint64_t step_lexer_fuel;
   /**
+   * Number of Earley items created for the whole token mask.
+   * Default: 100_000 (~3ms)
+   */
+  size_t step_max_items;
+  /**
    * Maximum number of lexer states.
    * Default: 10_000
    */
@@ -107,6 +112,26 @@ typedef struct LlgCommitResult {
    */
   bool is_stop;
 } LlgCommitResult;
+
+typedef struct LlgConstraintStep {
+  /**
+   * The constraint to compute mask for.
+   */
+  struct LlgConstraint *constraint;
+  /**
+   * Pointer to memory where the mask should be written.
+   */
+  uint32_t *mask_dest;
+  /**
+   * The length of the mask_dest array in bytes (not elements).
+   */
+  size_t mask_byte_len;
+} LlgConstraintStep;
+
+/**
+ * Function which llg calls when an operation is done.
+ */
+typedef void (*LlgCallback)(const void *user_data);
 
 /**
  * Tokenization function
@@ -227,6 +252,17 @@ struct LlgConstraint *llg_new_constraint_any(const struct LlgConstraintInit *ini
 const char *llg_get_error(const struct LlgConstraint *cc);
 
 /**
+ * Get the current temperature of the constraint.
+ * It is updated by mask computation.
+ */
+float llg_get_temperature(const struct LlgConstraint *cc);
+
+/**
+ * Check if constraint is stopped (cannot be extended further).
+ */
+bool llg_is_stopped(const struct LlgConstraint *cc);
+
+/**
  * Compute mask for the next token sampling
  * It typically takes up to a millisecond for a 100k tokenizer, so should be called in background.
  * Returns 0 on success and -1 on error (use llg_get_error() to get the exact error).
@@ -241,6 +277,14 @@ int32_t llg_compute_mask(struct LlgConstraint *cc, struct LlgMaskResult *res_p);
  * When 0 is returned, the result is written to *res_p.
  */
 int32_t llg_commit_token(struct LlgConstraint *cc, LlgToken token, struct LlgCommitResult *res_p);
+
+/**
+ * Compute mask for several constraints in parallel.
+ */
+void llg_par_compute_mask(const struct LlgConstraintStep *steps,
+                          size_t n_steps,
+                          const void *user_data,
+                          LlgCallback done_cb);
 
 /**
  * Clone the constraint

@@ -4,7 +4,7 @@ use crate::{
     api::{GenGrammarOptions, ParserLimits, StopReason, TopLevelGrammar},
     earley::{
         grammars_from_json, BiasComputer, CGrammar, CSymIdx, DefaultBiasComputer, Parser,
-        ParserStats,
+        ParserError, ParserStats,
     },
     infoln, warn, Logger,
 };
@@ -22,6 +22,8 @@ pub struct TokenParser {
     pub logger: Logger,
     pub limits: ParserLimits,
     pub bias_computer: Arc<dyn BiasComputer>,
+    last_step_stats: ParserStats,
+    max_step_stats: ParserStats,
     pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
@@ -93,6 +95,8 @@ impl TokenParser {
             inference_caps,
             limits,
             pending_bogus_backtrack: 0,
+            max_step_stats: ParserStats::default(),
+            last_step_stats: ParserStats::default(),
             mid_process_start_time,
             mid_process_was_accepting: false,
             no_bias_this_mid_process: false,
@@ -131,6 +135,14 @@ impl TokenParser {
 
     pub fn parser_stats(&self) -> &ParserStats {
         self.parser.stats()
+    }
+
+    pub fn last_step_stats(&self) -> &ParserStats {
+        &self.last_step_stats
+    }
+
+    pub fn max_step_stats(&self) -> &ParserStats {
+        &self.max_step_stats
     }
 
     pub fn num_tokens(&self) -> usize {
@@ -259,8 +271,9 @@ impl TokenParser {
     }
 
     // advance_parser() is a top-level method in this file.
-    // This advance_parser() is called indirectly via the advance_parser() method
-    // of the llguidance LLInterpreter interface,
+    // This advance_parser() is called by Constraint::commit_token().
+    // It is accessible via the advance_parser() method of
+    // the LLInterpreter interface.
     //
     // The result here *never* includes a mask.
     // It's either stop or an unconditional splice (possibly noop).
@@ -277,6 +290,11 @@ impl TokenParser {
         r
     }
 
+    // mid_process() is a top-level method in this file.
+    // mid_process() is called by Constraint::commit_token().
+    // It is also be called by TokenParser::advance_parser()
+    // within this file, in which case it is accessible
+    // via the advance_parser() method of the LLInterpreter interface.
     pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
         assert!(self.is_fresh == false, "process_prompt() not called");
 
@@ -364,6 +382,10 @@ impl TokenParser {
         }
 
         r
+    }
+
+    fn stop_for_parser_error(&mut self, pref: &str, err: ParserError) -> StepResult {
+        self.stop(&format!("{}{}", pref, err.message()), err.stop_reason())
     }
 
     fn mid_process_inner(&mut self, mut arg: StepArg) -> StepResult {
@@ -627,17 +649,18 @@ impl TokenParser {
             return StepResult::noop();
         }
 
-        let pre = instant::Instant::now();
         let pre_stats = self.parser.stats().clone();
         let mut set = self
             .parser
             .compute_bias(&*self.bias_computer, &token_prefix);
         let p_stats = self.parser.stats().delta(&pre_stats);
-        if let Some(err) = self.parser.lexer_error() {
-            let err = format!("lexer error: {}", err);
-            return self.stop(&err, StopReason::LexerTooComplex);
+        self.last_bias_time = Duration::from_micros(p_stats.compute_time_us);
+        self.last_step_stats = p_stats.clone();
+        self.max_step_stats = self.max_step_stats.max(&p_stats);
+
+        if let Some(err) = self.parser.get_error() {
+            return self.stop_for_parser_error("", err);
         }
-        self.last_bias_time = pre.elapsed();
 
         if inner_accepting {
             let mut all_accepting = true;
@@ -649,9 +672,8 @@ impl TokenParser {
                         let (is_accepting, mask) = pentry
                             .parser
                             .compute_bias_after_gen_grammar(&*self.bias_computer, pentry.symidx);
-                        if let Some(err) = pentry.parser.lexer_error() {
-                            let err = format!("lexer error (inner): {}", err);
-                            return self.stop(&err, StopReason::LexerTooComplex);
+                        if let Some(err) = pentry.parser.get_error() {
+                            return self.stop_for_parser_error("inner parser: ", err);
                         }
                         infoln!(self, "bias for upper parser: {}", trie.token_set_dbg(&mask));
                         pentry.mask = Some(mask);
@@ -676,9 +698,10 @@ impl TokenParser {
 
         infoln!(
             self,
-            "step-stats: {:?}; {} lex fuel; {}",
-            start_time.elapsed(),
+            "step-stats: {}us; {} lex fuel; {} items; {}",
+            start_time.elapsed().as_micros(),
             p_stats.lexer_cost,
+            p_stats.all_items,
             self.parser.lexer_stats(),
         );
 
@@ -703,7 +726,7 @@ impl TokenParser {
             if msg.len() > 0 {
                 warn!(self, "{}", msg);
             }
-            let grm = Arc::clone(&self.compiled_grammars[gen_grammar.grammar.0]);
+            let grm = Arc::clone(&self.compiled_grammars[gen_grammar.grammar.to_index().unwrap()]);
             let max_tokens = self.parser.grammar().sym_data(symidx).props.max_tokens;
             let parser = Parser::new(grm, gen_grammar, self.limits.clone())?;
             let mut old_parser = std::mem::replace(&mut self.parser, parser);

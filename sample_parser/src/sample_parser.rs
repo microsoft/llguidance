@@ -2,6 +2,7 @@ use std::{env, fs::File, hint::black_box, io::Read, vec};
 
 use llguidance_parser::{
     api::{ParserLimits, TopLevelGrammar},
+    lark_to_llguidance,
     toktrie::{InferenceCapabilities, TokEnv},
     Constraint, JsonCompileOptions, TokenParser,
 };
@@ -21,6 +22,8 @@ fn main() {
         let val = serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
         opts.json_to_llg(&val)
             .expect("Failed to convert JSON to LLG")
+    } else if args[1].ends_with(".lark") {
+        lark_to_llguidance(&schema_file).expect("Failed to convert lark to LLG")
     } else {
         panic!("Unknown schema file extension")
     };
@@ -80,11 +83,15 @@ fn main() {
             black_box(constraint.temperature);
             let sampled_token = tokens[idx];
 
+            let p_stats = constraint.parser.last_step_stats();
             println!(
-                "SAMPLE {}: {} {}",
+                "SAMPLE {}: {} {}; stats: {} lex, {} items, {} us",
                 idx,
                 sampled_token,
-                tok_env.tok_trie().token_dbg(sampled_token)
+                tok_env.tok_trie().token_dbg(sampled_token),
+                p_stats.lexer_cost,
+                p_stats.all_items,
+                p_stats.compute_time_us,
             );
             Some(sampled_token)
         } else {
@@ -127,6 +134,8 @@ fn main() {
     send_output(&constraint.flush_logs());
     // the stop reason should be likely also sent to the user
     println!("Stop reason: {:?}", constraint.parser.stop_reason());
+
+    println!("Max step stats: {:?}", constraint.parser.max_step_stats());
 }
 
 fn read_file_to_string(filename: &str) -> String {

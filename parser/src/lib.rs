@@ -21,6 +21,8 @@ pub use logging::Logger;
 pub use derivre;
 
 pub mod ffi;
+#[cfg(feature = "rayon")]
+mod ffi_par;
 
 mod grammar_builder;
 mod json;

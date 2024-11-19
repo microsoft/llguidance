@@ -1,0 +1,84 @@
+// based on https://gist.github.com/hoehrmann/f234c1156ee5ef7b24cb589c14aaefda?permalink_comment_id=5070397
+
+start: root
+nl: "\n"?
+text: ( /[^>"<&]/ | "&amp;"| "&lt;"| "&gt;"| "&quot;"| "&apos;"| "&#x" /[0-9a-fA-F]+/ ";" 
+    | "&#" /[0-9]+/ ";")*
+// text: TEXT
+root:  element1 
+element1: "<rfc" (  (" number=\""  text  "\"") | (" obsoletes=\""  text  "\"") | (" updates=\""  text  "\"") | (" category=\""  text  "\"") | (" mode=\""  text  "\"") | (" consensus=\""  "\"") | (" seriesNo=\""  text  "\"") | (" ipr=\""  text  "\"") | (" iprExtract=\""  text  "\"") | (" submissionType=\""  "\"") | (" docName=\""  text  "\"") | (" sortRefs=\""  "\"") | (" symRefs=\""  "\"") | (" tocInclude=\""  "\"") | (" tocDepth=\""  text  "\"") | (" prepTime=\""  text  "\"") | (" indexInclude=\""  "\"") | (" version=\""  text  "\"") | (" scripts=\""  text  "\"") | (" expiresDate=\""  text  "\""))*  ">" nl  (  (  (  (   (  ""  |  (  element2  )+  )  )   element3  )   element4  )   (  ""  |  element5  )  )  "</rfc>" nl
+element2: "<link" (  (" href=\""  text  "\"") | (" rel=\""  text  "\""))*  ">" nl  "</link>" nl
+element3: "<front"   ">" nl  (  (  (  (  (  (  (  (  (  (   element6  )   (  ""  |  (  element7  )+  )  )   (  element8  )+  )   (  ""  |  element9  )  )   (  ""  |  (  element10  )+  )  )   (  ""  |  (  element11  )+  )  )   (  ""  |  (  element12  )+  )  )   (  ""  |  element13  )  )   (  ""  |  (  element14  )+  )  )   (  ""  |  element15  )  )  "</front>" nl
+element4: "<middle"   ">" nl  (   (  element16  )+  )  "</middle>" nl
+element5: "<back"   ">" nl  (  (  (   (  ""  |  (  element17  )+  )  )   (  ""  |  (  element18  )+  )  )   (  ""  |  (  element16  )+  )  )  "</back>" nl
+element6: "<title" (  (" abbrev=\""  text  "\""))*  ">" nl  (   text  )  "</title>" nl
+element7: "<seriesInfo" (  (" name=\""  text  "\"") | (" value=\""  text  "\"") | (" status=\""  text  "\"") | (" stream=\""  "\""))*  ">" nl  "</seriesInfo>" nl
+element8: "<author" (  (" initials=\""  text  "\"") | (" surname=\""  text  "\"") | (" fullname=\""  text  "\"") | (" role=\"" "editor" "\""))*  ">" nl  (  (   (  ""  |  element19  )  )   (  ""  |  element20  )  )  "</author>" nl
+element9: "<date" (  (" day=\""  text  "\"") | (" month=\""  text  "\"") | (" year=\""  text  "\""))*  ">" nl  "</date>" nl
+element10: "<area"   ">" nl  (   text  )  "</area>" nl
+element11: "<workgroup"   ">" nl  (   text  )  "</workgroup>" nl
+element12: "<keyword"   ">" nl  (   text  )  "</keyword>" nl
+element13: "<abstract" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  (  (  (  element21  |  element22  )  |  element23  )  |  element24  )  )+  )  "</abstract>" nl
+element14: "<note" (  (" title=\""  text  "\"") | (" pn=\""  text  "\"") | (" removeInRFC=\""  "\""))*  ">" nl  (  (   (  ""  |  element25  )  )   (  (  (  (  element21  |  element22  )  |  element23  )  |  element24  )  )+  )  "</note>" nl
+element15: "<boilerplate"   ">" nl  (   (  element16  )+  )  "</boilerplate>" nl
+element16: "<section" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\"") | (" title=\""  text  "\"") | (" numbered=\""  "\"") | (" toc=\""  "\"") | (" removeInRFC=\""  "\""))*  ">" nl  (  (  (   (  ""  |  element25  )  )   (  ""  |  (  (  (  (  (  (  (  (  (  (  (  (  element26  |  element27  )  |  element28  )  |  element21  )  |  element29  )  |  element30  )  |  element22  )  |  element31  )  |  element23  )  |  element32  )  |  element33  )  |  element24  )  )+  )  )   (  ""  |  (  element16  )+  )  )  "</section>" nl
+element17: "<displayreference" (  (" target=\""  text  "\"") | (" to=\""  text  "\""))*  ">" nl  "</displayreference>" nl
+element18: "<references" (  (" pn=\""  text  "\"") | (" anchor=\""  text  "\"") | (" title=\""  text  "\""))*  ">" nl  (  (   (  ""  |  element25  )  )   (  ""  |  (  (  element34  |  element35  )  )+  )  )  "</references>" nl
+element19: "<organization" (  (" abbrev=\""  text  "\""))*  ">" nl  (   text  )  "</organization>" nl
+element20: "<address"   ">" nl  (  (  (  (  (   (  ""  |  element36  )  )   (  ""  |  element37  )  )   (  ""  |  element38  )  )   (  ""  |  element39  )  )   (  ""  |  element40  )  )  "</address>" nl
+element21: "<dl" (  (" anchor=\""  text  "\"") | (" spacing=\""  "\"") | (" hanging=\""  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  (  element41   element42  )  )+  )  "</dl>" nl
+element22: "<ol" (  (" anchor=\""  text  "\"") | (" type=\""  text  "\"") | (" start=\""  text  "\"") | (" group=\""  text  "\"") | (" spacing=\""  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  element43  )+  )  "</ol>" nl
+element23: "<t" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\"") | (" hangText=\""  text  "\"") | (" keepWithNext=\""  "\"") | (" keepWithPrevious=\""  "\""))*  ">" nl  (   (  (  (  (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element48  )  |  element49  )  |  element50  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element55  )  |  element56  )  )+  )  "</t>" nl
+element24: "<ul" (  (" anchor=\""  text  "\"") | (" spacing=\""  "\"") | (" empty=\""  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  element43  )+  )  "</ul>" nl
+element25: "<name" (  (" slugifiedName=\""  text  "\""))*  ">" nl  (   (  (  (  (  (  (  text  |  element45  )  |  element47  )  |  element49  )  |  element54  )  |  element56  )  )+  )  "</name>" nl
+element26: "<artwork" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\"") | (" name=\""  text  "\"") | (" type=\""  text  "\"") | (" src=\""  text  "\"") | (" align=\""  "\"") | (" alt=\""  text  "\"") | (" width=\""  text  "\"") | (" height=\""  text  "\"") | (" originalSrc=\""  text  "\""))*  ">" nl  (   text  )  "</artwork>" nl
+element27: "<aside" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  ""  |  (  (  (  (  (  (  (  (  (  element26  |  element21  )  |  element29  )  |  element30  )  |  element48  )  |  element22  )  |  element23  )  |  element32  )  |  element24  )  )+  )  )  "</aside>" nl
+element28: "<blockquote" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\"") | (" cite=\""  text  "\"") | (" quotedFrom=\""  text  "\""))*  ">" nl  (   (  (  (  (  (  (  (  (  element26  |  element21  )  |  element29  )  |  element22  )  |  element31  )  |  element23  )  |  element24  )  )+  |  (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  )  "</blockquote>" nl
+element29: "<figure" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\"") | (" title=\""  text  "\"") | (" suppress-title=\""  "\"") | (" src=\""  text  "\"") | (" originalSrc=\""  text  "\"") | (" align=\""  "\"") | (" alt=\""  text  "\"") | (" width=\""  text  "\"") | (" height=\""  text  "\""))*  ">" nl  (  (  (  (  (   (  ""  |  element25  )  )   (  ""  |  (  element30  )+  )  )   (  ""  |  element57  )  )   (  (  element26  |  element31  )  )+  )   (  ""  |  element58  )  )  "</figure>" nl
+element30: "<iref" (  (" item=\""  text  "\"") | (" subitem=\""  text  "\"") | (" primary=\""  "\"") | (" pn=\""  text  "\""))*  ">" nl  "</iref>" nl
+element31: "<sourcecode" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\"") | (" name=\""  text  "\"") | (" type=\""  text  "\"") | (" src=\""  text  "\"") | (" originalSrc=\""  text  "\""))*  ">" nl  (   text  )  "</sourcecode>" nl
+element32: "<table" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\""))*  ">" nl  (  (  (  (  (   (  ""  |  element25  )  )   (  ""  |  (  element30  )+  )  )   (  ""  |  element59  )  )   (  element60  )+  )   (  ""  |  element61  )  )  "</table>" nl
+element33: "<texttable" (  (" anchor=\""  text  "\"") | (" title=\""  text  "\"") | (" suppress-title=\""  "\"") | (" align=\""  "\"") | (" style=\""  "\""))*  ">" nl  (  (  (  (  (   (  ""  |  element25  )  )   (  ""  |  element57  )  )   (  element62  )+  )   (  ""  |  (  element63  )+  )  )   (  ""  |  element58  )  )  "</texttable>" nl
+element34: "<reference" (  (" anchor=\""  text  "\"") | (" target=\""  text  "\"") | (" quoteTitle=\""  "\""))*  ">" nl  (  (   element3  )   (  ""  |  (  (  (  (  element64  |  element65  )  |  element66  )  |  element7  )  )+  )  )  "</reference>" nl
+element35: "<referencegroup" (  (" anchor=\""  text  "\""))*  ">" nl  (   (  element34  )+  )  "</referencegroup>" nl
+element36: "<postal"   ">" nl  (   (  (  ""  |  (  (  (  (  (  element67  |  element68  )  |  element69  )  |  element70  )  |  element71  )  )+  )  |  (  element72  )+  )  )  "</postal>" nl
+element37: "<phone"   ">" nl  (   text  )  "</phone>" nl
+element38: "<facsimile"   ">" nl  (   text  )  "</facsimile>" nl
+element39: "<email"   ">" nl  (   text  )  "</email>" nl
+element40: "<uri"   ">" nl  (   text  )  "</uri>" nl
+element41: "<dt" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  "</dt>" nl
+element42: "<dd" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  (  (  (  (  (  (  (  element26  |  element21  )  |  element29  )  |  element22  )  |  element31  )  |  element23  )  |  element24  )  )+  |  (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  )  "</dd>" nl
+element43: "<li" (  (" anchor=\""  text  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  (  (  (  (  (  (  (  element26  |  element21  )  |  element29  )  |  element22  )  |  element31  )  |  element23  )  |  element24  )  )+  |  (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  )  "</li>" nl
+element44: "<bcp14"   ">" nl  (   text  )  "</bcp14>" nl
+element45: "<cref" (  (" anchor=\""  text  "\"") | (" source=\""  text  "\"") | (" display=\""  "\""))*  ">" nl  (   (  (  (  (  (  (  (  (  (  text  |  element46  )  |  element47  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  "</cref>" nl
+element46: "<em"   ">" nl  (   (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  "</em>" nl
+element47: "<eref" (  (" target=\""  text  "\""))*  ">" nl  (   text  )  "</eref>" nl
+element48: "<list" (  (" style=\""  text  "\"") | (" hangIndent=\""  text  "\"") | (" counter=\""  text  "\"") | (" pn=\""  text  "\""))*  ">" nl  (   (  element23  )+  )  "</list>" nl
+element49: "<relref" (  (" target=\""  text  "\"") | (" displayFormat=\""  "\"") | (" section=\""  text  "\"") | (" relative=\""  text  "\"") | (" derivedLink=\""  text  "\""))*  ">" nl  (   text  )  "</relref>" nl
+element50: "<spanx" (  (" style=\""  text  "\""))*  ">" nl  (   text  )  "</spanx>" nl
+element51: "<strong"   ">" nl  (   (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  "</strong>" nl
+element52: "<sub"   ">" nl  (   (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element54  )  |  element56  )  )+  )  "</sub>" nl
+element53: "<sup"   ">" nl  (   (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element54  )  |  element56  )  )+  )  "</sup>" nl
+element54: "<tt"   ">" nl  (   (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element56  )  )+  )  "</tt>" nl
+element55: "<vspace" (  (" blankLines=\""  text  "\""))*  ">" nl  "</vspace>" nl
+element56: "<xref" (  (" target=\""  text  "\"") | (" pageno=\""  "\"") | (" format=\""  "\"") | (" derivedContent=\""  text  "\""))*  ">" nl  (   text  )  "</xref>" nl
+element57: "<preamble"   ">" nl  (   (  (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element50  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  "</preamble>" nl
+element58: "<postamble"   ">" nl  (   (  (  (  (  (  (  text  |  element45  )  |  element47  )  |  element30  )  |  element50  )  |  element56  )  )+  )  "</postamble>" nl
+element59: "<thead" (  (" anchor=\""  text  "\""))*  ">" nl  (   (  element73  )+  )  "</thead>" nl
+element60: "<tbody" (  (" anchor=\""  text  "\""))*  ">" nl  (   (  element73  )+  )  "</tbody>" nl
+element61: "<tfoot" (  (" anchor=\""  text  "\""))*  ">" nl  (   (  element73  )+  )  "</tfoot>" nl
+element62: "<ttcol" (  (" width=\""  text  "\"") | (" align=\""  "\""))*  ">" nl  (   (  (  (  (  (  element45  |  element47  )  |  element30  )  |  element56  )  |  text  )  )+  )  "</ttcol>" nl
+element63: "<c"   ">" nl  (   (  (  (  (  (  (  text  |  element45  )  |  element47  )  |  element30  )  |  element50  )  |  element56  )  )+  )  "</c>" nl
+element64: "<annotation"   ">" nl  (   (  (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element50  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  "</annotation>" nl
+element65: "<format" (  (" target=\""  text  "\"") | (" type=\""  text  "\"") | (" octets=\""  text  "\""))*  ">" nl  "</format>" nl
+element66: "<refcontent"   ">" nl  (   (  (  (  (  (  (  (  text  |  element44  )  |  element46  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  )+  )  "</refcontent>" nl
+element67: "<city"   ">" nl  (   text  )  "</city>" nl
+element68: "<code"   ">" nl  (   text  )  "</code>" nl
+element69: "<country"   ">" nl  (   text  )  "</country>" nl
+element70: "<region"   ">" nl  (   text  )  "</region>" nl
+element71: "<street"   ">" nl  (   text  )  "</street>" nl
+element72: "<postalLine"   ">" nl  (   text  )  "</postalLine>" nl
+element73: "<tr" (  (" anchor=\""  text  "\""))*  ">" nl  (   (  (  element74  |  element75  )  )+  )  "</tr>" nl
+element74: "<td" (  (" anchor=\""  text  "\"") | (" colspan=\""  text  "\"") | (" rowspan=\""  text  "\"") | (" align=\""  "\""))*  ">" nl  (   (  (  (  (  (  (  (  (  element26  |  element21  )  |  element29  )  |  element22  )  |  element31  )  |  element23  )  |  element24  )  )+  |  (  (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element76  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  )  "</td>" nl
+element75: "<th" (  (" anchor=\""  text  "\"") | (" colspan=\""  text  "\"") | (" rowspan=\""  text  "\"") | (" align=\""  "\""))*  ">" nl  (   (  (  (  (  (  (  (  (  element26  |  element21  )  |  element29  )  |  element22  )  |  element31  )  |  element23  )  |  element24  )  )+  |  (  (  (  (  (  (  (  (  (  (  (  (  (  text  |  element44  )  |  element76  )  |  element45  )  |  element46  )  |  element47  )  |  element30  )  |  element49  )  |  element51  )  |  element52  )  |  element53  )  |  element54  )  |  element56  )  )+  )  )  "</th>" nl
+element76: "<br"   ">" nl  "</br>" nl
