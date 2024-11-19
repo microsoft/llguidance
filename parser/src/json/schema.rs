@@ -208,9 +208,21 @@ impl Schema {
     }
 }
 
+#[derive(Clone)]
+struct SchemaBuilderOptions {
+    max_size: usize,
+}
+
+impl Default for SchemaBuilderOptions {
+    fn default() -> Self {
+        SchemaBuilderOptions { max_size: 50_000 }
+    }
+}
+
 struct SharedContext {
     defs: HashMap<String, Schema>,
     seen: HashSet<String>,
+    n_compiled: usize,
 }
 
 impl SharedContext {
@@ -218,6 +230,7 @@ impl SharedContext {
         SharedContext {
             defs: HashMap::new(),
             seen: HashSet::new(),
+            n_compiled: 0,
         }
     }
 }
@@ -226,6 +239,7 @@ struct Context<'a> {
     resolver: Resolver<'a>,
     draft: Draft,
     shared: Rc<RefCell<SharedContext>>,
+    options: SchemaBuilderOptions,
 }
 
 impl<'a> Context<'a> {
@@ -235,6 +249,7 @@ impl<'a> Context<'a> {
             resolver: resolver,
             draft: resource.draft(),
             shared: Rc::clone(&self.shared),
+            options: self.options.clone(),
         })
     }
 
@@ -285,6 +300,15 @@ impl<'a> Context<'a> {
         }
         return false;
     }
+
+    fn increment(&self) -> Result<()> {
+        let mut shared = self.shared.borrow_mut();
+        shared.n_compiled += 1;
+        if shared.n_compiled > self.options.max_size {
+            bail!("schema too large");
+        }
+        Ok(())
+    }
 }
 
 fn draft_for(value: &Value) -> Draft {
@@ -320,6 +344,7 @@ pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>
         resolver: resolver,
         draft: draft,
         shared: Rc::new(RefCell::new(SharedContext::new())),
+        options: SchemaBuilderOptions::default(),
     };
 
     let schema = compile_resource(&ctx, resource_ref)?;
@@ -337,6 +362,8 @@ fn compile_contents(ctx: &Context, contents: &Value) -> Result<Schema> {
 }
 
 fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
+    ctx.increment()?;
+
     if let Some(b) = contents.as_bool() {
         if b {
             return Ok(Schema::Any);
@@ -530,6 +557,8 @@ fn intersect_ref(ctx: &Context, ref_uri: &str, schema: Schema) -> Result<Schema>
 }
 
 fn compile_type(ctx: &Context, tp: &str, schema: &Map<String, Value>) -> Result<Schema> {
+    ctx.increment()?;
+
     match tp {
         "null" => Ok(Schema::Null),
         "boolean" => Ok(Schema::Boolean),
@@ -771,6 +800,8 @@ fn intersect(ctx: &Context, schemas: Vec<Schema>) -> Result<Schema> {
 
 /// Intersect two schemas, returning a new (normalized) schema that represents the intersection of the two.
 fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Schema> {
+    ctx.increment()?;
+
     let merged = match (schema0, schema1) {
         (Schema::Any, schema1) => schema1,
         (schema0, Schema::Any) => schema0,
