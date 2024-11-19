@@ -250,6 +250,10 @@ impl<'a> Context<'a> {
         self.defs.borrow_mut().insert(uri.to_string(), schema);
     }
 
+    fn get_ref_cloned(&self, uri: &str) -> Option<Schema> {
+        self.defs.borrow().get(uri).cloned()
+    }
+
     fn mark_seen(&self, uri: &str) {
         self.seen.borrow_mut().insert(uri.to_string());
     }
@@ -407,7 +411,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             .iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
-        let merged = intersect(options.into_iter().chain(vec![siblings]).collect())?;
+        let merged = intersect(ctx, options.into_iter().chain(vec![siblings]).collect())?;
         return Ok(merged);
     }
 
@@ -423,7 +427,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         let options = any_of
             .into_iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
-            .map(|res| res.and_then(|schema| intersect_two(schema, siblings.clone())))
+            .map(|res| res.and_then(|schema| intersect_two(ctx, schema, siblings.clone())))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::AnyOf { options });
     }
@@ -441,7 +445,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         let options = one_of
             .into_iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
-            .map(|res| res.and_then(|schema| intersect_two(schema, siblings.clone())))
+            .map(|res| res.and_then(|schema| intersect_two(ctx, schema, siblings.clone())))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::OneOf { options });
     }
@@ -455,20 +459,10 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         let uri: String = ctx.normalize_ref(&reference)?.into_string();
         let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         if siblings == Schema::Any {
-            if !ctx.been_seen(&uri) {
-                ctx.mark_seen(&uri);
-                let resource = ctx.lookup_resource(&reference)?;
-                let resolved_schema = compile_resource(ctx, resource)?;
-                ctx.insert_ref(&uri, resolved_schema);
-            }
+            define_ref(ctx, &uri)?;
             return Ok(Schema::Ref { uri });
         } else {
-            if ctx.been_seen(&uri) {
-                bail!("Recursive $refs with sibling keys not implemented")
-            }
-            let resource = ctx.lookup_resource(&reference)?;
-            let resolved_schema = compile_resource(ctx, resource)?;
-            return Ok(intersect_two(siblings, resolved_schema)?);
+            return intersect_ref(ctx, &uri, siblings);
         }
     }
 
@@ -493,6 +487,33 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         .map(|tp| compile_type(ctx, &tp, &schemadict))
         .collect::<Result<Vec<Schema>>>()?;
     Ok(Schema::AnyOf { options })
+}
+
+fn define_ref(ctx: &Context, ref_uri: &str) -> Result<()> {
+    if !ctx.been_seen(ref_uri) {
+        ctx.mark_seen(ref_uri);
+        let resource = ctx.lookup_resource(ref_uri)?;
+        let resolved_schema = compile_resource(ctx, resource)?;
+        ctx.insert_ref(&ref_uri, resolved_schema);
+    }
+    Ok(())
+}
+
+fn intersect_ref(ctx: &Context, ref_uri: &str, schema: Schema) -> Result<Schema> {
+    define_ref(ctx, ref_uri)?;
+    let resolved_schema = ctx
+        .get_ref_cloned(ref_uri)
+        // The ref might not have been defined if we're in a recursive loop and every ref in the loop
+        // has a sibling key.
+        // TODO: add an extra layer of indirection by defining a URI for the current location (e.g. by hashing the serialized sibling schema)
+        // and returning a ref to that URI here to break the loop.
+        .ok_or_else(|| {
+            anyhow!(
+                "circular references with sibling keys are not supported: {}",
+                ref_uri
+            )
+        })?;
+    intersect_two(ctx, schema, resolved_schema)
 }
 
 fn compile_type(ctx: &Context, tp: &str, schema: &Map<String, Value>) -> Result<Schema> {
@@ -712,7 +733,7 @@ fn compile_object(
     })
 }
 
-fn intersect(schemas: Vec<Schema>) -> Result<Schema> {
+fn intersect(ctx: &Context, schemas: Vec<Schema>) -> Result<Schema> {
     let (schemas, unsatisfiable) = schemas
         .into_iter()
         // "Any" schemas can be ignored
@@ -726,7 +747,7 @@ fn intersect(schemas: Vec<Schema>) -> Result<Schema> {
 
     let mut merged = Schema::Any;
     for subschema in schemas.into_iter() {
-        merged = intersect_two(merged, subschema)?;
+        merged = intersect_two(ctx, merged, subschema)?;
         if matches!(merged, Schema::Unsatisfiable { .. }) {
             // Early exit if the schema is already unsatisfiable
             break;
@@ -736,36 +757,36 @@ fn intersect(schemas: Vec<Schema>) -> Result<Schema> {
 }
 
 /// Intersect two schemas, returning a new (normalized) schema that represents the intersection of the two.
-fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
+fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Schema> {
     let merged = match (schema0, schema1) {
         (Schema::Any, schema1) => schema1,
         (schema0, Schema::Any) => schema0,
         (Schema::Unsatisfiable { reason }, _) => Schema::Unsatisfiable { reason },
         (_, Schema::Unsatisfiable { reason }) => Schema::Unsatisfiable { reason },
-        (Schema::Ref { .. }, _) => bail!("$ref with siblings not implemented"),
-        (_, Schema::Ref { .. }) => bail!("$ref with siblings not implemented"),
+        (Schema::Ref { uri }, schema1) => intersect_ref(ctx, &uri, schema1)?,
+        (schema0, Schema::Ref { uri }) => intersect_ref(ctx, &uri, schema0)?,
         (Schema::OneOf { options }, schema1) => Schema::OneOf {
             options: options
                 .into_iter()
-                .map(|opt| intersect_two(opt, schema1.clone()))
+                .map(|opt| intersect_two(ctx, opt, schema1.clone()))
                 .collect::<Result<Vec<_>>>()?,
         },
         (schema0, Schema::OneOf { options }) => Schema::OneOf {
             options: options
                 .into_iter()
-                .map(|opt| intersect_two(schema0.clone(), opt))
+                .map(|opt| intersect_two(ctx, schema0.clone(), opt))
                 .collect::<Result<Vec<_>>>()?,
         },
         (Schema::AnyOf { options }, schema1) => Schema::AnyOf {
             options: options
                 .into_iter()
-                .map(|opt| intersect_two(opt, schema1.clone()))
+                .map(|opt| intersect_two(ctx, opt, schema1.clone()))
                 .collect::<Result<Vec<_>>>()?,
         },
         (schema0, Schema::AnyOf { options }) => Schema::AnyOf {
             options: options
                 .into_iter()
-                .map(|opt| intersect_two(schema0.clone(), opt))
+                .map(|opt| intersect_two(ctx, schema0.clone(), opt))
                 .collect::<Result<Vec<_>>>()?,
         },
         (Schema::Null, Schema::Null) => Schema::Null,
@@ -856,14 +877,14 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                 prefix1
                     .into_iter()
                     .zip(prefix2.into_iter())
-                    .map(|(item1, item2)| intersect_two(item1, item2))
+                    .map(|(item1, item2)| intersect_two(ctx, item1, item2))
                     .collect::<Result<Vec<_>>>()?
             },
             items: match (items1, items2) {
                 (None, None) => None,
                 (None, Some(item)) => Some(item),
                 (Some(item), None) => Some(item),
-                (Some(item1), Some(item2)) => Some(Box::new(intersect_two(*item1, *item2)?)),
+                (Some(item1), Some(item2)) => Some(Box::new(intersect_two(ctx, *item1, *item2)?)),
             },
         },
         (
@@ -884,11 +905,11 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                     .shift_remove(&key)
                     .or_else(|| add2.as_deref().cloned())
                     .unwrap_or(Schema::Any);
-                new_props.insert(key, intersect_two(prop1, prop2)?);
+                new_props.insert(key, intersect_two(ctx, prop1, prop2)?);
             }
             for (key, prop2) in props2.into_iter() {
                 let prop1 = add1.as_deref().cloned().unwrap_or(Schema::Any);
-                new_props.insert(key, intersect_two(prop1, prop2)?);
+                new_props.insert(key, intersect_two(ctx, prop1, prop2)?);
             }
             let mut required = req1;
             required.extend(req2);
@@ -898,7 +919,7 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                     (None, None) => None,
                     (None, Some(add2)) => Some(add2),
                     (Some(add1), None) => Some(add1),
-                    (Some(add1), Some(add2)) => Some(Box::new(intersect_two(*add1, *add2)?)),
+                    (Some(add1), Some(add2)) => Some(Box::new(intersect_two(ctx, *add1, *add2)?)),
                 },
                 required,
             }
@@ -1018,6 +1039,68 @@ mod test {
                     "type": "number",
                 },
             },
+        });
+        let schema = build_schema(&schema).unwrap();
+        println!("{:?}", schema);
+    }
+
+    #[test]
+    fn test_fhir() -> Result<()> {
+        let file = std::fs::read_to_string("../../fhir.schema.json")?;
+        let schema = build_schema(&serde_json::from_str(&file)?)?;
+        println!("{:?}", schema.0);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_recursive_ref() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "number",
+                },
+                "next": {
+                    "$ref": "#",
+                    "properties": {
+                        "value": {
+                            "type": "integer",
+                        },
+                    }
+                },
+            },
+            "additionalProperties": false,
+            "required": ["value"],
+        });
+        let schema = build_schema(&schema).unwrap();
+        println!("{:?}", schema);
+    }
+
+    #[test]
+    fn test_indirect_recursive_ref() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "number",
+                },
+                "next": {
+                    "$ref": "#/$defs/inner",
+                },
+            },
+            "additionalProperties": false,
+            "required": ["value"],
+            "$defs": {
+                "inner": {
+                    "$ref": "#",
+                    "properties": {
+                        "value": {
+                            "type": "integer",
+                        },
+                    }
+                }
+            }
         });
         let schema = build_schema(&schema).unwrap();
         println!("{:?}", schema);
