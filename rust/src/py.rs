@@ -272,7 +272,7 @@ impl JsonCompiler {
             key_separator: self.key_separator.clone(),
             whitespace_flexible: self.whitespace_flexible,
         };
-        let tlg = compile_options.json_to_llg(&schema).map_err(val_error)?;
+        let tlg = compile_options.json_to_llg(schema).map_err(val_error)?;
         let grammar = &tlg.grammars[0];
         Ok(serde_json::to_string(grammar).map_err(val_error)?)
     }

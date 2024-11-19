@@ -103,19 +103,19 @@ impl Default for JsonCompileOptions {
 }
 
 impl JsonCompileOptions {
-    pub fn json_to_llg(&self, schema: &Value) -> Result<TopLevelGrammar> {
+    pub fn json_to_llg(&self, schema: Value) -> Result<TopLevelGrammar> {
         let mut compiler = Compiler::new(self.clone());
         #[cfg(feature = "jsonschema_validation")]
         {
             use crate::json_validation::validate_schema;
-            validate_schema(schema)?;
+            validate_schema(&schema)?;
         }
 
         compiler.execute(schema)?;
         compiler.builder.finalize()
     }
 
-    pub fn json_to_llg_no_validate(&self, schema: &Value) -> Result<TopLevelGrammar> {
+    pub fn json_to_llg_no_validate(&self, schema: Value) -> Result<TopLevelGrammar> {
         let mut compiler = Compiler::new(self.clone());
         compiler.execute(schema)?;
         compiler.builder.finalize()
@@ -138,7 +138,7 @@ impl Compiler {
         }
     }
 
-    pub fn execute(&mut self, schema: &Value) -> Result<()> {
+    pub fn execute(&mut self, schema: Value) -> Result<()> {
         self.builder.add_grammar(GrammarWithLexer {
             greedy_skip_rx: if self.options.whitespace_flexible {
                 Some(mk_regex(r"[\x20\x0A\x0D\x09]+"))

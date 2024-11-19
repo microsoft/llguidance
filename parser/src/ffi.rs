@@ -358,7 +358,7 @@ fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> 
         .map_err(|e| anyhow::anyhow!("Invalid JSON in json_schema: {e}"))?;
     let opts = JsonCompileOptions::default();
     let grammar = opts
-        .json_to_llg(&json_schema)
+        .json_to_llg(json_schema)
         .map_err(|e| anyhow::anyhow!("Error compiling JSON schema to LLG: {e}"))?;
     init.build_constraint(grammar)
 }

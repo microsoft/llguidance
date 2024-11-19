@@ -93,7 +93,7 @@ fn grammar_from_json(
             "cannot have both json_schema/lark_grammar and nodes/rx_nodes"
         );
 
-        let mut new_grm = if let Some(json_schema) = input.json_schema.as_ref() {
+        let mut new_grm = if let Some(json_schema) = input.json_schema.take() {
             ensure!(
                 input.lark_grammar.is_none(),
                 "cannot have both json_schema and lark_grammar"

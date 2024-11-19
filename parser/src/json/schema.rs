@@ -323,7 +323,7 @@ fn instance_if_valid<'a>(instance: &'a Value, validator: &'a Validator) -> Optio
     }
 }
 
-pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>)> {
+pub fn build_schema(contents: Value) -> Result<(Schema, HashMap<String, Schema>)> {
     if let Some(b) = contents.as_bool() {
         if b {
             return Ok((Schema::Any, HashMap::new()));
@@ -332,9 +332,8 @@ pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>
         }
     }
 
-    let draft = draft_for(contents);
-    let resource_ref = draft.create_resource_ref(contents);
-    let resource = draft.create_resource(contents.clone());
+    let draft = draft_for(&contents);
+    let resource = draft.create_resource(contents);
     let base_uri = resource.id().unwrap_or(DEFAULT_ROOT_URI).to_string();
 
     let registry = Registry::try_new(&base_uri, resource)?;
@@ -347,7 +346,8 @@ pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>
         options: SchemaBuilderOptions::default(),
     };
 
-    let schema = compile_resource(&ctx, resource_ref)?;
+    let root_resource = ctx.lookup_resource(&base_uri)?;
+    let schema = compile_resource(&ctx, root_resource)?;
     let defs = std::mem::take(&mut ctx.shared.borrow_mut().defs);
     Ok((schema, defs))
 }
