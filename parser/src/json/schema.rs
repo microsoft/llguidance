@@ -127,121 +127,83 @@ pub enum Schema {
 impl Schema {
     pub fn false_schema() -> Schema {
         Schema::Unsatisfiable {
-            reason: "Schema is false".to_string(),
+            reason: "schema is false".to_string(),
         }
     }
 
-    fn normalize(self) -> Result<Schema> {
+    /// Shallowly normalize the schema, removing any unnecessary nesting or empty options.
+    fn normalize(self) -> Schema {
         match self {
-            Schema::Any => Ok(self),
-            Schema::Unsatisfiable { .. } => Ok(self),
-            Schema::Null => Ok(self),
-            Schema::Boolean => Ok(self),
-            Schema::Number { .. } => {
-                // TODO: validation logic, maybe returning Schema::Unsatisfiable
-                Ok(self)
-            }
-            Schema::String { .. } => {
-                // TODO: validation logic, maybe returning Schema::Unsatisfiable
-                Ok(self)
-            }
-            Schema::Array {
-                min_items,
-                max_items,
-                prefix_items,
-                items,
-            } => {
-                // TODO: validation logic, maybe returning Schema::Unsatisfiable
-                Ok(Schema::Array {
-                    min_items,
-                    max_items,
-                    prefix_items: prefix_items
-                        .into_iter()
-                        .map(|v| v.normalize())
-                        .collect::<Result<Vec<_>>>()?,
-                    items: items.map(|v| v.normalize().map(Box::new)).transpose()?,
-                })
-            }
-            Schema::Object {
-                properties,
-                additional_properties,
-                required,
-            } => {
-                // TODO: validation logic, maybe returning Schema::Unsatisfiable
-                Ok(Schema::Object {
-                    properties: properties
-                        .into_iter()
-                        .map(|(k, v)| v.normalize().map(|v| (k, v)))
-                        .collect::<Result<IndexMap<_, _>>>()?,
-                    additional_properties: additional_properties
-                        .map(|v| v.normalize().map(Box::new))
-                        .transpose()?,
-                    required: required,
-                })
-            }
-            Schema::Const { .. } => Ok(self),
             Schema::Enum { options } => {
                 if options.is_empty() {
-                    return Ok(Schema::Unsatisfiable {
+                    Schema::Unsatisfiable {
                         reason: "enum is empty".to_string(),
-                    });
+                    }
+                } else {
+                    Schema::Enum { options }
                 }
-                Ok(Schema::Enum { options })
             }
             Schema::AnyOf { options } => {
-                if options.is_empty() {
-                    return Ok(Schema::Unsatisfiable {
-                        reason: "anyOf is empty".to_string(),
-                    });
-                }
                 let mut unsats = Vec::new();
                 let mut valid = Vec::new();
-                for option in options {
-                    let normed = option.normalize()?;
-                    match normed {
-                        Schema::Unsatisfiable { .. } => unsats.push(normed),
-                        // Flatten nested anyOfs
+                for option in options.into_iter() {
+                    match option {
+                        Schema::Any => {
+                            return Schema::Any;
+                        }
+                        Schema::Unsatisfiable { reason } => {
+                            unsats.push(Schema::Unsatisfiable { reason })
+                        }
                         Schema::AnyOf { options: nested } => valid.extend(nested),
-                        _ => valid.push(normed),
+                        other => valid.push(other),
                     }
                 }
                 if valid.is_empty() {
                     // Return the first unsatisfiable schema for debug-ability
-                    return Ok(unsats.swap_remove(0));
+                    if let Some(unsat) = unsats.into_iter().next() {
+                        return unsat;
+                    }
+                    // We must not have had any schemas to begin with
+                    return Schema::Unsatisfiable {
+                        reason: "anyOf is empty".to_string(),
+                    };
                 }
                 if valid.len() == 1 {
-                    return Ok(valid.swap_remove(0));
+                    // Unwrap singleton
+                    return valid.swap_remove(0);
                 }
-                Ok(Schema::AnyOf { options: valid })
+                Schema::AnyOf { options: valid }
             }
             Schema::OneOf { options } => {
-                if options.is_empty() {
-                    return Ok(Schema::Unsatisfiable {
-                        reason: "oneOf is empty".to_string(),
-                    });
-                }
                 let mut unsats = Vec::new();
                 let mut valid = Vec::new();
-                for option in options {
-                    let normed = option.normalize()?;
-                    match normed {
-                        Schema::Unsatisfiable { .. } => unsats.push(normed),
+                for option in options.into_iter() {
+                    match option {
+                        Schema::Unsatisfiable { reason } => {
+                            unsats.push(Schema::Unsatisfiable { reason })
+                        }
                         // Flatten nested oneOfs: (A⊕B)⊕(C⊕D) = A⊕B⊕C⊕D
                         Schema::OneOf { options: nested } => valid.extend(nested),
-                        _ => valid.push(normed),
+                        other => valid.push(other),
                     }
                 }
                 if valid.is_empty() {
                     // Return the first unsatisfiable schema for debug-ability
-                    return Ok(unsats.swap_remove(0));
+                    if let Some(unsat) = unsats.into_iter().next() {
+                        return unsat;
+                    }
+                    // We must not have had any schemas to begin with
+                    return Schema::Unsatisfiable {
+                        reason: "oneOf is empty".to_string(),
+                    };
                 }
                 if valid.len() == 1 {
-                    return Ok(valid.swap_remove(0));
+                    // Unwrap singleton
+                    return valid.swap_remove(0);
                 }
-                Ok(Schema::OneOf { options: valid })
+                Schema::OneOf { options: valid }
             }
-            // TODO: ?
-            Schema::Ref { .. } => Ok(self),
+            other_schema => other_schema,
         }
     }
 }
@@ -354,7 +316,7 @@ fn compile_resource(ctx: &Context, resource: ResourceRef) -> Result<Schema> {
 }
 
 fn compile_contents(ctx: &Context, contents: &Value) -> Result<Schema> {
-    compile_contents_inner(ctx, contents)?.normalize()
+    compile_contents_inner(ctx, contents).map(|schema| schema.normalize())
 }
 
 fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
@@ -773,40 +735,41 @@ fn intersect(schemas: Vec<Schema>) -> Result<Schema> {
     Ok(merged)
 }
 
+/// Intersect two schemas, returning a new (normalized) schema that represents the intersection of the two.
 fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
-    match (schema0, schema1) {
-        (Schema::Any, schema1) => Ok(schema1),
-        (schema0, Schema::Any) => Ok(schema0),
-        (Schema::Unsatisfiable { reason }, _) => Ok(Schema::Unsatisfiable { reason }),
-        (_, Schema::Unsatisfiable { reason }) => Ok(Schema::Unsatisfiable { reason }),
-        (Schema::Ref { .. }, _) => Err(anyhow!("$ref with siblings not implemented")),
-        (_, Schema::Ref { .. }) => Err(anyhow!("$ref with siblings not implemented")),
-        (Schema::OneOf { options }, schema1) => Ok(Schema::OneOf {
+    let merged = match (schema0, schema1) {
+        (Schema::Any, schema1) => schema1,
+        (schema0, Schema::Any) => schema0,
+        (Schema::Unsatisfiable { reason }, _) => Schema::Unsatisfiable { reason },
+        (_, Schema::Unsatisfiable { reason }) => Schema::Unsatisfiable { reason },
+        (Schema::Ref { .. }, _) => bail!("$ref with siblings not implemented"),
+        (_, Schema::Ref { .. }) => bail!("$ref with siblings not implemented"),
+        (Schema::OneOf { options }, schema1) => Schema::OneOf {
             options: options
                 .into_iter()
                 .map(|opt| intersect_two(opt, schema1.clone()))
                 .collect::<Result<Vec<_>>>()?,
-        }),
-        (schema0, Schema::OneOf { options }) => Ok(Schema::OneOf {
+        },
+        (schema0, Schema::OneOf { options }) => Schema::OneOf {
             options: options
                 .into_iter()
                 .map(|opt| intersect_two(schema0.clone(), opt))
                 .collect::<Result<Vec<_>>>()?,
-        }),
-        (Schema::AnyOf { options }, schema1) => Ok(Schema::AnyOf {
+        },
+        (Schema::AnyOf { options }, schema1) => Schema::AnyOf {
             options: options
                 .into_iter()
                 .map(|opt| intersect_two(opt, schema1.clone()))
                 .collect::<Result<Vec<_>>>()?,
-        }),
-        (schema0, Schema::AnyOf { options }) => Ok(Schema::AnyOf {
+        },
+        (schema0, Schema::AnyOf { options }) => Schema::AnyOf {
             options: options
                 .into_iter()
                 .map(|opt| intersect_two(schema0.clone(), opt))
                 .collect::<Result<Vec<_>>>()?,
-        }),
-        (Schema::Null, Schema::Null) => Ok(Schema::Null),
-        (Schema::Boolean, Schema::Boolean) => Ok(Schema::Boolean),
+        },
+        (Schema::Null, Schema::Null) => Schema::Null,
+        (Schema::Boolean, Schema::Boolean) => Schema::Boolean,
         (
             Schema::Number {
                 minimum: min1,
@@ -822,13 +785,13 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                 exclusive_maximum: emax2,
                 integer: int2,
             },
-        ) => Ok(Schema::Number {
+        ) => Schema::Number {
             minimum: opt_max(min1, min2),
             maximum: opt_min(max1, max2),
             exclusive_minimum: opt_max(emin1, emin2),
             exclusive_maximum: opt_min(emax1, emax2),
             integer: int1 || int2,
-        }),
+        },
         (
             Schema::String {
                 min_length: min1,
@@ -842,7 +805,7 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                 pattern: pattern2,
                 format: format2,
             },
-        ) => Ok(Schema::String {
+        ) => Schema::String {
             min_length: min1.max(min2),
             max_length: opt_min(max1, max2),
             pattern: match (pattern1, pattern2) {
@@ -869,7 +832,7 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                     }
                 }
             },
-        }),
+        },
         (
             Schema::Array {
                 min_items: min1,
@@ -883,7 +846,7 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                 prefix_items: mut prefix2,
                 items: items2,
             },
-        ) => Ok(Schema::Array {
+        ) => Schema::Array {
             min_items: min1.max(min2),
             max_items: opt_min(max1, max2),
             prefix_items: {
@@ -902,7 +865,7 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                 (Some(item), None) => Some(item),
                 (Some(item1), Some(item2)) => Some(Box::new(intersect_two(*item1, *item2)?)),
             },
-        }),
+        },
         (
             Schema::Object {
                 properties: props1,
@@ -929,7 +892,7 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
             }
             let mut required = req1;
             required.extend(req2);
-            Ok(Schema::Object {
+            Schema::Object {
                 properties: new_props,
                 additional_properties: match (add1, add2) {
                     (None, None) => None,
@@ -938,13 +901,14 @@ fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
                     (Some(add1), Some(add2)) => Some(Box::new(intersect_two(*add1, *add2)?)),
                 },
                 required,
-            })
+            }
         }
         //TODO: get types for error message
-        _ => Ok(Schema::Unsatisfiable {
+        _ => Schema::Unsatisfiable {
             reason: "incompatible types".to_string(),
-        }),
-    }
+        },
+    };
+    Ok(merged.normalize())
 }
 
 fn opt_max<T: PartialOrd>(a: Option<T>, b: Option<T>) -> Option<T> {
