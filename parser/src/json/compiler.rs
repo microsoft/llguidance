@@ -282,7 +282,12 @@ impl Compiler {
                     .into_iter()
                     .map(|v| Schema::Const { value: v })
                     .collect::<Vec<_>>();
-                self.gen_json_array(&prefix_items, &Schema::false_schema(), n_items, Some(n_items))
+                self.gen_json_array(
+                    &prefix_items,
+                    &Schema::false_schema(),
+                    n_items,
+                    Some(n_items),
+                )
             }
             _ => {
                 // let serde_json dump simple values
