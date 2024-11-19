@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 use std::{collections::HashMap, vec};
@@ -339,7 +339,12 @@ impl Compiler {
         }
         .map(|val| val as i64);
         // TODO: handle errors in rx_int_range; currently it just panics
-        let rx = rx_int_range(minimum, maximum);
+        let rx = rx_int_range(minimum, maximum).with_context(|| {
+            format!(
+                "Failed to generate regex for integer range: min={:?}, max={:?}",
+                minimum, maximum
+            )
+        })?;
         Ok(self.lexeme(&rx))
     }
 
@@ -352,7 +357,13 @@ impl Compiler {
     ) -> Result<NodeRef> {
         check_number_bounds(minimum, maximum, exclusive_minimum, exclusive_maximum)?;
         // TODO: handle errors in rx_float_range; currently it just panics
-        let rx = rx_float_range(minimum, maximum, !exclusive_minimum, !exclusive_maximum);
+        let rx = rx_float_range(minimum, maximum, !exclusive_minimum, !exclusive_maximum)
+            .with_context(|| {
+                format!(
+                    "Failed to generate regex for float range: min={:?}, max={:?}",
+                    minimum, maximum
+                )
+            })?;
         Ok(self.lexeme(&rx))
     }
 
