@@ -9,7 +9,7 @@ use serde_json::Value;
 
 fn test_file(tok_env: TokEnv, file: &str) {
     let schema_file = read_file_to_string(file);
-    let opts = JsonCompileOptions { compact: false };
+    let opts = JsonCompileOptions::default();
     let val: Value = serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
 
     if schema_file.len() < 512 && val["$ref"].is_string() {

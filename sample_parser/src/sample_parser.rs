@@ -17,9 +17,7 @@ fn main() {
     let schema: TopLevelGrammar = if args[1].ends_with(".ll.json") {
         serde_json::from_str(&schema_file).expect("Invalid JSON in schema")
     } else if args[1].ends_with(".schema.json") {
-        let opts = JsonCompileOptions {
-            compact: false,
-        };
+        let opts = JsonCompileOptions::default();
         let val = serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
         opts.json_to_llg(&val)
             .expect("Failed to convert JSON to LLG")
