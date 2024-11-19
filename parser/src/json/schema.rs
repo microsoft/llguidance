@@ -120,19 +120,13 @@ pub enum Schema {
     },
 }
 
-impl From<bool> for Schema {
-    fn from(b: bool) -> Schema {
-        if b {
-            Schema::Any
-        } else {
-            Schema::Unsatisfiable {
-                reason: "Schema is false".to_string(),
-            }
+impl Schema {
+    pub fn false_schema() -> Schema {
+        Schema::Unsatisfiable {
+            reason: "Schema is false".to_string(),
         }
     }
-}
 
-impl Schema {
     fn normalize(self) -> Result<Schema> {
         match self {
             Schema::Any => Ok(self),
@@ -317,7 +311,11 @@ fn instance_if_valid<'a>(instance: &'a Value, validator: &'a Validator) -> Optio
 
 pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>)> {
     if let Some(b) = contents.as_bool() {
-        return Ok((b.into(), HashMap::new()));
+        if b {
+            return Ok((Schema::Any, HashMap::new()));
+        } else {
+            return Ok((Schema::false_schema(), HashMap::new()));
+        }
     }
 
     let draft = draft_for(contents);
@@ -350,7 +348,11 @@ fn compile_contents(ctx: &Context, contents: &Value) -> Result<Schema> {
 
 fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
     if let Some(b) = contents.as_bool() {
-        return Ok(b.into());
+        if b {
+            return Ok(Schema::Any);
+        } else {
+            return Ok(Schema::false_schema());
+        }
     }
 
     // Get the schema as an object

@@ -227,7 +227,7 @@ impl Compiler {
                 items,
             } => self.gen_json_array(
                 prefix_items,
-                items.as_deref().unwrap_or(&true.into()),
+                items.as_deref().unwrap_or(&Schema::Any),
                 *min_items,
                 *max_items,
             ),
@@ -237,7 +237,7 @@ impl Compiler {
                 required,
             } => self.gen_json_object(
                 properties,
-                additional_properties.as_deref().unwrap_or(&true.into()),
+                additional_properties.as_deref().unwrap_or(&Schema::Any),
                 required.iter().cloned().collect(),
             ),
             Schema::Const { value } => self.gen_json_const(value.clone()),
@@ -274,7 +274,7 @@ impl Compiler {
                         .map(|(k, v)| (k, Schema::Const { value: v })),
                 );
                 let required = properties.keys().cloned().collect();
-                self.gen_json_object(&properties, &false.into(), required)
+                self.gen_json_object(&properties, &Schema::false_schema(), required)
             }
             Value::Array(values) => {
                 let n_items = values.len() as u64;
@@ -282,7 +282,7 @@ impl Compiler {
                     .into_iter()
                     .map(|v| Schema::Const { value: v })
                     .collect::<Vec<_>>();
-                self.gen_json_array(&prefix_items, &false.into(), n_items, Some(n_items))
+                self.gen_json_array(&prefix_items, &Schema::false_schema(), n_items, Some(n_items))
             }
             _ => {
                 // let serde_json dump simple values
