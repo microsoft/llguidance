@@ -212,6 +212,48 @@ pub struct LlgConstraintInit {
     pub limits: ParserLimits,
 }
 
+impl LlgConstraintInit {
+    pub fn logger(&self) -> Logger {
+        Logger::new(self.log_buffer_level, self.log_stderr_level)
+    }
+
+    pub fn inference_capabilities(&self) -> InferenceCapabilities {
+        InferenceCapabilities {
+            ff_tokens: self.ff_tokens_ok,
+            backtrack: self.backtrack_ok,
+            conditional_ff_tokens: false,
+            fork: false,
+        }
+    }
+
+    pub fn tok_env(&self) -> Result<TokEnv> {
+        if self.tokenizer.is_null() {
+            bail!("Tokenizer is null");
+        }
+        Ok(unsafe { (&*self.tokenizer).to_env() })
+    }
+
+    pub fn build_parser(
+        &self,
+        grammar: TopLevelGrammar,
+        extra_lexemes: Vec<String>,
+    ) -> Result<TokenParser> {
+        TokenParser::from_llguidance_json(
+            self.tok_env()?,
+            grammar,
+            self.logger(),
+            self.inference_capabilities(),
+            self.limits.clone(),
+            extra_lexemes,
+        )
+    }
+
+    pub fn build_constraint(&self, grammar: TopLevelGrammar) -> Result<Constraint> {
+        let parser = self.build_parser(grammar, vec![])?;
+        Ok(Constraint::new(parser))
+    }
+}
+
 #[derive(Clone)]
 #[repr(C)]
 pub struct LlgConstraintStep {
@@ -297,7 +339,7 @@ fn new_constraint_regex(init: &LlgConstraintInit, regex: *const c_char) -> Resul
         .to_str()
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in regex"))?;
     let grammar = TopLevelGrammar::from_regex(RegexNode::Regex(regex.to_string()));
-    new_constraint_core(init, grammar)
+    init.build_constraint(grammar)
 }
 
 fn new_constraint_lark(init: &LlgConstraintInit, lark: *const c_char) -> Result<Constraint> {
@@ -305,7 +347,7 @@ fn new_constraint_lark(init: &LlgConstraintInit, lark: *const c_char) -> Result<
         .to_str()
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in lark"))?;
     let grammar = lark_to_llguidance(lark)?;
-    new_constraint_core(init, grammar)
+    init.build_constraint(grammar)
 }
 
 fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> Result<Constraint> {
@@ -318,7 +360,7 @@ fn new_constraint_json(init: &LlgConstraintInit, json_schema: *const c_char) -> 
     let grammar = opts
         .json_to_llg(&json_schema)
         .map_err(|e| anyhow::anyhow!("Error compiling JSON schema to LLG: {e}"))?;
-    new_constraint_core(init, grammar)
+    init.build_constraint(grammar)
 }
 
 fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Result<Constraint> {
@@ -327,7 +369,7 @@ fn new_constraint(init: &LlgConstraintInit, grammar_json: *const c_char) -> Resu
         .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in grammar_json"))?;
     let grammar: TopLevelGrammar = serde_json::from_str(grammar_json)
         .map_err(|e| anyhow::anyhow!("Invalid JSON in grammar_json: {e}"))?;
-    new_constraint_core(init, grammar)
+    init.build_constraint(grammar)
 }
 
 fn new_constraint_any(
@@ -345,29 +387,6 @@ fn new_constraint_any(
         "llguidance" | "guidance" => new_constraint(init, data),
         _ => bail!("unknown constraint type: {tp}"),
     }
-}
-
-fn new_constraint_core(init: &LlgConstraintInit, grammar: TopLevelGrammar) -> Result<Constraint> {
-    if init.tokenizer.is_null() {
-        bail!("Tokenizer is null");
-    }
-
-    let tok_env = unsafe { (&*init.tokenizer).to_env() };
-    let tok_parser = TokenParser::from_llguidance_json(
-        tok_env,
-        grammar,
-        Logger::new(init.log_buffer_level, init.log_stderr_level),
-        InferenceCapabilities {
-            ff_tokens: init.ff_tokens_ok,
-            backtrack: init.backtrack_ok,
-            conditional_ff_tokens: false,
-            fork: false,
-        },
-        init.limits.clone(),
-        vec![],
-    )?;
-
-    Ok(Constraint::new(tok_parser))
 }
 
 impl LlgConstraint {
@@ -411,7 +430,7 @@ pub extern "C" fn llg_constraint_init_set_defaults(
     };
 }
 
-fn return_constraint(c: Result<Constraint>) -> *mut LlgConstraint {
+pub fn constraint_to_llg(c: Result<Constraint>) -> *mut LlgConstraint {
     let mut res = LlgConstraint::default();
 
     match c {
@@ -429,7 +448,7 @@ pub extern "C" fn llg_new_constraint(
     init: &LlgConstraintInit,
     grammar_json: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint(init, grammar_json))
+    constraint_to_llg(new_constraint(init, grammar_json))
 }
 
 /// Create a new constraint from a given regular expression
@@ -439,7 +458,7 @@ pub extern "C" fn llg_new_constraint_regex(
     init: &LlgConstraintInit,
     regex: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint_regex(init, regex))
+    constraint_to_llg(new_constraint_regex(init, regex))
 }
 
 /// Create a new constraint from a given JSON schema
@@ -449,7 +468,7 @@ pub extern "C" fn llg_new_constraint_json(
     init: &LlgConstraintInit,
     json_schema: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint_json(init, json_schema))
+    constraint_to_llg(new_constraint_json(init, json_schema))
 }
 
 /// Create a new constraint from a given lark grammar
@@ -459,7 +478,7 @@ pub extern "C" fn llg_new_constraint_lark(
     init: &LlgConstraintInit,
     lark: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint_lark(init, lark))
+    constraint_to_llg(new_constraint_lark(init, lark))
 }
 
 /// Create a new constraint with specified type
@@ -471,7 +490,7 @@ pub extern "C" fn llg_new_constraint_any(
     constraint_type: *const c_char,
     data: *const c_char,
 ) -> *mut LlgConstraint {
-    return_constraint(new_constraint_any(init, constraint_type, data))
+    constraint_to_llg(new_constraint_any(init, constraint_type, data))
 }
 
 /// Get the error message from the constraint or null if there is no error.
