@@ -434,7 +434,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             .iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
-        let merged = merge(options.iter().chain(vec![&siblings]).collect())?;
+        let merged = intersect(options.into_iter().chain(vec![siblings]).collect())?;
         return Ok(merged);
     }
 
@@ -448,8 +448,9 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             return Ok(siblings);
         }
         let options = any_of
-            .iter()
+            .into_iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
+            .map(|res| res.and_then(|schema| intersect_two(schema, siblings.clone())))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::AnyOf { options });
     }
@@ -465,8 +466,9 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             return Ok(siblings);
         }
         let options = one_of
-            .iter()
+            .into_iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
+            .map(|res| res.and_then(|schema| intersect_two(schema, siblings.clone())))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::OneOf { options });
     }
@@ -496,7 +498,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             }
             let resource = ctx.lookup_resource(&reference)?;
             let resolved_schema = compile_resource(ctx, resource)?;
-            return Ok(merge_two(&siblings, &resolved_schema)?);
+            return Ok(intersect_two(resolved_schema, siblings)?);
         }
     }
 
@@ -740,24 +742,21 @@ fn compile_object(
     })
 }
 
-fn merge(schemas: Vec<&Schema>) -> Result<Schema> {
-    if schemas.is_empty() {
-        bail!("merge called with empty list")
+fn intersect(schemas: Vec<Schema>) -> Result<Schema> {
+    let (schemas, unsatisfiable) = schemas
+        .into_iter()
+        // "Any" schemas can be ignored
+        .filter(|schema| !matches!(schema, Schema::Any))
+        // Split into unsatisfiable and satisfiable schemas
+        .partition::<Vec<_>, _>(|schema| !matches!(schema, Schema::Unsatisfiable { .. }));
+
+    if let Some(schema) = unsatisfiable.into_iter().next() {
+        return Ok(schema);
     }
-    if schemas.iter().all(|schema| matches!(schema, Schema::Any)) {
-        return Ok(Schema::Any);
-    }
-    if let Some(unsat) = schemas
-        .iter()
-        .find(|schema| matches!(schema, Schema::Unsatisfiable { .. }))
-    {
-        // Return the first unsatisfiable schema for debug-ability
-        return Ok((*unsat).to_owned());
-    }
-    // TODO: can we avoid cloning here?
-    let mut merged = schemas[0].to_owned();
-    for subschema in &schemas[1..] {
-        merged = merge_two(&merged, subschema)?;
+
+    let mut merged = Schema::Any;
+    for subschema in schemas.into_iter() {
+        merged = intersect_two(merged, subschema)?;
         if matches!(merged, Schema::Unsatisfiable { .. }) {
             // Early exit if the schema is already unsatisfiable
             break;
@@ -766,36 +765,36 @@ fn merge(schemas: Vec<&Schema>) -> Result<Schema> {
     Ok(merged)
 }
 
-fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
+fn intersect_two(schema0: Schema, schema1: Schema) -> Result<Schema> {
     match (schema0, schema1) {
-        (Schema::Any, _) => Ok(schema1.to_owned()),
-        (_, Schema::Any) => Ok(schema0.to_owned()),
-        (Schema::Unsatisfiable { .. }, _) => Ok(schema0.to_owned()),
-        (_, Schema::Unsatisfiable { .. }) => Ok(schema1.to_owned()),
+        (Schema::Any, schema1) => Ok(schema1),
+        (schema0, Schema::Any) => Ok(schema0),
+        (Schema::Unsatisfiable { reason }, _) => Ok(Schema::Unsatisfiable { reason }),
+        (_, Schema::Unsatisfiable { reason }) => Ok(Schema::Unsatisfiable { reason }),
         (Schema::Ref { .. }, _) => Err(anyhow!("$ref with siblings not implemented")),
         (_, Schema::Ref { .. }) => Err(anyhow!("$ref with siblings not implemented")),
-        (Schema::OneOf { options }, _) => Ok(Schema::OneOf {
+        (Schema::OneOf { options }, schema1) => Ok(Schema::OneOf {
             options: options
-                .iter()
-                .map(|opt| merge_two(opt, schema1))
+                .into_iter()
+                .map(|opt| intersect_two(opt, schema1.clone()))
                 .collect::<Result<Vec<_>>>()?,
         }),
-        (_, Schema::OneOf { options }) => Ok(Schema::OneOf {
+        (schema0, Schema::OneOf { options }) => Ok(Schema::OneOf {
             options: options
-                .iter()
-                .map(|opt| merge_two(schema0, opt))
+                .into_iter()
+                .map(|opt| intersect_two(schema0.clone(), opt))
                 .collect::<Result<Vec<_>>>()?,
         }),
-        (Schema::AnyOf { options }, _) => Ok(Schema::AnyOf {
+        (Schema::AnyOf { options }, schema1) => Ok(Schema::AnyOf {
             options: options
-                .iter()
-                .map(|opt| merge_two(opt, schema1))
+                .into_iter()
+                .map(|opt| intersect_two(opt, schema1.clone()))
                 .collect::<Result<Vec<_>>>()?,
         }),
-        (_, Schema::AnyOf { options }) => Ok(Schema::AnyOf {
+        (schema0, Schema::AnyOf { options }) => Ok(Schema::AnyOf {
             options: options
-                .iter()
-                .map(|opt| merge_two(schema0, opt))
+                .into_iter()
+                .map(|opt| intersect_two(schema0.clone(), opt))
                 .collect::<Result<Vec<_>>>()?,
         }),
         (Schema::Null, Schema::Null) => Ok(Schema::Null),
@@ -816,11 +815,11 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
                 integer: int2,
             },
         ) => Ok(Schema::Number {
-            minimum: opt_max(*min1, *min2),
-            maximum: opt_min(*max1, *max2),
-            exclusive_minimum: opt_max(*emin1, *emin2),
-            exclusive_maximum: opt_min(*emax1, *emax2),
-            integer: *int1 || *int2,
+            minimum: opt_max(min1, min2),
+            maximum: opt_min(max1, max2),
+            exclusive_minimum: opt_max(emin1, emin2),
+            exclusive_maximum: opt_min(emax1, emax2),
+            integer: int1 || int2,
         }),
         (
             Schema::String {
@@ -836,15 +835,15 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
                 format: format2,
             },
         ) => Ok(Schema::String {
-            min_length: *min1.max(min2),
-            max_length: opt_min(*max1, *max2),
+            min_length: min1.max(min2),
+            max_length: opt_min(max1, max2),
             pattern: match (pattern1, pattern2) {
                 (None, None) => None,
-                (None, Some(r)) => Some(r.clone()),
-                (Some(r), None) => Some(r.clone()),
+                (None, Some(r)) => Some(r),
+                (Some(r), None) => Some(r),
                 (Some(r1), Some(r2)) => {
                     if r1 == r2 {
-                        Some(r1.clone())
+                        Some(r1)
                     } else {
                         bail!("intersection of patterns not implemented")
                     }
@@ -852,11 +851,11 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
             },
             format: match (format1, format2) {
                 (None, None) => None,
-                (None, Some(fmt)) => Some(fmt.clone()),
-                (Some(fmt), None) => Some(fmt.clone()),
+                (None, Some(fmt)) => Some(fmt),
+                (Some(fmt), None) => Some(fmt),
                 (Some(fmt1), Some(fmt2)) => {
                     if fmt1 == fmt2 {
-                        Some(fmt1.clone())
+                        Some(fmt1)
                     } else {
                         bail!("intersection of formats not implemented")
                     }
@@ -867,32 +866,33 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
             Schema::Array {
                 min_items: min1,
                 max_items: max1,
-                prefix_items: prefix1,
+                prefix_items: mut prefix1,
                 items: items1,
             },
             Schema::Array {
                 min_items: min2,
                 max_items: max2,
-                prefix_items: prefix2,
+                prefix_items: mut prefix2,
                 items: items2,
             },
         ) => Ok(Schema::Array {
-            min_items: *min1.max(min2),
-            max_items: opt_min(*max1, *max2),
-            prefix_items: zip_default(
-                prefix1,
-                prefix2,
-                items2.as_deref().unwrap_or(&Schema::Any),
-                items1.as_deref().unwrap_or(&Schema::Any),
-            )
-            .iter()
-            .map(|(item1, item2)| merge_two(item1, item2))
-            .collect::<Result<Vec<Schema>>>()?,
+            min_items: min1.max(min2),
+            max_items: opt_min(max1, max2),
+            prefix_items: {
+                let len = prefix1.len().max(prefix2.len());
+                prefix1.resize(len, items2.as_deref().cloned().unwrap_or(Schema::Any));
+                prefix2.resize(len, items1.as_deref().cloned().unwrap_or(Schema::Any));
+                prefix1
+                    .into_iter()
+                    .zip(prefix2.into_iter())
+                    .map(|(item1, item2)| intersect_two(item1, item2))
+                    .collect::<Result<Vec<_>>>()?
+            },
             items: match (items1, items2) {
                 (None, None) => None,
-                (None, Some(item)) => Some(Box::new(*item.clone())),
-                (Some(item), None) => Some(Box::new(*item.clone())),
-                (Some(item1), Some(item2)) => Some(Box::new(merge_two(&item1, &item2)?)),
+                (None, Some(item)) => Some(item),
+                (Some(item), None) => Some(item),
+                (Some(item1), Some(item2)) => Some(Box::new(intersect_two(*item1, *item2)?)),
             },
         }),
         (
@@ -902,32 +902,34 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
                 required: req1,
             },
             Schema::Object {
-                properties: props2,
+                properties: mut props2,
                 additional_properties: add2,
                 required: req2,
             },
         ) => {
             let mut new_props = IndexMap::new();
-            for key in props1.keys().chain(props2.keys()) {
-                let new_schema = match (props1.get(key), props2.get(key), add1, add2) {
-                    (Some(schema1), Some(schema2), _, _) => merge_two(schema1, schema2)?,
-                    (Some(schema1), None, _, Some(add)) => merge_two(schema1, &add)?,
-                    (None, Some(schema2), Some(add), _) => merge_two(&add, schema2)?,
-                    (Some(schema1), None, _, None) => schema1.to_owned(),
-                    (None, Some(schema2), None, _) => schema2.to_owned(),
-                    (None, None, _, _) => bail!("should not happen"),
-                };
-                new_props.insert(key.clone(), new_schema);
+            for (key, prop1) in props1.into_iter() {
+                let prop2 = props2
+                    .shift_remove(&key)
+                    .or_else(|| add2.as_deref().cloned())
+                    .unwrap_or(Schema::Any);
+                new_props.insert(key, intersect_two(prop1, prop2)?);
             }
+            for (key, prop2) in props2.into_iter() {
+                let prop1 = add1.as_deref().cloned().unwrap_or(Schema::Any);
+                new_props.insert(key, intersect_two(prop1, prop2)?);
+            }
+            let mut required = req1;
+            required.extend(req2);
             Ok(Schema::Object {
                 properties: new_props,
                 additional_properties: match (add1, add2) {
                     (None, None) => None,
-                    (None, Some(add)) => Some(Box::new(*add.clone())),
-                    (Some(add), None) => Some(Box::new(*add.clone())),
-                    (Some(add1), Some(add2)) => Some(Box::new(merge_two(&add1, &add2)?)),
+                    (None, Some(add2)) => Some(add2),
+                    (Some(add1), None) => Some(add1),
+                    (Some(add1), Some(add2)) => Some(Box::new(intersect_two(*add1, *add2)?)),
                 },
-                required: req1.union(req2).cloned().collect(),
+                required,
             })
         }
         //TODO: get types for error message
@@ -935,17 +937,6 @@ fn merge_two(schema0: &Schema, schema1: &Schema) -> Result<Schema> {
             reason: "incompatible types".to_string(),
         }),
     }
-}
-
-fn zip_default<'a, T>(
-    arr1: &'a [T],
-    arr2: &'a [T],
-    default1: &'a T,
-    default2: &'a T,
-) -> Vec<(&'a T, &'a T)> {
-    let iter1 = arr1.iter().chain(std::iter::repeat(default1));
-    let iter2 = arr2.iter().chain(std::iter::repeat(default2));
-    iter1.zip(iter2).take(arr1.len().max(arr2.len())).collect()
 }
 
 fn opt_max<T: PartialOrd>(a: Option<T>, b: Option<T>) -> Option<T> {
