@@ -609,14 +609,17 @@ impl ParserState {
         for idx in 0..self.row_infos.len() {
             let ri = &self.row_infos[idx];
             trace!("  lexeme: {}", self.lexer_spec().dbg_lexeme(&ri.lexeme));
-            let mut bytes = ri.lexeme.visible_bytes().to_vec();
+            let mut bytes = ri.lexeme.visible_bytes();
+            let mut _tmp_bytes = vec![];
             if bytes.is_empty() && idx == self.num_rows() - 1 {
-                bytes = self.curr_row_bytes();
+                _tmp_bytes = self.curr_row_bytes();
+                bytes = &_tmp_bytes;
                 trace!("    bytes: {:?}", String::from_utf8_lossy(&bytes));
             };
-            self.row_infos[idx].start_byte_idx = allbytes.len();
+            let l = allbytes.len();
             indices.extend((0..bytes.len()).map(|_| idx));
             allbytes.extend_from_slice(&bytes);
+            self.row_infos[idx].start_byte_idx = l;
         }
         (indices, allbytes)
     }
