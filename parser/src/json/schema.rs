@@ -362,8 +362,6 @@ fn compile_contents(ctx: &Context, contents: &Value) -> Result<Schema> {
 }
 
 fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
-    ctx.increment()?;
-
     if let Some(b) = contents.as_bool() {
         if b {
             return Ok(Schema::Any);
@@ -378,11 +376,28 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         .as_object()
         .ok_or_else(|| anyhow!("schema must be an object or boolean"))?;
 
+    // Make a mutable copy of the schema so we can modify it
+    let schemadict = schemadict
+        .iter()
+        .map(|(k, v)| (k.as_str(), v))
+        .collect::<HashMap<_, _>>();
+
+    compile_contents_map(ctx, schemadict)
+}
+
+fn dict_to_value(schemadict: &HashMap<&str, &Value>) -> Value {
+    let mut map = Map::new();
+    for (k, v) in schemadict {
+        map.insert(k.to_string(), (*v).clone());
+    }
+    Value::Object(map)
+}
+
+fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) -> Result<Schema> {
+    ctx.increment()?;
+
     // We don't need to compile the schema if it's just meta and annotations
-    if schemadict
-        .keys()
-        .all(|k| META_AND_ANNOTATIONS.contains(&k.as_str()))
-    {
+    if schemadict.keys().all(|k| META_AND_ANNOTATIONS.contains(k)) {
         return Ok(Schema::Any);
     }
 
@@ -397,7 +412,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
 
     // Short-circuit for const -- don't need to compile the rest of the schema
     if let Some(instance) = schemadict.get("const") {
-        let validator = validator_for(contents)?;
+        let validator = validator_for(&dict_to_value(&schemadict))?;
         if let Some(instance) = instance_if_valid(instance, &validator) {
             return Ok(Schema::Const {
                 value: instance.clone(),
@@ -413,7 +428,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
 
     // Short-circuit for enum -- don't need to compile the rest of the schema
     if let Some(instances) = schemadict.get("enum") {
-        let validator: Validator = validator_for(contents)?;
+        let validator: Validator = validator_for(&dict_to_value(&schemadict))?;
         let instances = instances
             .as_array()
             .ok_or_else(|| anyhow!("enum must be an array"))?;
@@ -435,14 +450,11 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         });
     }
 
-    // Make a mutable copy of the schema so we can modify it
-    let mut schemadict = schemadict.clone();
-
     if let Some(all_of) = schemadict.remove("allOf") {
         let all_of = all_of
             .as_array()
             .ok_or_else(|| anyhow!("allOf must be an array"))?;
-        let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
+        let siblings = compile_contents_map(ctx, schemadict)?;
         // Short-circuit if schema is already unsatisfiable
         if matches!(siblings, Schema::Unsatisfiable { .. }) {
             return Ok(siblings);
@@ -459,7 +471,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         let any_of = any_of
             .as_array()
             .ok_or_else(|| anyhow!("anyOf must be an array"))?;
-        let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
+        let siblings = compile_contents_map(ctx, schemadict)?;
         // Short-circuit if schema is already unsatisfiable
         if matches!(siblings, Schema::Unsatisfiable { .. }) {
             return Ok(siblings);
@@ -477,7 +489,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         let one_of = one_of
             .as_array()
             .ok_or_else(|| anyhow!("oneOf must be an array"))?;
-        let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
+        let siblings = compile_contents_map(ctx, schemadict)?;
         // Short-circuit if schema is already unsatisfiable
         if matches!(siblings, Schema::Unsatisfiable { .. }) {
             return Ok(siblings);
@@ -497,7 +509,7 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
             .to_string();
 
         let uri: String = ctx.normalize_ref(&reference)?.into_string();
-        let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
+        let siblings = compile_contents_map(ctx, schemadict)?;
         if siblings == Schema::Any {
             define_ref(ctx, &uri)?;
             return Ok(Schema::Ref { uri });
@@ -556,37 +568,39 @@ fn intersect_ref(ctx: &Context, ref_uri: &str, schema: Schema) -> Result<Schema>
     intersect_two(ctx, schema, resolved_schema)
 }
 
-fn compile_type(ctx: &Context, tp: &str, schema: &Map<String, Value>) -> Result<Schema> {
+fn compile_type(ctx: &Context, tp: &str, schema: &HashMap<&str, &Value>) -> Result<Schema> {
     ctx.increment()?;
+
+    let get = |key: &str| schema.get(key).map(|v| *v);
 
     match tp {
         "null" => Ok(Schema::Null),
         "boolean" => Ok(Schema::Boolean),
         "number" | "integer" => compile_numeric(
-            schema.get("minimum"),
-            schema.get("maximum"),
-            schema.get("exclusiveMinimum"),
-            schema.get("exclusiveMaximum"),
+            get("minimum"),
+            get("maximum"),
+            get("exclusiveMinimum"),
+            get("exclusiveMaximum"),
             tp == "integer",
         ),
         "string" => compile_string(
-            schema.get("minLength"),
-            schema.get("maxLength"),
-            schema.get("pattern"),
-            schema.get("format"),
+            get("minLength"),
+            get("maxLength"),
+            get("pattern"),
+            get("format"),
         ),
         "array" => compile_array(
             ctx,
-            schema.get("minItems"),
-            schema.get("maxItems"),
-            schema.get("prefixItems"),
-            schema.get("items"),
+            get("minItems"),
+            get("maxItems"),
+            get("prefixItems"),
+            get("items"),
         ),
         "object" => compile_object(
             ctx,
-            schema.get("properties"),
-            schema.get("additionalProperties"),
-            schema.get("required"),
+            get("properties"),
+            get("additionalProperties"),
+            get("required"),
         ),
         _ => bail!("Invalid type: {}", tp),
     }
