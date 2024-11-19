@@ -17,7 +17,7 @@ fn test_file(tok_env: TokEnv, file: &str) {
         return;
     }
 
-    let schema = opts.json_to_llg(&val);
+    let schema = opts.json_to_llg(val);
 
     let schema = match schema {
         Ok(schema) => schema,

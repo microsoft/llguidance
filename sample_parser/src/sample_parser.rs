@@ -20,7 +20,7 @@ fn main() {
     } else if args[1].ends_with(".schema.json") {
         let opts = JsonCompileOptions::default();
         let val = serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
-        opts.json_to_llg(&val)
+        opts.json_to_llg(val)
             .expect("Failed to convert JSON to LLG")
     } else if args[1].ends_with(".lark") {
         lark_to_llguidance(&schema_file).expect("Failed to convert lark to LLG")
