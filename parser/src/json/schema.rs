@@ -208,12 +208,24 @@ impl Schema {
     }
 }
 
+struct SharedContext {
+    defs: HashMap<String, Schema>,
+    seen: HashSet<String>,
+}
+
+impl SharedContext {
+    fn new() -> Self {
+        SharedContext {
+            defs: HashMap::new(),
+            seen: HashSet::new(),
+        }
+    }
+}
+
 struct Context<'a> {
     resolver: Resolver<'a>,
-    // TODO: actually use this to handle draft-specific behavior
     draft: Draft,
-    defs: Rc<RefCell<HashMap<String, Schema>>>,
-    seen: Rc<RefCell<HashSet<String>>>,
+    shared: Rc<RefCell<SharedContext>>,
 }
 
 impl<'a> Context<'a> {
@@ -222,8 +234,7 @@ impl<'a> Context<'a> {
         Ok(Context {
             resolver: resolver,
             draft: resource.draft(),
-            defs: Rc::clone(&self.defs),
-            seen: Rc::clone(&self.seen),
+            shared: Rc::clone(&self.shared),
         })
     }
 
@@ -247,19 +258,22 @@ impl<'a> Context<'a> {
     }
 
     fn insert_ref(&self, uri: &str, schema: Schema) {
-        self.defs.borrow_mut().insert(uri.to_string(), schema);
+        self.shared
+            .borrow_mut()
+            .defs
+            .insert(uri.to_string(), schema);
     }
 
     fn get_ref_cloned(&self, uri: &str) -> Option<Schema> {
-        self.defs.borrow().get(uri).cloned()
+        self.shared.borrow().defs.get(uri).cloned()
     }
 
     fn mark_seen(&self, uri: &str) {
-        self.seen.borrow_mut().insert(uri.to_string());
+        self.shared.borrow_mut().seen.insert(uri.to_string());
     }
 
     fn been_seen(&self, uri: &str) -> bool {
-        self.seen.borrow().contains(uri)
+        self.shared.borrow().seen.contains(uri)
     }
 
     fn is_valid_keyword(&self, keyword: &str) -> bool {
@@ -305,13 +319,12 @@ pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>
     let ctx = Context {
         resolver: resolver,
         draft: draft,
-        defs: Rc::new(RefCell::new(HashMap::new())),
-        seen: Rc::new(RefCell::new(HashSet::new())),
+        shared: Rc::new(RefCell::new(SharedContext::new())),
     };
 
     let schema = compile_resource(&ctx, resource_ref)?;
-    let definitions = ctx.defs.take();
-    Ok((schema, definitions))
+    let defs = std::mem::take(&mut ctx.shared.borrow_mut().defs);
+    Ok((schema, defs))
 }
 
 fn compile_resource(ctx: &Context, resource: ResourceRef) -> Result<Schema> {
