@@ -1,4 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use anyhow::{anyhow, bail, Result};
 use indexmap::{IndexMap, IndexSet};
@@ -247,6 +251,7 @@ struct Context<'a> {
     // TODO: actually use this to handle draft-specific behavior
     draft: Draft,
     defs: Rc<RefCell<HashMap<String, Schema>>>,
+    seen: Rc<RefCell<HashSet<String>>>,
 }
 
 impl<'a> Context<'a> {
@@ -256,6 +261,7 @@ impl<'a> Context<'a> {
             resolver: resolver,
             draft: resource.draft(),
             defs: Rc::clone(&self.defs),
+            seen: Rc::clone(&self.seen),
         })
     }
 
@@ -282,8 +288,12 @@ impl<'a> Context<'a> {
         self.defs.borrow_mut().insert(uri.to_string(), schema);
     }
 
-    fn contains_ref(&self, uri: &str) -> bool {
-        self.defs.borrow().contains_key(uri)
+    fn mark_seen(&self, uri: &str) {
+        self.seen.borrow_mut().insert(uri.to_string());
+    }
+
+    fn been_seen(&self, uri: &str) -> bool {
+        self.seen.borrow().contains(uri)
     }
 
     fn is_valid_keyword(&self, keyword: &str) -> bool {
@@ -330,6 +340,7 @@ pub fn build_schema(contents: &Value) -> Result<(Schema, HashMap<String, Schema>
         resolver: resolver,
         draft: draft,
         defs: Rc::new(RefCell::new(HashMap::new())),
+        seen: Rc::new(RefCell::new(HashSet::new())),
     };
 
     let schema = compile_resource(&ctx, resource_ref)?;
@@ -482,23 +493,20 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
         let uri: String = ctx.normalize_ref(&reference)?.into_string();
         let siblings = compile_contents(ctx, &Value::Object(schemadict))?;
         if siblings == Schema::Any {
-            let placeholder = Schema::Ref { uri: uri.clone() };
-            if ctx.contains_ref(uri.as_str()) {
-                // We've already built this ref, so we can just return it
-                return Ok(placeholder);
+            if !ctx.been_seen(&uri) {
+                ctx.mark_seen(&uri);
+                let resource = ctx.lookup_resource(&reference)?;
+                let resolved_schema = compile_resource(ctx, resource)?;
+                ctx.insert_ref(&uri, resolved_schema);
             }
-            ctx.insert_ref(uri.as_str(), placeholder.clone());
-            let resource = ctx.lookup_resource(&reference)?;
-            let resolved_schema = compile_resource(ctx, resource)?;
-            ctx.insert_ref(uri.as_str(), resolved_schema.clone());
-            return Ok(placeholder);
+            return Ok(Schema::Ref { uri });
         } else {
-            if ctx.contains_ref(uri.as_str()) {
+            if ctx.been_seen(&uri) {
                 bail!("Recursive $refs with sibling keys not implemented")
             }
             let resource = ctx.lookup_resource(&reference)?;
             let resolved_schema = compile_resource(ctx, resource)?;
-            return Ok(intersect_two(resolved_schema, siblings)?);
+            return Ok(intersect_two(siblings, resolved_schema)?);
         }
     }
 
