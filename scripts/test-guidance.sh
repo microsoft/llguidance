@@ -39,4 +39,4 @@ else
 fi
 
 python -m pytest $PYTEST_FLAGS tests/unit/test_ll.py # main test
-python -m pytest $PYTEST_FLAGS tests/unit/test_[lgmp]*.py tests/unit/library
+python -m pytest $PYTEST_FLAGS tests/unit/test_[lgmp]*.py tests/unit/library "$@"
