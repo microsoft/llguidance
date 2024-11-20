@@ -6,7 +6,6 @@ use std::{
 
 use anyhow::{anyhow, bail, Result};
 use indexmap::{IndexMap, IndexSet};
-use jsonschema::{validator_for, Uri, Validator};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use serde_json::{Map, Value};
 
@@ -260,11 +259,12 @@ impl<'a> Context<'a> {
             .create_resource_ref(contents)
     }
 
-    fn normalize_ref(&self, reference: &str) -> Result<Uri<String>> {
+    fn normalize_ref(&self, reference: &str) -> Result<String> {
         Ok(self
             .resolver
             .resolve_against(&self.resolver.base_uri().borrow(), reference)?
-            .normalize())
+            .normalize()
+            .into_string())
     }
 
     fn lookup_resource(&'a self, reference: &str) -> Result<ResourceRef> {
@@ -313,14 +313,6 @@ impl<'a> Context<'a> {
 
 fn draft_for(value: &Value) -> Draft {
     DEFAULT_DRAFT.detect(value).unwrap_or(DEFAULT_DRAFT)
-}
-
-fn instance_if_valid<'a>(instance: &'a Value, validator: &'a Validator) -> Option<&'a Value> {
-    if validator.is_valid(instance) {
-        Some(instance)
-    } else {
-        None
-    }
 }
 
 pub fn build_schema(contents: Value) -> Result<(Schema, HashMap<String, Schema>)> {
@@ -393,11 +385,15 @@ fn dict_to_value(schemadict: &HashMap<&str, &Value>) -> Value {
     Value::Object(map)
 }
 
+fn only_meta_and_annotations(schemadict: &HashMap<&str, &Value>) -> bool {
+    schemadict.keys().all(|k| META_AND_ANNOTATIONS.contains(k))
+}
+
 fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) -> Result<Schema> {
     ctx.increment()?;
 
     // We don't need to compile the schema if it's just meta and annotations
-    if schemadict.keys().all(|k| META_AND_ANNOTATIONS.contains(k)) {
+    if only_meta_and_annotations(&schemadict) {
         return Ok(Schema::Any);
     }
 
@@ -411,43 +407,73 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
     }
 
     // Short-circuit for const -- don't need to compile the rest of the schema
-    if let Some(instance) = schemadict.get("const") {
-        let validator = validator_for(&dict_to_value(&schemadict))?;
-        if let Some(instance) = instance_if_valid(instance, &validator) {
+    if let Some(instance) = schemadict.remove("const") {
+        if only_meta_and_annotations(&schemadict) {
             return Ok(Schema::Const {
                 value: instance.clone(),
             });
         }
-        return Ok(Schema::Unsatisfiable {
-            reason: format!(
-                "const instance is invalid against parent schema: {:?}",
-                instance
-            ),
-        });
-    }
-
-    // Short-circuit for enum -- don't need to compile the rest of the schema
-    if let Some(instances) = schemadict.get("enum") {
-        let validator: Validator = validator_for(&dict_to_value(&schemadict))?;
-        let instances = instances
-            .as_array()
-            .ok_or_else(|| anyhow!("enum must be an array"))?;
-        let valid_instances = instances
-            .iter()
-            .filter_map(|instance| instance_if_valid(instance, &validator))
-            .cloned()
-            .collect::<Vec<_>>();
-        if valid_instances.is_empty() {
+        #[cfg(not(feature = "jsonschema_validation"))]
+        {
+            return Err(anyhow!(
+                "const keyword with siblings requires jsonschema_validation feature"
+            ));
+        }
+        #[cfg(feature = "jsonschema_validation")]
+        {
+            use jsonschema::validator_for;
+            let validator = validator_for(&dict_to_value(&schemadict))?;
+            if validator.is_valid(instance) {
+                return Ok(Schema::Const {
+                    value: instance.clone(),
+                });
+            }
             return Ok(Schema::Unsatisfiable {
                 reason: format!(
-                    "enum instances all invalid against parent schema: {:?}",
-                    instances
+                    "const instance is invalid against parent schema: {:?}",
+                    instance
                 ),
             });
         }
-        return Ok(Schema::Enum {
-            options: valid_instances,
-        });
+    }
+
+    // Short-circuit for enum -- don't need to compile the rest of the schema
+    if let Some(instances) = schemadict.remove("enum") {
+        if only_meta_and_annotations(&schemadict) {
+            return Ok(Schema::Enum {
+                options: instances
+                    .as_array()
+                    .ok_or_else(|| anyhow!("enum must be an array"))?
+                    .clone(),
+            });
+        }
+        #[cfg(not(feature = "jsonschema_validation"))]
+        {
+            return Err(anyhow!(
+                "enum keyword with siblings requires jsonschema_validation feature"
+            ));
+        }
+        #[cfg(feature = "jsonschema_validation")]
+        {
+            use jsonschema::validator_for;
+            let validator = validator_for(&dict_to_value(&schemadict))?;
+            let (valid, invalid): (Vec<_>, Vec<_>) = instances
+                .as_array()
+                .ok_or_else(|| anyhow!("enum must be an array"))?
+                .into_iter()
+                .partition(|instance| validator.is_valid(instance));
+            if valid.is_empty() {
+                return Ok(Schema::Unsatisfiable {
+                    reason: format!(
+                        "enum instances all invalid against parent schema: {:?}",
+                        invalid
+                    ),
+                });
+            }
+            return Ok(Schema::Enum {
+                options: valid.into_iter().cloned().collect(),
+            });
+        }
     }
 
     if let Some(all_of) = schemadict.remove("allOf") {
@@ -508,7 +534,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
             .ok_or_else(|| anyhow!("$ref must be a string, got {}", limited_str(&reference)))?
             .to_string();
 
-        let uri: String = ctx.normalize_ref(&reference)?.into_string();
+        let uri: String = ctx.normalize_ref(&reference)?;
         let siblings = compile_contents_map(ctx, schemadict)?;
         if siblings == Schema::Any {
             define_ref(ctx, &uri)?;
