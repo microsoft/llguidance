@@ -218,7 +218,7 @@ impl RowInfo {
 // 'row_idx' field.  The current Earley table/stack is rows 0 through 'row_idx'.
 #[derive(Clone, Copy)]
 struct LexerState {
-    row_idx: u32, // Index of corresponding row (Earley set)
+    row_idx: u32,         // Index of corresponding row (Earley set)
     lexer_state: StateID, // state after consuming 'byte'
     byte: Option<u8>,
 }
@@ -242,6 +242,7 @@ struct ParserState {
     limits: ParserLimits,
     max_all_items: usize,
     parser_error: Option<String>,
+    did_backtrack: bool,
 }
 
 #[derive(Clone)]
@@ -381,6 +382,7 @@ impl ParserState {
             trie_gen_grammar: None,
             trie_gen_grammar_accepting: false,
             limits,
+            did_backtrack: false,
             lexer_stack: vec![LexerState {
                 row_idx: 0,
                 lexer_state,
@@ -677,6 +679,7 @@ impl ParserState {
     ) -> Result<&'static str> {
         debug!("apply_tokens: {:?}\n  {}", tokens, trie.tokens_dbg(tokens));
         self.assert_definitive();
+        self.did_backtrack = false;
         // reset token_idx
         for ri in self.row_infos.iter_mut() {
             ri.token_idx_start = usize::MAX;
@@ -1487,7 +1490,7 @@ impl ParserState {
         no_hidden: LexerState,
         lexeme_byte: Option<u8>,
         pre_lexeme: PreLexeme,
-    ) {
+    ) -> bool {
         let added_row_lexemes = &self.rows[self.num_rows()].allowed_lexemes;
 
         // make sure we have a real lexeme
@@ -1512,28 +1515,54 @@ impl ParserState {
             // if the bytes are forced, we just advance the lexer
             // by replacing the top lexer states
             self.pop_lexer_states(hidden_bytes.len() - 1);
-            for b in hidden_bytes {
+            for idx in 0..hidden_bytes.len() {
+                let b = hidden_bytes[idx];
                 match shared
                     .lexer
-                    .advance(lexer_state, *b, self.scratch.definitive)
+                    .advance(lexer_state, b, self.scratch.definitive)
                 {
                     LexerResult::State(next_state, _) => {
                         lexer_state = next_state;
                     }
                     LexerResult::Error => panic!("hidden byte failed; {:?}", hidden_bytes),
-                    LexerResult::Lexeme(lex) => panic!(
-                        "hidden byte produced lexeme {}",
-                        self.lexer_spec().dbg_lexeme(&Lexeme::just_idx(lex.idx))
-                    ),
+                    LexerResult::Lexeme(second_lexeme) => {
+                        if self.scratch.definitive {
+                            debug!("hidden bytes lexeme: {:?}", second_lexeme);
+                        }
+                        assert!(
+                            idx == hidden_bytes.len() - 1,
+                            "lexeme in the middle of hidden bytes"
+                        );
+
+                        // save current state, we'll need to pop it later
+                        self.lexer_stack.push(LexerState {
+                            lexer_state,
+                            byte: None,
+                            ..no_hidden
+                        });
+                        let r = self.advance_parser(shared, second_lexeme);
+                        // println!("hidden bytes lexeme: {:?} -> {r}", second_lexeme);
+                        if r {
+                            // here, advance_parser() has pushed a state; we replace our state with it
+                            let new_top = self.lexer_stack.pop().unwrap();
+                            *self.lexer_stack.last_mut().unwrap() = new_top;
+                            return true;
+                        } else {
+                            // otherwise, we just pop our state
+                            self.lexer_stack.pop();
+                            return false;
+                        }
+                    }
                 }
                 self.lexer_stack.push(LexerState {
                     lexer_state,
-                    byte: Some(*b),
+                    byte: Some(b),
                     ..no_hidden
                 });
             }
         } else {
             if self.scratch.definitive {
+                self.did_backtrack = true;
                 // set it up for matching after backtrack
                 self.lexer_stack.push(LexerState {
                     lexer_state: shared.lexer.start_state(added_row_lexemes, None),
@@ -1548,7 +1577,13 @@ impl ParserState {
                     ..no_hidden
                 });
             }
+            // panic!("hidden bytes not forced");
         }
+
+        if self.scratch.definitive {
+            self.assert_definitive();
+        }
+        true
     }
 
     /// Advance the parser with given 'pre_lexeme'.
@@ -1600,7 +1635,7 @@ impl ParserState {
             let mut no_hidden = self.lexer_state_for_added_row(shared, lexeme, transition_byte);
 
             if pre_lexeme.hidden_len > 0 {
-                self.handle_hidden_bytes(shared, no_hidden, lexeme_byte, pre_lexeme);
+                return self.handle_hidden_bytes(shared, no_hidden, lexeme_byte, pre_lexeme);
             } else {
                 if pre_lexeme.byte_next_row && no_hidden.lexer_state.is_dead() {
                     if self.scratch.definitive {
@@ -1901,6 +1936,10 @@ impl Parser {
     ) -> Result<&'static str> {
         let mut shared = self.shared.lock().unwrap();
         self.state.apply_tokens(&mut shared, trie, tokens, num_skip)
+    }
+
+    pub fn did_backtrack(&self) -> bool {
+        self.state.did_backtrack
     }
 
     pub fn filter_max_tokens(&mut self) {

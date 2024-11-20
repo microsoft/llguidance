@@ -478,6 +478,7 @@ impl TokenParser {
                 );
             }
         };
+        let did_backtrack = self.parser.did_backtrack();
 
         self.parser.filter_max_tokens();
 
@@ -498,6 +499,7 @@ impl TokenParser {
         if self.llm_bytes.len() > grm_bytes.len()
             || self.llm_bytes != grm_bytes[0..self.llm_bytes.len()]
         {
+            assert!(did_backtrack);
             let mut ptr = 0;
             for (idx, t) in self.llm_tokens.iter().enumerate() {
                 let b = trie.token(*t);
@@ -523,6 +525,8 @@ impl TokenParser {
                     String::from_utf8_lossy(&grm_bytes)
                 );
             }
+        } else {
+            assert!(!did_backtrack);
         }
 
         // if arg.tokens.contains(&trie.eos_token()) {
