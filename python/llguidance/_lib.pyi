@@ -139,3 +139,22 @@ class LLInterpreter:
         """
         If true, next mid_process() call will return stop
         """
+
+class JsonCompiler:
+    def __new__(
+        cls,
+        compact: bool = False,
+    ) -> "JsonCompiler":
+        """
+        Create a new JSON compiler.
+        Args:
+            compact: bool - whether to use compact JSON representation
+        """
+
+    def compile(
+        self,
+        schema: str,
+    ) -> str:
+        """
+        Compile the JSON representation of the AG2 grammar/constraint.
+        """

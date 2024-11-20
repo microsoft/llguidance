@@ -6,9 +6,10 @@ use llguidance_parser::toktrie::{
     self, InferenceCapabilities, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
 };
 use llguidance_parser::{api::TopLevelGrammar, output::ParserOutput, TokenParser};
-use llguidance_parser::{Constraint, Logger};
+use llguidance_parser::{Constraint, JsonCompileOptions, Logger};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Clone)]
 #[pyclass]
@@ -240,9 +241,48 @@ impl TokenizerEnv for LLTokenizer {
     }
 }
 
+#[derive(Clone)]
+#[pyclass]
+struct JsonCompiler {
+    item_separator: String,
+    key_separator: String,
+    whitespace_flexible: bool
+}
+
+#[pymethods]
+impl JsonCompiler {
+    #[new]
+    #[pyo3(signature = (separators = None, whitespace_flexible = false))]
+    fn py_new(separators: Option<(String, String)>, whitespace_flexible: bool) -> Self {
+        let (item_separator, key_separator) = separators.unwrap_or_else(|| if whitespace_flexible {
+            (",".to_owned(), ":".to_owned())
+        } else {
+            (", ".to_owned(), ": ".to_owned())
+        });
+        JsonCompiler {
+            item_separator: item_separator,
+            key_separator: key_separator,
+            whitespace_flexible,
+        }
+    }
+    fn compile(&self, schema: &str) -> PyResult<String> {
+        let schema: Value = serde_json::from_str(schema).map_err(val_error)?;
+        let compile_options = JsonCompileOptions {
+            item_separator: self.item_separator.clone(),
+            key_separator: self.key_separator.clone(),
+            whitespace_flexible: self.whitespace_flexible,
+        };
+        let tlg = compile_options.json_to_llg(schema).map_err(val_error)?;
+        let grammar = &tlg.grammars[0];
+        Ok(serde_json::to_string(grammar).map_err(val_error)?)
+    }
+
+}
+
 pub(crate) fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LLTokenizer>()?;
     m.add_class::<LLInterpreter>()?;
+    m.add_class::<JsonCompiler>()?;
     Ok(())
 }
 

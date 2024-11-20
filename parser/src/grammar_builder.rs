@@ -7,7 +7,7 @@ use crate::api::{
     RegexSpec, TopLevelGrammar,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct NodeRef {
     idx: usize,
     grammar_id: u32,
@@ -89,6 +89,14 @@ impl RegexBuilder {
 
     pub fn repeat(&mut self, node: RegexId, min: u32, max: Option<u32>) -> RegexId {
         self.add_node(RegexNode::Repeat(node, min, max))
+    }
+
+    pub fn not(&mut self, node: RegexId) -> RegexId {
+        self.add_node(RegexNode::Not(node))
+    }
+
+    pub fn and(&mut self, nodes: Vec<RegexId>) -> RegexId {
+        self.add_node(RegexNode::And(nodes))
     }
 
     fn finalize(&mut self) -> Vec<RegexNode> {
