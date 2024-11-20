@@ -232,6 +232,7 @@ struct ParserState {
     lexer_stack: Vec<LexerState>,
     rows: Vec<Row>,
     row_infos: Vec<RowInfo>,
+    first_row_with_max_token_limit: usize,
     stats: ParserStats,
     last_collapse: usize, // In this parser, collapse() is unused
     token_idx: usize,
@@ -378,6 +379,7 @@ impl ParserState {
             token_idx: 0,
             byte_idx: 0,
             max_all_items: usize::MAX,
+            first_row_with_max_token_limit: 0,
             options,
             trie_gen_grammar: None,
             trie_gen_grammar_accepting: false,
@@ -807,7 +809,13 @@ impl ParserState {
     pub fn filter_max_tokens(&mut self) {
         self.assert_definitive();
 
-        let mut dst = 0;
+        let start_idx = self.first_row_with_max_token_limit;
+
+        if start_idx >= self.num_rows() {
+            return;
+        }
+
+        self.first_row_with_max_token_limit = self.num_rows();
 
         self.row_infos.push(RowInfo {
             lexeme: Lexeme::bogus(),
@@ -817,9 +825,11 @@ impl ParserState {
             max_tokens: Arc::new(HashMap::default()),
         });
 
-        for idx in 0..self.num_rows() {
+        let mut dst = self.rows[start_idx].first_item;
+        for idx in start_idx..self.num_rows() {
             let range = self.rows[idx].item_indices();
             self.rows[idx].first_item = dst;
+            let mut has_max_tokens = false;
             for i in range {
                 let item = self.scratch.items[i];
                 let sym_data = self.item_sym_data(&item);
@@ -835,11 +845,16 @@ impl ParserState {
                         );
                         continue;
                     }
+                    has_max_tokens = true;
                 }
                 self.scratch.items[dst] = item;
                 dst += 1;
             }
             self.rows[idx].last_item = dst;
+            if has_max_tokens {
+                self.first_row_with_max_token_limit =
+                    std::cmp::min(self.first_row_with_max_token_limit, idx);
+            }
         }
 
         self.row_infos.pop();
