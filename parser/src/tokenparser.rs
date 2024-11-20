@@ -194,7 +194,7 @@ impl TokenParser {
         infoln!(self, "prompt: {}", trie.tokens_dbg(&prompt));
         let mut prompt_bytes = trie.decode_raw(&prompt);
         self.parser.force_bytes();
-        let grm_bytes = self.parser.get_bytes();
+        let grm_bytes = self.parser.get_bytes().to_vec();
         prompt_bytes.extend_from_slice(&grm_bytes);
         let tokens = self.token_env.tokenize_bytes_prefix(&prompt_bytes);
         infoln!(self, "prompt+grm: {}", trie.tokens_dbg(&tokens));
@@ -238,17 +238,6 @@ impl TokenParser {
             }));
         }
         res_prompt
-    }
-
-    fn grm_bytes(&mut self) -> Vec<u8> {
-        let mut grm_bytes = self.grm_prefix.clone();
-        grm_bytes.extend_from_slice(&self.previous_grm_bytes);
-        grm_bytes.extend_from_slice(&self.parser.get_bytes());
-        grm_bytes
-    }
-
-    fn is_top_level_parser(&self) -> bool {
-        self.parser_stack.is_empty()
     }
 
     fn test_trace_json(&mut self, j: &serde_json::Value) {
@@ -388,6 +377,99 @@ impl TokenParser {
         self.stop(&format!("{}{}", pref, err.message()), err.stop_reason())
     }
 
+    fn apply_tokens(&mut self, tokens: &[TokenId]) -> Option<StepResult> {
+        let trie = self.token_env.tok_trie();
+
+        self.llm_tokens.extend_from_slice(tokens);
+
+        for (tidx, &tok_id) in tokens.iter().enumerate() {
+            let tok_bytes = trie.token(tok_id);
+
+            // first, check we're still in grm_prefix
+            let prefix_len = self.grm_prefix.len().saturating_sub(self.llm_bytes.len());
+            let tok_bytes = if prefix_len > 0 {
+                let to_apply = &tok_bytes[0..std::cmp::min(tok_bytes.len(), prefix_len)];
+                self.llm_bytes.extend_from_slice(to_apply);
+
+                if self.grm_prefix[0..self.llm_bytes.len()] != self.llm_bytes {
+                    return Some(self.stop(
+                        &format!(
+                            "prefix mismatch: applying {:?}; {:?} vs {:?}",
+                            String::from_utf8_lossy(to_apply),
+                            String::from_utf8_lossy(&self.grm_prefix),
+                            String::from_utf8_lossy(&self.llm_bytes)
+                        ),
+                        StopReason::InternalError,
+                    ));
+                }
+
+                if prefix_len < tok_bytes.len() {
+                    &tok_bytes[prefix_len..]
+                } else {
+                    continue;
+                }
+            } else {
+                tok_bytes
+            };
+
+            // now apply normally
+            match self.parser.apply_token(tok_bytes) {
+                Err(e) => {
+                    return Some(self.stop(
+                        &format!("Parser Error: {}", e),
+                        StopReason::ParserTooComplex, // TODO - there are other reasons
+                    ));
+                }
+                Ok(mut backtrack_bytes) => {
+                    self.llm_bytes.extend_from_slice(tok_bytes);
+
+                    if backtrack_bytes != 0 {
+                        // we definitely need to backtrack the tokens we didn't get to yet
+                        let mut backtrack_tokens = (tokens.len() - tidx) - 1;
+                        if backtrack_tokens > 0 {
+                            // normally, there should be none
+                            warn!(self, "init backtrack_tokens: {}", backtrack_tokens);
+                        }
+                        while backtrack_bytes > 0 {
+                            let tok_off = self.llm_tokens.len() - backtrack_tokens;
+                            if tok_off == 0 {
+                                break; // we can't backtrack any further
+                            }
+                            let tok = self.llm_tokens[tok_off - 1];
+                            backtrack_bytes = backtrack_bytes.saturating_sub(trie.token(tok).len());
+                            backtrack_tokens += 1;
+                        }
+                        assert!(backtrack_tokens > 0);
+
+                        let byte_ptr = self.llm_bytes.len() - backtrack_bytes;
+                        infoln!(
+                            self,
+                            "backtrack: {} (deletes: {:?})",
+                            backtrack_tokens,
+                            String::from_utf8_lossy(&self.llm_bytes[byte_ptr..])
+                        );
+                        self.llm_bytes.truncate(byte_ptr);
+
+                        let token_ptr = self.llm_tokens.len() - backtrack_tokens;
+                        if !self.inference_caps.backtrack {
+                            warn!(
+                                self,
+                                "can't backtrack over {}; this may confuse the model",
+                                trie.tokens_dbg(&self.llm_tokens[token_ptr..])
+                            );
+                            self.llm_tokens.truncate(token_ptr);
+                        } else {
+                            self.llm_tokens.truncate(token_ptr);
+                            return Some(StepResult::splice(backtrack_tokens as u32, vec![]));
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     fn mid_process_inner(&mut self, mut arg: StepArg) -> StepResult {
         let start_time = instant::Instant::now();
 
@@ -416,8 +498,11 @@ impl TokenParser {
                     // popping parsers in the next iteration - clear pop_tokens
                     if pentry.mask.as_ref().unwrap().is_allowed(arg.tokens[0]) {
                         self.pop_tokens = None;
+                    } else {
+                        // otherwise, we will recursively pop parsers
                     }
                     self.pop_parser();
+                    // TODO remove recursion
                     return self.mid_process_inner(arg);
                 }
             }
@@ -434,15 +519,13 @@ impl TokenParser {
                 arg.tokens.clear();
             } else {
                 infoln!(self, "didn't scan eos_token; saving");
-                arg.save_tokens(&mut self.llm_tokens);
                 has_eos = true;
             }
-        } else {
-            arg.save_tokens(&mut self.llm_tokens);
         }
 
-        let new_bytes = trie.decode_raw(&arg.tokens);
-        self.llm_bytes.extend_from_slice(&new_bytes);
+        if let Some(res) = self.apply_tokens(&arg.tokens) {
+            return res;
+        }
 
         // eprintln!(
         //     "llm_bytes: {:?}\nllm_tokens: {}\n{:?}",
@@ -451,94 +534,17 @@ impl TokenParser {
         //     self.llm_tokens
         // );
 
-        // TODO maybe remove in future
-        if self.llm_bytes != trie.decode_raw(&self.llm_tokens) {
-            panic!(
-                "llm_bytes mismatch:\n    {:?}\n    {:?}",
-                String::from_utf8_lossy(&self.llm_bytes),
-                String::from_utf8_lossy(&trie.decode_raw(&self.llm_tokens))
-            );
-        }
-
-        match self.parser.apply_tokens(
-            trie,
-            &self.llm_tokens[self.parser_llm_tokens_offset..],
-            if self.is_top_level_parser() {
-                self.grm_prefix.len()
-            } else {
-                0
-            },
-        ) {
-            Ok("") => {}
-            Ok(msg) => infoln!(self, "parser: {}", msg),
-            Err(e) => {
-                return self.stop(
-                    &format!("Parser Error: {}", e),
-                    StopReason::ParserTooComplex,
-                );
-            }
-        };
-        let did_backtrack = self.parser.did_backtrack();
-
         self.parser.filter_max_tokens();
 
         // force after scanning tokens from LLM (this may walk the parser some more)
-        self.parser.force_bytes();
-        let grm_bytes = self.grm_bytes();
+        let new_forced = self.parser.force_bytes().to_vec();
+
         let trie = self.token_env.tok_trie(); // make borrow-checker happy
 
-        let mut backtrack = 0;
-
-        // println!(
-        //     "\nllm_bytes: {:?}\ngrm_bytes: {:?}\n",
-        //     String::from_utf8_lossy(&self.llm_bytes),
-        //     String::from_utf8_lossy(&grm_bytes),
-        // );
-
-        // now, see if we need to backtrack
-        if self.llm_bytes.len() > grm_bytes.len()
-            || self.llm_bytes != grm_bytes[0..self.llm_bytes.len()]
-        {
-            assert!(did_backtrack);
-            let mut ptr = 0;
-            for (idx, t) in self.llm_tokens.iter().enumerate() {
-                let b = trie.token(*t);
-                let pend = ptr + b.len();
-                if pend > grm_bytes.len() || b != &grm_bytes[ptr..pend] {
-                    backtrack = self.llm_tokens.len() - idx;
-                    infoln!(
-                        self,
-                        "backtrack: {} (deletes: {:?})",
-                        backtrack,
-                        String::from_utf8_lossy(&self.llm_bytes[ptr..])
-                    );
-                    assert!(backtrack > 0);
-                    self.llm_bytes.drain(ptr..);
-                    break;
-                }
-                ptr = pend;
-            }
-            if backtrack == 0 {
-                panic!(
-                    "backtrack failed {:?} {:?}",
-                    String::from_utf8_lossy(&self.llm_bytes),
-                    String::from_utf8_lossy(&grm_bytes)
-                );
-            }
-        } else {
-            assert!(!did_backtrack);
-        }
-
-        // if arg.tokens.contains(&trie.eos_token()) {
-        //     return StepResult::stop();
-        // }
-
-        let new_forced = grm_bytes[self.llm_bytes.len()..].to_vec();
         let mut token_prefix = Vec::new();
 
         let do_force = new_forced.len() > 0 && !self.parser.grammar().lexer_spec().no_forcing;
-
-        if do_force || backtrack > 0 {
+        if do_force {
             let mut grm_tokens = self.token_env.tokenize_bytes_prefix(&new_forced);
             infoln!(
                 self,
@@ -555,27 +561,9 @@ impl TokenParser {
             // here we remove a suffix from grm_tokens that could be possibly tokenized differently
             grm_tokens.truncate(grm_tokens.len() - chop_tokens);
 
-            if grm_tokens.len() > 0 || backtrack > 0 {
-                infoln!(
-                    self,
-                    "fixed_tokens: {} bt={}",
-                    trie.tokens_dbg(&grm_tokens),
-                    backtrack
-                );
-                if backtrack != 0 && !self.inference_caps.backtrack {
-                    let msg = format!(
-                        "can't backtrack over {}; this may confuse the model",
-                        trie.tokens_dbg(
-                            &self.llm_tokens[self.llm_tokens.len() - backtrack as usize..]
-                        )
-                    );
-                    warn!(self, "{}", msg);
-                    // Setting error is too extreme here (may terminate the sequence)
-                    // self.error_message = Some(msg);
-                    self.pending_bogus_backtrack = backtrack as u32;
-                    backtrack = 0;
-                }
-                return StepResult::splice(backtrack as u32, grm_tokens);
+            if grm_tokens.len() > 0 {
+                infoln!(self, "fixed_tokens: {}", trie.tokens_dbg(&grm_tokens),);
+                return StepResult::splice(0, grm_tokens);
             } else {
                 infoln!(self, "no fixed tokens");
             }
@@ -735,7 +723,7 @@ impl TokenParser {
             let parser = Parser::new(grm, gen_grammar, self.limits.clone())?;
             let mut old_parser = std::mem::replace(&mut self.parser, parser);
             self.parser.take_global_state_from(&mut old_parser);
-            let mut entry = ParserStackEntry {
+            let entry = ParserStackEntry {
                 parser: old_parser,
                 parser_llm_tokens_offset: self.parser_llm_tokens_offset,
                 previous_grm_bytes_len: self.previous_grm_bytes.len(),
@@ -754,7 +742,7 @@ impl TokenParser {
     }
 
     fn pop_parser(&mut self) {
-        let inner_bytes = self.parser.get_bytes();
+        let inner_bytes = self.parser.get_bytes().to_vec();
         let entry = self.parser_stack.pop().unwrap();
         let mut prev_parser = std::mem::replace(&mut self.parser, entry.parser);
         self.parser.take_global_state_from(&mut prev_parser);

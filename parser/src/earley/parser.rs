@@ -17,7 +17,7 @@ use anyhow::{bail, ensure, Result};
 use derivre::{RegexAst, StateID};
 use instant::Instant;
 use serde::{Deserialize, Serialize};
-use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie, TokenId};
+use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie};
 
 use crate::{
     api::{GenGrammarOptions, ParserLimits, StopReason},
@@ -174,6 +174,8 @@ struct RowInfo {
     // keys allow an unlimited number of tokens.  That the number
     // of tokens is unlimited can be indicated explicitly by setting
     // the value of the hash entry to usize::MAX.
+
+    // TODO: we are only interested in this for the last (current) row; remove from here?
     max_tokens: Arc<HashMap<LexemeIdx, usize>>,
 }
 
@@ -211,8 +213,8 @@ impl RowInfo {
 //
 // The data structure used to resolve this "impedance mismatch" is a stack of 'LexerState' items.
 // Tokens are broken down into single bytes when they go into this stack,
-// and the bytes are assembled into lexemes when the 'LexerState' items are
-// removed from the stack.
+// and the bytes are assembled into lexemes by the lexer.
+// The 'LexerState' items are left on the stack (unless backtracking).
 //
 // The stack of lexer states also manages a virtual stack of Earley sets, via the
 // 'row_idx' field.  The current Earley table/stack is rows 0 through 'row_idx'.
@@ -229,21 +231,29 @@ struct ParserState {
     scratch: Scratch,
     trie_lexer_stack: usize,
     captures: Vec<(String, Vec<u8>)>,
+
+    // These are updated also in speculative mode.
+    // Both are stacks only in the sense that items can be popped on backtracking
+    // (when walking the token trie). Otherwise, they represent the full parsing
+    // history - items are not popped in definitive mode.
     lexer_stack: Vec<LexerState>,
     rows: Vec<Row>,
+
+    // These are only updated in definitive mode.
     row_infos: Vec<RowInfo>,
+    token_idx: usize,
+    bytes: Vec<u8>,
+    applied_byte_idx: usize,
+
     first_row_with_max_token_limit: usize,
     stats: ParserStats,
-    last_collapse: usize, // In this parser, collapse() is unused
-    token_idx: usize,
-    byte_idx: usize,
     options: GenGrammarOptions,
     trie_gen_grammar: Option<CSymIdx>,
     trie_gen_grammar_accepting: bool,
     limits: ParserLimits,
     max_all_items: usize,
     parser_error: Option<String>,
-    did_backtrack: bool,
+    backtrack_byte_count: usize,
 }
 
 #[derive(Clone)]
@@ -375,16 +385,16 @@ impl ParserState {
             captures: vec![],
             scratch,
             stats: ParserStats::default(),
-            last_collapse: 0,
             token_idx: 0,
-            byte_idx: 0,
+            applied_byte_idx: 0,
+            bytes: vec![],
             max_all_items: usize::MAX,
             first_row_with_max_token_limit: 0,
             options,
             trie_gen_grammar: None,
             trie_gen_grammar_accepting: false,
             limits,
-            did_backtrack: false,
+            backtrack_byte_count: 0,
             lexer_stack: vec![LexerState {
                 row_idx: 0,
                 lexer_state,
@@ -539,6 +549,7 @@ impl ParserState {
         self.scratch.item_to_string(idx)
     }
 
+    #[allow(dead_code)]
     pub fn print_row(&self, row_idx: usize) {
         let row = &self.rows[row_idx];
         println!(
@@ -596,6 +607,7 @@ impl ParserState {
 
     fn assert_definitive(&self) {
         assert!(self.scratch.definitive);
+        assert!(self.backtrack_byte_count == 0);
         if self.num_rows() != self.row_infos.len() {
             panic!(
                 "num_rows={} row_infos={}",
@@ -605,31 +617,8 @@ impl ParserState {
         }
     }
 
-    fn get_bytes_and_lexeme_indices(&mut self) -> (Vec<usize>, Vec<u8>) {
-        self.assert_definitive();
-        let mut indices = vec![];
-        let mut allbytes = vec![];
-        trace!("get_bytes:");
-        for idx in 0..self.row_infos.len() {
-            let ri = &self.row_infos[idx];
-            trace!("  lexeme: {}", self.lexer_spec().dbg_lexeme(&ri.lexeme));
-            let mut bytes = ri.lexeme.visible_bytes();
-            let mut _tmp_bytes = vec![];
-            if bytes.is_empty() && idx == self.num_rows() - 1 {
-                _tmp_bytes = self.curr_row_bytes();
-                bytes = &_tmp_bytes;
-                trace!("    bytes: {:?}", String::from_utf8_lossy(&bytes));
-            };
-            let l = allbytes.len();
-            indices.extend((0..bytes.len()).map(|_| idx));
-            allbytes.extend_from_slice(&bytes);
-            self.row_infos[idx].start_byte_idx = l;
-        }
-        (indices, allbytes)
-    }
-
-    pub fn get_bytes(&mut self) -> Vec<u8> {
-        self.get_bytes_and_lexeme_indices().1
+    pub fn get_bytes(&self) -> &[u8] {
+        &self.bytes
     }
 
     fn item_lhs(&self, item: &Item) -> CSymIdx {
@@ -672,130 +661,109 @@ impl ParserState {
     // apply_tokens() "pushes" the bytes in 'tokens' into the lexer and parser.  It is a top-level
     // method in this file.  It is well below llguidance's top-level methods, but in the llguidance
     // LLInterpreter interface, it is called indirectly via the advance_parser() method.
-    pub fn apply_tokens(
-        &mut self,
-        shared: &mut SharedState,
-        trie: &TokTrie,
-        tokens: &[TokenId],
-        mut num_skip: usize,
-    ) -> Result<&'static str> {
-        debug!("apply_tokens: {:?}\n  {}", tokens, trie.tokens_dbg(tokens));
+    pub fn apply_token(&mut self, shared: &mut SharedState, tok_bytes: &[u8]) -> Result<usize> {
         self.assert_definitive();
-        self.did_backtrack = false;
-        // reset token_idx
-        for ri in self.row_infos.iter_mut() {
-            ri.token_idx_start = usize::MAX;
-            ri.token_idx_stop = 0;
-        }
-        let mut last_lexeme = 0;
-        let (indices, grm_bytes) = self.get_bytes_and_lexeme_indices();
-        let mut byte_idx = 0;
 
-        for (tok_idx, t) in tokens.iter().enumerate() {
-            let tok_bytes = trie.token(*t).to_vec();
-            for (idx_within_token, b) in tok_bytes.iter().enumerate() {
-                if num_skip > 0 {
-                    num_skip -= 1;
-                    continue;
-                }
+        let mut check_lexer_max_tokens = false;
 
-                if byte_idx >= grm_bytes.len() {
-                    self.token_idx = tok_idx; // save local pointer, in case push_row() uses it
-                    self.byte_idx = byte_idx;
-                    let row_idx = self.num_rows() - 1;
-                    self.row_infos[row_idx].apply_token_idx(tok_idx);
-                    debug!(
-                        "  before push: {}",
-                        self.row_infos.last().unwrap().dbg(self.lexer_spec())
+        for (bidx, &b) in tok_bytes.iter().enumerate() {
+            check_lexer_max_tokens = false;
+            if self.applied_byte_idx >= self.bytes.len() {
+                assert!(self.applied_byte_idx == self.bytes.len());
+
+                let row_idx = self.num_rows() - 1;
+                self.row_infos[row_idx].apply_token_idx(self.token_idx);
+
+                let (ok, bt) = self.try_push_byte_definitive(shared, Some(b));
+                if !ok {
+                    bail!(
+                        "byte {:?} fails parse; applying {:?}",
+                        b as char,
+                        String::from_utf8_lossy(tok_bytes)
                     );
-
-                    debug!("B: {:?}", *b as char);
-                    if !self.try_push_byte_definitive(shared, Some(*b)) {
-                        return Ok("parse reject");
-                    }
-
+                }
+                if bt > 0 {
+                    self.applied_byte_idx = self.bytes.len();
+                    let bt = bt + (tok_bytes.len() - bidx - 1);
+                    return Ok(bt);
+                }
+                if row_idx == self.num_rows() - 1 {
                     // if we didn't push a new row, and are at the end of the current token,
                     // check on max_tokens
-                    if idx_within_token == tok_bytes.len() - 1 && row_idx == self.num_rows() - 1 {
-                        let info = &self.row_infos[row_idx];
-                        let info_tokens = std::cmp::max(
-                            0,
-                            self.token_idx as isize + 1 - info.token_idx_start as isize,
-                        ) as usize;
-                        let lex_state = self.lexer_state().lexer_state;
-                        let mut limit = self.lexer_spec().alloc_lexeme_set();
-                        let mut num_limit = 0;
-                        {
-                            let possible_lexemes = shared.lexer.possible_lexemes(lex_state);
-                            for idx in possible_lexemes.iter() {
-                                let lex = LexemeIdx::new(idx as usize);
-                                let max_tokens = *info.max_tokens.get(&lex).unwrap_or(&usize::MAX);
-                                trace!(
-                                    "  max_tokens: {} max={} info={}",
-                                    self.lexer_spec().dbg_lexeme(&Lexeme::just_idx(lex)),
-                                    max_tokens,
-                                    info_tokens
-                                );
-                                if info_tokens < max_tokens {
-                                    limit.allow_token(idx);
-                                } else {
-                                    num_limit += 1;
-                                }
-                            }
-                        }
-                        if num_limit > 0 {
-                            debug!(
-                                "  max_tokens limiting to: {}",
-                                self.lexer_spec().dbg_lexeme_set(&limit)
-                            );
-                            let new_state = shared.lexer.limit_state_to(lex_state, &limit);
-                            if new_state.is_dead() {
-                                debug!("  limited everything; forcing EOI");
-                                if !self.try_push_byte_definitive(shared, None) {
-                                    return Ok("parse reject on max_tokens");
-                                }
-                            } else {
-                                self.lexer_stack.last_mut().unwrap().lexer_state = new_state;
-                            }
-                        }
-                    }
+                    check_lexer_max_tokens = true;
+                }
+            } else {
+                if self.bytes[self.applied_byte_idx] != b {
+                    bail!(
+                        "expecting {:?} (forced bytes), got {:?}; applying {:?}",
+                        self.bytes[self.applied_byte_idx] as char,
+                        b as char,
+                        String::from_utf8_lossy(tok_bytes)
+                    );
+                }
+            }
 
-                    let item_count = self.curr_row().item_indices().count();
-                    if item_count > self.limits.max_items_in_row {
-                        bail!(
-                            "Current row has {} items; max is {}; consider making your grammar left-recursive if it's right-recursive",
-                            item_count,
-                            self.limits.max_items_in_row,
-                        );
-                    }
-                    last_lexeme = self.num_rows() - 1;
-                } else {
-                    loop {
-                        self.row_infos[last_lexeme].apply_token_idx(tok_idx);
-                        if last_lexeme >= indices[byte_idx] {
-                            break;
-                        }
-                        last_lexeme += 1;
-                    }
+            self.applied_byte_idx += 1;
+        }
 
-                    if grm_bytes[byte_idx] != *b {
-                        // println!(
-                        //     "byte mismatch: {} != {} at {}",
-                        //     grm_bytes[byte_idx], b, last_lexeme
-                        // );
-                        return Ok("static reject");
+        if check_lexer_max_tokens {
+            let row_idx = self.num_rows() - 1;
+            let info = &self.row_infos[row_idx];
+            let info_tokens = std::cmp::max(
+                0,
+                self.token_idx as isize + 1 - info.token_idx_start as isize,
+            ) as usize;
+            let lex_state = self.lexer_state().lexer_state;
+            let mut limit = self.lexer_spec().alloc_lexeme_set();
+            let mut num_limit = 0;
+            {
+                let possible_lexemes = shared.lexer.possible_lexemes(lex_state);
+                for idx in possible_lexemes.iter() {
+                    let lex = LexemeIdx::new(idx as usize);
+                    let max_tokens = *info.max_tokens.get(&lex).unwrap_or(&usize::MAX);
+                    trace!(
+                        "  max_tokens: {} max={} info={}",
+                        self.lexer_spec().dbg_lexeme(&Lexeme::just_idx(lex)),
+                        max_tokens,
+                        info_tokens
+                    );
+                    if info_tokens < max_tokens {
+                        limit.allow_token(idx);
+                    } else {
+                        num_limit += 1;
                     }
                 }
-
-                byte_idx += 1;
+            }
+            if num_limit > 0 {
+                debug!(
+                    "  max_tokens limiting to: {}",
+                    self.lexer_spec().dbg_lexeme_set(&limit)
+                );
+                let new_state = shared.lexer.limit_state_to(lex_state, &limit);
+                if new_state.is_dead() {
+                    debug!("  limited everything; forcing EOI");
+                    let (ok, bt) = self.try_push_byte_definitive(shared, None);
+                    assert!(bt == 0);
+                    if !ok {
+                        debug!("parse reject on max_tokens");
+                        return Ok(0);
+                    }
+                } else {
+                    self.lexer_stack.last_mut().unwrap().lexer_state = new_state;
+                }
             }
         }
 
-        self.token_idx = tokens.len();
-        while last_lexeme < self.row_infos.len() {
-            self.row_infos[last_lexeme].apply_token_idx(self.token_idx);
-            last_lexeme += 1;
+        let item_count = self.curr_row().item_indices().count();
+        if item_count > self.limits.max_items_in_row {
+            bail!(
+                "Current row has {} items; max is {}; consider making your grammar left-recursive if it's right-recursive",
+                item_count,
+                self.limits.max_items_in_row,
+            );
         }
+
+        self.token_idx += 1;
 
         for infos in self.row_infos.iter() {
             debug!("  {}", infos.dbg(self.lexer_spec()));
@@ -803,7 +771,7 @@ impl ParserState {
 
         // self.print_row(self.num_rows() - 1);
 
-        return Ok("");
+        return Ok(0);
     }
 
     pub fn filter_max_tokens(&mut self) {
@@ -817,11 +785,13 @@ impl ParserState {
 
         self.first_row_with_max_token_limit = self.num_rows();
 
+        let token_idx = self.token_idx;
+
         self.row_infos.push(RowInfo {
             lexeme: Lexeme::bogus(),
             start_byte_idx: 0,
-            token_idx_start: self.token_idx,
-            token_idx_stop: self.token_idx,
+            token_idx_start: token_idx,
+            token_idx_stop: token_idx,
             max_tokens: Arc::new(HashMap::default()),
         });
 
@@ -836,10 +806,10 @@ impl ParserState {
                 let max_tokens = sym_data.props.max_tokens;
                 if max_tokens != usize::MAX {
                     let start_token_idx = self.row_infos[item.start_pos() + 1].token_idx_start;
-                    if self.token_idx - start_token_idx >= max_tokens {
+                    if token_idx - start_token_idx >= max_tokens {
                         debug!(
                             "  remove: {}-{} {}",
-                            self.token_idx,
+                            token_idx,
                             start_token_idx,
                             self.item_to_string(i)
                         );
@@ -863,19 +833,21 @@ impl ParserState {
     /// force_bytes() forces bytes into the parser, definitively.
     /// They must be, at each point, the only bytes allowed by
     /// the parser.  force_bytes() returns a 'Vec' of the bytes pushed.
-    pub fn force_bytes(&mut self, shared: &mut SharedState) -> Vec<u8> {
+    pub fn force_bytes(&mut self, shared: &mut SharedState) -> &[u8] {
         self.assert_definitive();
         trace!("force_bytes lexer_stack {}", self.lexer_stack.len());
-        let mut bytes = vec![];
         while let Some(b) = self.forced_byte(shared) {
             debug!("  forced: {:?} 0x{:x}", b as char, b);
-            if !self.try_push_byte_definitive(shared, Some(b)) {
+            let (ok, bt) = self.try_push_byte_definitive(shared, Some(b));
+            assert!(bt == 0);
+            if !ok {
                 // shouldn't happen?
                 debug!("  force_bytes reject {}", b as char);
                 break;
             }
-            bytes.push(b);
         }
+        self.assert_definitive();
+        let bytes = &self.bytes[self.applied_byte_idx..];
         trace!(
             "force_bytes exit {} lexer_stack={}",
             bytes.len(),
@@ -939,7 +911,11 @@ impl ParserState {
     // try_push_byte_definitive() attempts to 'push' a byte (that is advance
     // the parse with 'byte') into the parse in definitive mode.
     // Returns 'false' if this is not possible.
-    pub fn try_push_byte_definitive(&mut self, shared: &mut SharedState, byte: Option<u8>) -> bool {
+    fn try_push_byte_definitive(
+        &mut self,
+        shared: &mut SharedState,
+        byte: Option<u8>,
+    ) -> (bool, usize) {
         assert!(self.scratch.definitive);
 
         let curr = self.lexer_state();
@@ -968,7 +944,19 @@ impl ParserState {
             );
         }
 
-        self.advance_lexer_or_parser(shared, res, curr)
+        assert!(self.backtrack_byte_count == 0);
+        if self.advance_lexer_or_parser(shared, res, curr) {
+            if let Some(b) = byte {
+                self.bytes.push(b);
+            }
+            let bt = std::mem::take(&mut self.backtrack_byte_count);
+            if bt > 0 {
+                self.bytes.truncate(self.bytes.len() - bt);
+            }
+            (true, bt)
+        } else {
+            (false, 0)
+        }
     }
 
     /// The current Earley set (row) as kept track of
@@ -987,6 +975,9 @@ impl ParserState {
         }
 
         // self.print_row(self.num_rows() - 1);
+
+        // TODO: use RegexVec::next_byte() here if possible ?
+        // currently, this will likely take a few thousand cycles to produce a byte
 
         self.run_speculative(|s| {
             let mut r = ParserRecognizer { shared, state: s };
@@ -1016,7 +1007,9 @@ impl ParserState {
         }
         let curr = self.lexer_state();
         let lex_result = shared.lexer.try_lexeme_end(curr.lexer_state);
-        self.advance_lexer_or_parser(shared, lex_result, curr)
+        let r = self.advance_lexer_or_parser(shared, lex_result, curr);
+        assert!(self.backtrack_byte_count == 0);
+        r
     }
 
     pub fn maybe_gen_grammar(&mut self) -> Option<(String, CSymIdx, GenGrammarOptions)> {
@@ -1400,7 +1393,7 @@ impl ParserState {
                     lexeme: Lexeme::bogus(),
                     token_idx_start: self.token_idx,
                     token_idx_stop: self.token_idx,
-                    start_byte_idx: self.byte_idx,
+                    start_byte_idx: self.bytes.len(),
                     max_tokens: Arc::new(max_tokens_map),
                 });
                 // debug!("  push: {idx} {} {}", self.rows.len(), self.row_infos.len());
@@ -1564,6 +1557,8 @@ impl ParserState {
                             return true;
                         } else {
                             // otherwise, we just pop our state
+                            // This shouldn't happen though
+                            // (the parser was allowing this lexeme and now it doesn't like it)
                             self.lexer_stack.pop();
                             return false;
                         }
@@ -1575,9 +1570,13 @@ impl ParserState {
                     ..no_hidden
                 });
             }
+            if self.scratch.definitive {
+                self.assert_definitive();
+            }
         } else {
             if self.scratch.definitive {
-                self.did_backtrack = true;
+                self.assert_definitive();
+                self.backtrack_byte_count = hidden_bytes.len();
                 // set it up for matching after backtrack
                 self.lexer_stack.push(LexerState {
                     lexer_state: shared.lexer.start_state(added_row_lexemes, None),
@@ -1595,9 +1594,6 @@ impl ParserState {
             // panic!("hidden bytes not forced");
         }
 
-        if self.scratch.definitive {
-            self.assert_definitive();
-        }
         true
     }
 
@@ -1759,14 +1755,8 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
 
     // For this Earley parser, collapse does nothing -- it is a no-op
     fn collapse(&mut self) {
-        // this actually means "commit" - can no longer backtrack past this point
-
-        if false {
-            for idx in self.state.last_collapse..self.state.num_rows() {
-                self.state.print_row(idx);
-            }
-        }
-        self.state.last_collapse = self.state.num_rows();
+        // This actually means "commit" - can no longer backtrack past this point.
+        // However, this parser ignores it.
     }
 
     fn special_allowed(&mut self, _tok: SpecialToken) -> bool {
@@ -1800,7 +1790,9 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
             .advance(curr.lexer_state, byte, lexer_logging);
 
         if stats {
-            assert!(!self.state.scratch.definitive); // this has significant cost
+            // this is always true (not only with stats) but checking it has significant cost
+            assert!(!self.state.scratch.definitive);
+
             self.state.stats.lexer_ops += 1;
             match res {
                 LexerResult::State(_, _) => {}
@@ -1929,11 +1921,11 @@ impl Parser {
             .scan_gen_grammar_inner(&mut shared, symidx, inner_bytes)
     }
 
-    pub fn get_bytes(&mut self) -> Vec<u8> {
+    pub fn get_bytes(&self) -> &[u8] {
         self.state.get_bytes()
     }
 
-    pub fn force_bytes(&mut self) -> Vec<u8> {
+    pub fn force_bytes(&mut self) -> &[u8] {
         let mut shared = self.shared.lock().unwrap();
         self.state.force_bytes(&mut shared)
     }
@@ -1943,18 +1935,9 @@ impl Parser {
         self.state.scan_eos(&mut shared)
     }
 
-    pub fn apply_tokens(
-        &mut self,
-        trie: &TokTrie,
-        tokens: &[TokenId],
-        num_skip: usize,
-    ) -> Result<&'static str> {
+    pub fn apply_token(&mut self, tok_bytes: &[u8]) -> Result<usize> {
         let mut shared = self.shared.lock().unwrap();
-        self.state.apply_tokens(&mut shared, trie, tokens, num_skip)
-    }
-
-    pub fn did_backtrack(&self) -> bool {
-        self.state.did_backtrack
+        self.state.apply_token(&mut shared, tok_bytes)
     }
 
     pub fn filter_max_tokens(&mut self) {
