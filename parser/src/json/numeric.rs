@@ -125,7 +125,8 @@ fn lexi_x_to_9(x: &str, incl: bool) -> Result<String> {
         } else if x.len() == 1 {
             Ok(format!("[{}-9][0-9]*", x))
         } else {
-            let x0 = x.chars()
+            let x0 = x
+                .chars()
                 .next()
                 .ok_or_else(|| anyhow!("String x is unexpectedly empty"))?
                 .to_digit(10)
@@ -133,7 +134,9 @@ fn lexi_x_to_9(x: &str, incl: bool) -> Result<String> {
             let x_rest = &x[1..];
             let mut parts = vec![format!(
                 "{}{}",
-                x.chars().next().ok_or_else(|| anyhow!("String x is unexpectedly empty"))?,
+                x.chars()
+                    .next()
+                    .ok_or_else(|| anyhow!("String x is unexpectedly empty"))?,
                 lexi_x_to_9(x_rest, incl)?
             )];
             if x0 < 9 {
@@ -145,7 +148,8 @@ fn lexi_x_to_9(x: &str, incl: bool) -> Result<String> {
         if x.is_empty() {
             Ok("[0-9]*[1-9]".to_string())
         } else {
-            let x0 = x.chars()
+            let x0 = x
+                .chars()
                 .next()
                 .ok_or_else(|| anyhow!("String x is unexpectedly empty"))?
                 .to_digit(10)
@@ -153,7 +157,9 @@ fn lexi_x_to_9(x: &str, incl: bool) -> Result<String> {
             let x_rest = &x[1..];
             let mut parts = vec![format!(
                 "{}{}",
-                x.chars().next().ok_or_else(|| anyhow!("String x is unexpectedly empty"))?,
+                x.chars()
+                    .next()
+                    .ok_or_else(|| anyhow!("String x is unexpectedly empty"))?,
                 lexi_x_to_9(x_rest, incl)?
             )];
             if x0 < 9 {
@@ -172,7 +178,8 @@ fn lexi_0_to_x(x: &str, incl: bool) -> Result<String> {
             Err(anyhow!("Inclusive flag must be true for an empty string"))
         }
     } else {
-        let x0 = x.chars()
+        let x0 = x
+            .chars()
             .next()
             .ok_or_else(|| anyhow!("String x is unexpectedly empty"))?
             .to_digit(10)
@@ -181,14 +188,18 @@ fn lexi_0_to_x(x: &str, incl: bool) -> Result<String> {
 
         if !incl && x.len() == 1 {
             if x0 == 0 {
-                return Err(anyhow!("x0 must be greater than 0 for non-inclusive single character"));
+                return Err(anyhow!(
+                    "x0 must be greater than 0 for non-inclusive single character"
+                ));
             }
             return Ok(format!("[0-{}][0-9]*", x0 - 1));
         }
 
         let mut parts = vec![format!(
             "{}{}",
-            x.chars().next().ok_or_else(|| anyhow!("String x is unexpectedly empty"))?,
+            x.chars()
+                .next()
+                .ok_or_else(|| anyhow!("String x is unexpectedly empty"))?,
             lexi_0_to_x(x_rest, incl)?
         )];
         if x0 > 0 {
@@ -206,15 +217,19 @@ fn lexi_range(ld: &str, rd: &str, ld_incl: bool, rd_incl: bool) -> Result<String
         if ld_incl && rd_incl {
             Ok(ld.to_string())
         } else {
-            Err(anyhow!("Empty range when ld equals rd and not both inclusive"))
+            Err(anyhow!(
+                "Empty range when ld equals rd and not both inclusive"
+            ))
         }
     } else {
-        let l0 = ld.chars()
+        let l0 = ld
+            .chars()
             .next()
             .ok_or_else(|| anyhow!("ld is unexpectedly empty"))?
             .to_digit(10)
             .ok_or_else(|| anyhow!("Failed to parse character as digit"))?;
-        let r0 = rd.chars()
+        let r0 = rd
+            .chars()
             .next()
             .ok_or_else(|| anyhow!("rd is unexpectedly empty"))?
             .to_digit(10)
@@ -224,7 +239,9 @@ fn lexi_range(ld: &str, rd: &str, ld_incl: bool, rd_incl: bool) -> Result<String
             let rd_rest = &rd[1..];
             Ok(format!(
                 "{}{}",
-                ld.chars().next().ok_or_else(|| anyhow!("ld is unexpectedly empty"))?,
+                ld.chars()
+                    .next()
+                    .ok_or_else(|| anyhow!("ld is unexpectedly empty"))?,
                 lexi_range(ld_rest, rd_rest, ld_incl, rd_incl)?
             ))
         } else {
@@ -234,7 +251,9 @@ fn lexi_range(ld: &str, rd: &str, ld_incl: bool, rd_incl: bool) -> Result<String
             let ld_rest = ld[1..].trim_end_matches('0');
             let mut parts = vec![format!(
                 "{}{}",
-                ld.chars().next().ok_or_else(|| anyhow!("ld is unexpectedly empty"))?,
+                ld.chars()
+                    .next()
+                    .ok_or_else(|| anyhow!("ld is unexpectedly empty"))?,
                 lexi_x_to_9(ld_rest, ld_incl)?
             )];
             if l0 + 1 < r0 {
@@ -244,7 +263,9 @@ fn lexi_range(ld: &str, rd: &str, ld_incl: bool, rd_incl: bool) -> Result<String
             if !rd_rest.is_empty() || rd_incl {
                 parts.push(format!(
                     "{}{}",
-                    rd.chars().next().ok_or_else(|| anyhow!("rd is unexpectedly empty"))?,
+                    rd.chars()
+                        .next()
+                        .ok_or_else(|| anyhow!("rd is unexpectedly empty"))?,
                     lexi_0_to_x(rd_rest, rd_incl)?
                 ));
             }
