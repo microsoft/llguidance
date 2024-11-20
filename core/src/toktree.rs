@@ -361,7 +361,7 @@ impl TokTrie {
         let max_examples = 50;
 
         let ts_neg = ts.negated();
-        let use_neg = ts_neg.num_set() * 20 < ts.num_set();
+        let use_neg = ts_neg.num_set() * 10 < ts.num_set();
         let ts1 = if use_neg { &ts_neg } else { &ts };
         let num_set = ts1.num_set();
         let max_tok = std::cmp::min(max_examples, num_set);
@@ -472,10 +472,12 @@ impl TokTrie {
     }
 
     pub fn decode_raw(&self, tokens: &[TokenId]) -> Vec<u8> {
-        tokens
-            .iter()
-            .flat_map(|t| self.token(*t).to_vec())
-            .collect()
+        let mut res = Vec::new();
+        res.reserve(tokens.len() * 6 + 32); // approximately
+        for &tok in tokens {
+            res.extend_from_slice(self.token(tok));
+        }
+        res
     }
 
     pub fn decode_str(&self, tokens: &[TokenId]) -> String {
