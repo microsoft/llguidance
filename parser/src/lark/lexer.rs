@@ -15,6 +15,7 @@ pub enum Token {
     KwOverride,
     KwDeclare,
     Colon,
+    Equals,
     Comma,
     Dot,
     DotDot,
@@ -88,6 +89,7 @@ impl Token {
         (Token::RBracket, "]"),
         (Token::Tilde, "~"),
         (Token::VBar, "|"),
+        (Token::Equals, "="),
     ];
 
     const REGEX_TOKENS: &'static [(Token, &'static str)] = &[

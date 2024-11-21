@@ -177,8 +177,8 @@ fn test_llparser() {
 
     check_lark_grammar(
         r#"
-            start: "Power frequency is " NUMBER "Hz; voltage is " NUMBER "V"
-            NUMBER: /[0-9]+/
+            start: "Power frequency is " num "Hz; voltage is " num "V"
+            num[stop="", max_tokens=5]: /[0-9]+/
         "#,
         &[
             "Power‧ frequency‧ is‧ ",
@@ -187,7 +187,6 @@ fn test_llparser() {
             "2‧2‧0‧V",
         ],
     );
-    panic!();
 
     check_lark_grammar(
         r#"
