@@ -7,7 +7,8 @@ use std::{
 use anyhow::{anyhow, bail, Result};
 use indexmap::{IndexMap, IndexSet};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
-use serde_json::{Map, Value};
+use regex_syntax::escape;
+use serde_json::Value;
 
 const DEFAULT_ROOT_URI: &str = "json-schema:///";
 const DEFAULT_DRAFT: Draft = Draft::Draft202012;
@@ -106,11 +107,8 @@ pub enum Schema {
         additional_properties: Option<Box<Schema>>,
         required: IndexSet<String>,
     },
-    Const {
-        value: Value,
-    },
-    Enum {
-        options: Vec<Value>,
+    LiteralBool {
+        value: bool,
     },
     AnyOf {
         options: Vec<Schema>,
@@ -133,15 +131,6 @@ impl Schema {
     /// Shallowly normalize the schema, removing any unnecessary nesting or empty options.
     fn normalize(self) -> Schema {
         match self {
-            Schema::Enum { options } => {
-                if options.is_empty() {
-                    Schema::Unsatisfiable {
-                        reason: "enum is empty".to_string(),
-                    }
-                } else {
-                    Schema::Enum { options }
-                }
-            }
             Schema::AnyOf { options } => {
                 let mut unsats = Vec::new();
                 let mut valid = Vec::new();
@@ -377,14 +366,6 @@ fn compile_contents_inner(ctx: &Context, contents: &Value) -> Result<Schema> {
     compile_contents_map(ctx, schemadict)
 }
 
-fn dict_to_value(schemadict: &HashMap<&str, &Value>) -> Value {
-    let mut map = Map::new();
-    for (k, v) in schemadict {
-        map.insert(k.to_string(), (*v).clone());
-    }
-    Value::Object(map)
-}
-
 fn only_meta_and_annotations(schemadict: &HashMap<&str, &Value>) -> bool {
     schemadict.keys().all(|k| META_AND_ANNOTATIONS.contains(k))
 }
@@ -406,74 +387,27 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
         bail!("Unimplemented keys: {:?}", unimplemented_keys);
     }
 
-    // Short-circuit for const -- don't need to compile the rest of the schema
     if let Some(instance) = schemadict.remove("const") {
-        if only_meta_and_annotations(&schemadict) {
-            return Ok(Schema::Const {
-                value: instance.clone(),
-            });
-        }
-        #[cfg(not(feature = "jsonschema_validation"))]
-        {
-            return Err(anyhow!(
-                "const keyword with siblings requires jsonschema_validation feature"
-            ));
-        }
-        #[cfg(feature = "jsonschema_validation")]
-        {
-            use jsonschema::validator_for;
-            let validator = validator_for(&dict_to_value(&schemadict))?;
-            if validator.is_valid(instance) {
-                return Ok(Schema::Const {
-                    value: instance.clone(),
-                });
-            }
-            return Ok(Schema::Unsatisfiable {
-                reason: format!(
-                    "const instance is invalid against parent schema: {:?}",
-                    instance
-                ),
-            });
-        }
+        let const_schema = compile_const(instance)?;
+        let siblings = compile_contents_map(ctx, schemadict)?;
+        return intersect_two(ctx, const_schema, siblings);
     }
 
-    // Short-circuit for enum -- don't need to compile the rest of the schema
     if let Some(instances) = schemadict.remove("enum") {
-        if only_meta_and_annotations(&schemadict) {
-            return Ok(Schema::Enum {
-                options: instances
-                    .as_array()
-                    .ok_or_else(|| anyhow!("enum must be an array"))?
-                    .clone(),
-            });
+        let instances = instances
+            .as_array()
+            .ok_or_else(|| anyhow!("enum must be an array"))?;
+        let siblings = compile_contents_map(ctx, schemadict)?;
+        // Short-circuit if schema is already unsatisfiable
+        if matches!(siblings, Schema::Unsatisfiable { .. }) {
+            return Ok(siblings);
         }
-        #[cfg(not(feature = "jsonschema_validation"))]
-        {
-            return Err(anyhow!(
-                "enum keyword with siblings requires jsonschema_validation feature"
-            ));
-        }
-        #[cfg(feature = "jsonschema_validation")]
-        {
-            use jsonschema::validator_for;
-            let validator = validator_for(&dict_to_value(&schemadict))?;
-            let (valid, invalid): (Vec<_>, Vec<_>) = instances
-                .as_array()
-                .ok_or_else(|| anyhow!("enum must be an array"))?
-                .into_iter()
-                .partition(|instance| validator.is_valid(instance));
-            if valid.is_empty() {
-                return Ok(Schema::Unsatisfiable {
-                    reason: format!(
-                        "enum instances all invalid against parent schema: {:?}",
-                        invalid
-                    ),
-                });
-            }
-            return Ok(Schema::Enum {
-                options: valid.into_iter().cloned().collect(),
-            });
-        }
+        let options = instances
+            .into_iter()
+            .map(|instance| compile_const(instance))
+            .map(|res| res.and_then(|schema| intersect_two(ctx, schema, siblings.clone())))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok(Schema::AnyOf { options });
     }
 
     if let Some(all_of) = schemadict.remove("allOf") {
@@ -592,6 +526,58 @@ fn intersect_ref(ctx: &Context, ref_uri: &str, schema: Schema) -> Result<Schema>
             )
         })?;
     intersect_two(ctx, schema, resolved_schema)
+}
+
+fn compile_const(instance: &Value) -> Result<Schema> {
+    match instance {
+        Value::Null => Ok(Schema::Null),
+        Value::Bool(b) => Ok(Schema::LiteralBool { value: *b }),
+        Value::Number(n) => {
+            let value = n.as_f64().ok_or_else(|| {
+                anyhow!(
+                    "Expected f64 for numeric const, got {}",
+                    limited_str(instance)
+                )
+            })?;
+            Ok(Schema::Number {
+                minimum: Some(value),
+                maximum: Some(value),
+                exclusive_minimum: None,
+                exclusive_maximum: None,
+                integer: n.is_i64(),
+            })
+        }
+        Value::String(s) => Ok(Schema::String {
+            min_length: 0,
+            max_length: None,
+            pattern: Some(escape(s)),
+            format: None,
+        }),
+        Value::Array(items) => {
+            let prefix_items = items
+                .iter()
+                .map(|item| compile_const(item))
+                .collect::<Result<Vec<Schema>>>()?;
+            Ok(Schema::Array {
+                min_items: prefix_items.len() as u64,
+                max_items: Some(prefix_items.len() as u64),
+                prefix_items,
+                items: Some(Box::new(Schema::false_schema())),
+            })
+        }
+        Value::Object(mapping) => {
+            let properties = mapping
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), compile_const(v)?)))
+                .collect::<Result<IndexMap<String, Schema>>>()?;
+            let required = properties.keys().cloned().collect();
+            Ok(Schema::Object {
+                properties,
+                additional_properties: Some(Box::new(Schema::false_schema())),
+                required,
+            })
+        }
+    }
 }
 
 fn compile_type(ctx: &Context, tp: &str, schema: &HashMap<&str, &Value>) -> Result<Schema> {
@@ -875,6 +861,17 @@ fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Sche
         },
         (Schema::Null, Schema::Null) => Schema::Null,
         (Schema::Boolean, Schema::Boolean) => Schema::Boolean,
+        (Schema::Boolean, Schema::LiteralBool { value }) => Schema::LiteralBool { value },
+        (Schema::LiteralBool { value }, Schema::Boolean) => Schema::LiteralBool { value },
+        (Schema::LiteralBool { value: value1 }, Schema::LiteralBool { value: value2 }) => {
+            if value1 == value2 {
+                Schema::LiteralBool { value: value1 }
+            } else {
+                Schema::Unsatisfiable {
+                    reason: "incompatible boolean values".to_string(),
+                }
+            }
+        }
         (
             Schema::Number {
                 minimum: min1,
