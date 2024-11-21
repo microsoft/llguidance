@@ -549,7 +549,18 @@ impl TokenParser {
         self.parser.filter_max_tokens();
 
         // force after scanning tokens from LLM (this may walk the parser some more)
-        let new_forced = self.parser.force_bytes().to_vec();
+        let mut new_forced = self.parser.force_bytes().to_vec();
+
+        if self.llm_bytes.len() < self.grm_prefix.len() {
+            let mut inject = self.grm_prefix[self.llm_bytes.len()..].to_vec();
+            infoln!(
+                self,
+                "injecting prefix: {:?}",
+                String::from_utf8_lossy(&inject)
+            );
+            inject.extend_from_slice(&new_forced);
+            new_forced = inject;
+        }
 
         let trie = self.token_env.tok_trie(); // make borrow-checker happy
 

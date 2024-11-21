@@ -19,7 +19,7 @@ use lazy_static::lazy_static;
 ///
 /// These tests are "recorded" by passing "test_trace": true in the llguidance
 /// request and post-processing.
-fn check_grammar(tok_env: &TokEnv, grammar: TopLevelGrammar, output: &[&str]) {
+fn check_grammar(tok_env: &TokEnv, prompt_str: &str, grammar: TopLevelGrammar, output: &[&str]) {
     println!("\nChecking grammar");
 
     let parser = TokenParser::from_llguidance_json(
@@ -39,7 +39,7 @@ fn check_grammar(tok_env: &TokEnv, grammar: TopLevelGrammar, output: &[&str]) {
     .unwrap();
     let mut constraint = Constraint::new(parser);
 
-    let prompt = constraint.process_prompt(tok_env.tokenize(""));
+    let prompt = constraint.process_prompt(tok_env.tokenize(prompt_str));
     check_eq(tok_env, "prompt", &prompt, output[0]);
 
     let mut idx = 1;
@@ -159,9 +159,13 @@ lazy_static! {
     };
 }
 
-fn check_lark_grammar(lark: &str, output: &[&str]) {
+fn check_lark_grammar2(lark: &str, prompt_str: &str, output: &[&str]) {
     let grm = TopLevelGrammar::from_lark(lark.to_string());
-    check_grammar(&TOK_ENV, grm, output);
+    check_grammar(&TOK_ENV, prompt_str, grm, output);
+}
+
+fn check_lark_grammar(lark: &str, output: &[&str]) {
+    check_lark_grammar2(lark, "", output);
 }
 
 fn test_ll_backtrack_stop() {
@@ -188,6 +192,15 @@ fn test_ll_backtrack_stop() {
 }
 
 fn test_llparser() {
+    check_lark_grammar2(
+        r#"
+            start: gen
+            gen[max_tokens=3]: /.*/
+        "#,
+        "2 + 2 =",
+        &["2‧ +‧ ‧2", " =>‧ ‧4‧≺EOS≻"],
+    );
+
     check_lark_grammar(
         r#"
             start: "Power frequency is " num "Hz; voltage is " num "V"
@@ -238,8 +251,8 @@ fn test_llparser() {
 }
 
 fn main() {
-    test_ll_backtrack_stop();
     test_llparser();
+    test_ll_backtrack_stop();
 
     let mut builder = GrammarBuilder::new();
 
