@@ -74,11 +74,11 @@ pub fn rx_int_range(left: Option<i64>, right: Option<i64>) -> Result<String> {
                     let rx = &r[r.len() - 1..];
 
                     if lpref == rpref {
-                        return Ok(format!("({}{}[{}-{}])", lpref, "", lx, rx));
+                        return Ok(format!("({}[{}-{}])", lpref, lx, rx));
                     }
 
-                    let left_rec = lpref.parse::<i64>().unwrap_or(0);
-                    let right_rec = rpref.parse::<i64>().unwrap_or(0);
+                    let mut left_rec = lpref.parse::<i64>().unwrap_or(0);
+                    let mut right_rec = rpref.parse::<i64>().unwrap_or(0);
                     if left_rec >= right_rec {
                         return Err(anyhow!(
                             "Invalid recursive range: left_rec ({}) must be less than right_rec ({})",
@@ -90,10 +90,12 @@ pub fn rx_int_range(left: Option<i64>, right: Option<i64>) -> Result<String> {
                     let mut parts = Vec::new();
 
                     if lx != "0" {
+                        left_rec += 1;
                         parts.push(format!("{}[{}-9]", lpref, lx));
                     }
 
                     if rx != "9" {
+                        right_rec -= 1;
                         parts.push(format!("{}[0-{}]", rpref, rx));
                     }
 
@@ -432,6 +434,79 @@ pub fn rx_float_range(
                     Ok(mk_or(parts))
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::rx_int_range;
+    use regex::Regex;
+
+    fn do_test_int_range(rx: &str, left: Option<i64>, right: Option<i64>) {
+        let re = Regex::new(&format!("^{}$", rx)).unwrap();
+        for n in (left.unwrap_or(0) - 1000)..=(right.unwrap_or(0) + 1000) {
+            let matches = re.is_match(&n.to_string());
+            let expected = (left.is_none() || left.unwrap() <= n) && (right.is_none() || n <= right.unwrap());
+            if expected != matches {
+                let range_str = match (left, right) {
+                    (Some(l), Some(r)) => format!("[{}, {}]", l, r),
+                    (Some(l), None) => format!("[{}, ∞)", l),
+                    (None, Some(r)) => format!("(-∞, {}]", r),
+                    (None, None) => "(-∞, ∞)".to_string(),
+                };
+                if matches {
+                    panic!("{} not in range {} but matches {:?}", n, range_str, rx);
+                } else {
+                    panic!("{} in range {} but does not match {:?}", n, range_str, rx);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_int_range() {
+        let cases = vec![
+            (Some(0), Some(9)),
+            (Some(1), Some(7)),
+            (Some(0), Some(99)),
+            (Some(13), Some(170)),
+            (Some(13), Some(17)),
+            (Some(13), Some(27)),
+            (Some(13), Some(57)),
+            (Some(72), Some(91)),
+            (Some(723), Some(915)),
+            (Some(23), Some(915)),
+            (Some(-1), Some(915)),
+            (Some(-9), Some(9)),
+            (Some(-3), Some(3)),
+            (Some(-3), Some(0)),
+            (Some(-72), Some(13)),
+            (None, Some(0)),
+            (None, Some(7)),
+            (None, Some(23)),
+            (None, Some(725)),
+            (None, Some(-1)),
+            (None, Some(-17)),
+            (None, Some(-283)),
+            (Some(0), None),
+            (Some(2), None),
+            (Some(33), None),
+            (Some(234), None),
+            (Some(-1), None),
+            (Some(-87), None),
+            (Some(-329), None),
+            (None, None),
+            (Some(-13), Some(-13)),
+            (Some(-1), Some(-1)),
+            (Some(0), Some(0)),
+            (Some(1), Some(1)),
+            (Some(13), Some(13)),
+        ];
+
+        for (left, right) in cases {
+            let rx = rx_int_range(left, right).unwrap();
+            do_test_int_range(&rx, left.unwrap_or(0), right.unwrap_or(0), left.is_none(), right.is_none());
         }
     }
 }
