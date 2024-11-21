@@ -143,7 +143,8 @@ class LLInterpreter:
 class JsonCompiler:
     def __new__(
         cls,
-        compact: bool = False,
+        separators: Optional[Tuple[str, str]] = None,
+        whitespace_flexible: bool = False,
     ) -> "JsonCompiler":
         """
         Create a new JSON compiler.
