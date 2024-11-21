@@ -307,13 +307,23 @@ impl Compiler {
                 },
                 NodeProps {
                     max_tokens: rule.max_tokens,
+                    // assume the user also wants capture
+                    capture_name: Some(name.to_string()),
                     ..Default::default()
                 },
             )
         } else {
             let inner = self.do_expansions(&rule.expansions)?;
             if let Some(max_tokens) = rule.max_tokens {
-                self.builder.max_tokens(inner, max_tokens)
+                self.builder.join_props(
+                    &[inner],
+                    NodeProps {
+                        max_tokens: Some(max_tokens),
+                        // assume the user also wants capture
+                        capture_name: Some(name.to_string()),
+                        ..Default::default()
+                    },
+                )
             } else {
                 inner
             }
