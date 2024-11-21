@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail, Result};
 use indexmap::{IndexMap, IndexSet};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use regex_syntax::escape;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 const DEFAULT_ROOT_URI: &str = "json-schema:///";
 const DEFAULT_DRAFT: Draft = Draft::Draft202012;
