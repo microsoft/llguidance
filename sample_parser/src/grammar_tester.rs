@@ -68,23 +68,32 @@ fn check_grammar(tok_env: &TokEnv, grammar: TopLevelGrammar, output: &[&str]) {
             toks = res.ff_tokens.clone();
             if toks.is_empty() || toks[0] != tok {
                 if output[idx + 1].starts_with("1↶") {
+                    // fast-forward with fake backtrack
                     assert!(bt == 0 || res.ff_tokens.is_empty());
                     bt = 1;
+                    // go to forced byte checking
                 } else {
                     panic!("Expected token {} got {}", tok, toks[0]);
                 }
             } else if toks.len() > 1 {
+                // we got fast-forwarded to the next entry,
+                // delete the generated tokens and leave the rest for forced
+                // bytes checking below
                 toks.remove(0);
+                // go to forced byte checking
             } else {
                 assert!(bt == 0);
                 assert!(toks.len() == 1);
-                continue;
+                continue; // normal path
             }
         } else {
             let res = constraint.commit_token(None).unwrap();
             bt = res.backtrack;
             toks = res.ff_tokens.clone();
         }
+
+        // forced byte checking
+        assert!(gen_tokens.is_empty(), "Expected more tokens to generate");
 
         idx += 1;
         let mut expected = output[idx];
@@ -178,6 +187,7 @@ fn test_llparser() {
             "2‧2‧0‧V",
         ],
     );
+    panic!();
 
     check_lark_grammar(
         r#"
