@@ -152,12 +152,12 @@ fn check_lark_grammar(lark: &str, output: &[&str]) {
     check_grammar(&TOK_ENV, grm, output);
 }
 
-fn test_llgrammar() {
+fn test_llparser() {
     check_lark_grammar(
         r#"
-        start: "Q: Are dolphins fish?\nA: " ANSWER "\nQ: Are sharks fish?\nA: " ANSWER
-        ANSWER: "Yes" | "No"
-    "#,
+            start: "Q: Are dolphins fish?\nA: " ANSWER "\nQ: Are sharks fish?\nA: " ANSWER
+            ANSWER: "Yes" | "No"
+        "#,
         &[
             "Q‧:‧ Are‧ dol‧ph‧ins‧ fish‧?‧\n‧A‧:",
             " No", // note the prefix space - moved by token healing
@@ -165,10 +165,31 @@ fn test_llgrammar() {
             " Yes",
         ],
     );
+
+    check_lark_grammar(
+        r#"
+            start: "Power frequency is " NUMBER "Hz; voltage is " NUMBER "V"
+            NUMBER: /[0-9]+/
+        "#,
+        &[
+            "Power‧ frequency‧ is‧ ",
+            "5‧0‧Hz", // no EoS needed on 50Hz
+            ";‧ voltage‧ is‧ ",
+            "2‧2‧0‧V",
+        ],
+    );
+
+    check_lark_grammar(
+        r#"
+            start: "Q: 7 * 8\nA: " NUMBER
+            NUMBER: /[0-9]+/
+        "#,
+        &["Q‧:‧ ‧7‧ *‧ ‧8‧\n‧A‧:‧ ", "5‧6‧≺EOS≻"],
+    );
 }
 
 fn main() {
-    test_llgrammar();
+    test_llparser();
 
     let mut builder = GrammarBuilder::new();
 

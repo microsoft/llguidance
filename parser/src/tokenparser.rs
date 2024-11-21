@@ -207,6 +207,7 @@ impl TokenParser {
         if chop_bytes <= grm_bytes.len() {
             self.llm_bytes = grm_bytes[0..grm_bytes.len() - chop_bytes].to_vec();
             self.llm_tokens = self.token_env.tokenize_bytes_prefix(&self.llm_bytes);
+            self.parser.apply_forced(self.llm_bytes.len());
             let decoded = self.token_env.tok_trie().decode_raw(&self.llm_tokens);
             if self.llm_bytes.len() > 0
                 && decoded.len() > 0

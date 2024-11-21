@@ -1935,6 +1935,10 @@ impl Parser {
         self.state.scan_eos(&mut shared)
     }
 
+    pub(crate) fn apply_forced(&mut self, byte_idx: usize) {
+        self.state.applied_byte_idx = byte_idx;
+    }
+
     pub fn apply_token(&mut self, tok_bytes: &[u8]) -> Result<usize> {
         let mut shared = self.shared.lock().unwrap();
         self.state.apply_token(&mut shared, tok_bytes)
