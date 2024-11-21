@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use regex_syntax::escape;
 
 fn mk_or(parts: Vec<String>) -> String {
     if parts.len() == 1 {
@@ -337,7 +338,7 @@ pub fn rx_float_range(
             }
             if left == right {
                 if left_inclusive && right_inclusive {
-                    Ok(format!("({})", float_to_str(left)))
+                    Ok(format!("({})", escape(&float_to_str(left))))
                 } else {
                     Err(anyhow!(
                         "Empty range when left equals right and not both inclusive"
@@ -440,7 +441,7 @@ pub fn rx_float_range(
 
 #[cfg(test)]
 mod test {
-    use super::rx_int_range;
+    use super::{rx_float_range, rx_int_range};
     use regex::Regex;
 
     fn do_test_int_range(rx: &str, left: Option<i64>, right: Option<i64>) {
@@ -506,7 +507,134 @@ mod test {
 
         for (left, right) in cases {
             let rx = rx_int_range(left, right).unwrap();
-            do_test_int_range(&rx, left.unwrap_or(0), right.unwrap_or(0), left.is_none(), right.is_none());
+            do_test_int_range(&rx, left, right);
+        }
+    }
+
+    fn do_test_float_range(
+        rx: &str,
+        left: Option<f64>,
+        right: Option<f64>,
+        left_inclusive: bool,
+        right_inclusive: bool,
+    ) {
+        let re = Regex::new(&format!("^{}$", rx)).unwrap();
+        let left_int = left.map(|x| {
+            let left_int = x.ceil() as i64;
+            if !left_inclusive && x == left_int as f64 {
+                left_int + 1
+            } else {
+                left_int
+            }
+        });
+        let right_int = right.map(|x| {
+            let right_int = x.floor() as i64;
+            if !right_inclusive && x == right_int as f64 {
+                right_int - 1
+            } else {
+                right_int
+            }
+        });
+        do_test_int_range(rx, left_int, right_int);
+
+        let eps1 = 0.0000001;
+        let eps2 = 0.01;
+        let test_cases = vec![
+            left.unwrap_or(-1000.0),
+            right.unwrap_or(1000.0),
+            0.0,
+            left_int.unwrap_or(-1000) as f64,
+            right_int.unwrap_or(1000) as f64,
+        ];
+        for x in test_cases {
+            for offset in [0.0, -eps1, eps1, -eps2, eps2, 1.0, -1.0].iter() {
+                let n = x + offset;
+                let matches = re.is_match(&n.to_string());
+                let left_cond = left.is_none() || left.unwrap() < n || (left.unwrap() == n && left_inclusive);
+                let right_cond = right.is_none() || right.unwrap() > n || (right.unwrap() == n && right_inclusive);
+                let expected = left_cond && right_cond;
+                if expected != matches {
+                    let lket = if left_inclusive {"["} else {"("};
+                    let rket = if right_inclusive {"]"} else {")"};
+                    let range_str = match (left, right) {
+                        (Some(l), Some(r)) => format!("{}{}, {}{}", lket, l, r, rket),
+                        (Some(l), None) => format!("{}{}, ∞)", lket, l),
+                        (None, Some(r)) => format!("(-∞, {}{}", r, rket),
+                        (None, None) => "(-∞, ∞)".to_string(),
+                    };
+                    if matches {
+                        panic!("{} not in range {} but matches {:?}", n, range_str, rx);
+                    } else {
+                        panic!("{} in range {} but does not match {:?}", n, range_str, rx);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_float_range() {
+        let cases = vec![
+            (Some(0.0), Some(10.0)),
+            (Some(-10.0), Some(0.0)),
+            (Some(0.5), Some(0.72)),
+            (Some(0.5), Some(1.72)),
+            (Some(0.5), Some(1.32)),
+            (Some(0.45), Some(0.5)),
+            (Some(0.3245), Some(0.325)),
+            (Some(0.443245), Some(0.44325)),
+            (Some(1.0), Some(2.34)),
+            (Some(1.33), Some(2.0)),
+            (Some(1.0), Some(10.34)),
+            (Some(1.33), Some(10.0)),
+            (Some(-1.33), Some(10.0)),
+            (Some(-17.23), Some(-1.33)),
+            (Some(-1.23), Some(-1.221)),
+            (Some(-10.2), Some(45293.9)),
+            (None, Some(0.0)),
+            (None, Some(1.0)),
+            (None, Some(1.5)),
+            (None, Some(1.55)),
+            (None, Some(-17.23)),
+            (None, Some(-1.33)),
+            (None, Some(-1.23)),
+            (None, Some(103.74)),
+            (None, Some(100.0)),
+            (Some(0.0), None),
+            (Some(1.0), None),
+            (Some(1.5), None),
+            (Some(1.55), None),
+            (Some(-17.23), None),
+            (Some(-1.33), None),
+            (Some(-1.23), None),
+            (Some(103.74), None),
+            (Some(100.0), None),
+            (None, None),
+            (Some(-103.4), Some(-103.4)),
+            (Some(-27.0), Some(-27.0)),
+            (Some(-1.5), Some(-1.5)),
+            (Some(-1.0), Some(-1.0)),
+            (Some(0.0), Some(0.0)),
+            (Some(1.0), Some(1.0)),
+            (Some(1.5), Some(1.5)),
+            (Some(27.0), Some(27.0)),
+            (Some(103.4), Some(103.4)),
+        ];
+
+        for (left, right) in cases {
+            for left_inclusive in [true, false].iter() {
+                for right_inclusive in [true, false].iter() {
+                    match (left, right) {
+                        (Some(left), Some(right)) if left == right && !(*left_inclusive && *right_inclusive) => {
+                            assert!(rx_float_range(Some(left), Some(right), *left_inclusive, *right_inclusive).is_err());
+                        }
+                        _ => {
+                            let rx = rx_float_range(left, right, *left_inclusive, *right_inclusive).unwrap();
+                            do_test_float_range(&rx, left, right, *left_inclusive, *right_inclusive);
+                        }
+                    }
+                }
+            }
         }
     }
 }
