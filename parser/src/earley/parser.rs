@@ -1616,14 +1616,14 @@ impl ParserState {
             }
         } else {
             if self.scratch.definitive {
-                self.assert_definitive();
-                self.backtrack_byte_count = hidden_bytes.len();
                 // set it up for matching after backtrack
                 self.lexer_stack.push(LexerState {
                     lexer_state: shared.lexer.start_state(added_row_lexemes, None),
                     byte: None,
                     ..no_hidden
                 });
+                self.assert_definitive();
+                self.backtrack_byte_count = hidden_bytes.len();
             } else {
                 // prevent any further matches in this branch
                 self.lexer_stack.push(LexerState {
@@ -1979,6 +1979,12 @@ impl Parser {
     pub(crate) fn apply_forced(&mut self, byte_idx: usize) {
         self.state.byte_to_token_idx.resize(byte_idx, 0);
     }
+
+    pub(crate) fn additional_backtrack(&mut self, n_bytes: usize) {
+        assert!(self.state.byte_to_token_idx.len() >= n_bytes);
+        self.state.byte_to_token_idx.truncate(self.state.byte_to_token_idx.len() - n_bytes);
+    }
+
 
     pub fn apply_token(&mut self, tok_bytes: &[u8]) -> Result<usize> {
         let mut shared = self.shared.lock().unwrap();

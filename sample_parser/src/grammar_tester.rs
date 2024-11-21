@@ -117,13 +117,16 @@ fn check_grammar(tok_env: &TokEnv, grammar: TopLevelGrammar, output: &[&str]) {
 }
 
 fn check_eq(tok_env: &TokEnv, label: &str, tokens: &[TokenId], expected_tokens: &str) {
-    println!("Checking {}: {:?}", label, expected_tokens);
     let trie = tok_env.tok_trie();
     let actual_tokens = trie.test_trace_tokens(tokens);
+    println!(
+        "Checking {}: exp:{:?} got:{:?}",
+        label, expected_tokens, actual_tokens
+    );
     assert_eq!(
         actual_tokens, expected_tokens,
-        "Tokens mismatch in {}\n  {}\n  {}",
-        label, actual_tokens, expected_tokens
+        "Tokens mismatch in {}",
+        label
     );
 }
 
