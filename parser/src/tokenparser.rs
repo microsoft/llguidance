@@ -524,7 +524,10 @@ impl TokenParser {
             }
         }
 
-        if let Some(res) = self.apply_tokens(&arg.tokens) {
+        self.parser.dbg_row_infos("pre-apply");
+        let apply_res = self.apply_tokens(&arg.tokens);
+        self.parser.dbg_row_infos("post-apply");
+        if let Some(res) = apply_res {
             return res;
         }
 

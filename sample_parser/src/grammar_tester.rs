@@ -161,20 +161,30 @@ fn check_lark_grammar(lark: &str, output: &[&str]) {
     check_grammar(&TOK_ENV, grm, output);
 }
 
-fn test_llparser() {
+fn test_ll_backtrack_stop() {
     check_lark_grammar(
         r#"
-            start: "Q: Are dolphins fish?\nA: " ANSWER "\nQ: Are sharks fish?\nA: " ANSWER
-            ANSWER: "Yes" | "No"
+            start: "Count to 10: 1, 2, 3, 4, 5, 6, 7, " text "\nNot quite."
+            text[stop=","]: /.+/
         "#,
         &[
-            "Q‧:‧ Are‧ dol‧ph‧ins‧ fish‧?‧\n‧A‧:",
-            " No", // note the prefix space - moved by token healing
-            "\n‧Q‧:‧ Are‧ sh‧arks‧ fish‧?‧\n‧A‧:",
-            " Yes",
+            "Count‧ to‧ ‧1‧0‧:‧ ‧1‧,‧ ‧2‧,‧ ‧3‧,‧ ‧4‧,‧ ‧5‧,‧ ‧6‧,‧ ‧7‧,",
+            " ‧8‧,",
+            "1↶\n‧Not‧ quite‧.",
         ],
     );
 
+    check_lark_grammar(
+        r#"
+            start: "Name: " name "\nName: " name
+            name[stop=STOP]: /E[a-z]+/
+            STOP: /[a-b]/ | /[x-z]/
+        "#,
+        &["Name‧:", " Em‧ily", "1↶il‧\n‧Name‧:", " Emil‧ie‧a", "1↶"],
+    );
+}
+
+fn test_llparser() {
     check_lark_grammar(
         r#"
             start: "Power frequency is " num "Hz; voltage is " num "V"
@@ -190,6 +200,33 @@ fn test_llparser() {
 
     check_lark_grammar(
         r#"
+            start: "Power frequency is " num "Hz; voltage is " num "V"
+            num[stop="", max_tokens=3]: /[0-9]+/
+        "#,
+        &[
+            "Power‧ frequency‧ is‧ ",
+            "5‧0‧Hz", // no EoS needed on 50Hz
+            ";‧ voltage‧ is‧ ",
+            "2‧2‧0",
+            "V", // V is forced since max_tokens=3
+        ],
+    );
+
+    check_lark_grammar(
+        r#"
+            start: "Q: Are dolphins fish?\nA: " ANSWER "\nQ: Are sharks fish?\nA: " ANSWER
+            ANSWER: "Yes" | "No"
+        "#,
+        &[
+            "Q‧:‧ Are‧ dol‧ph‧ins‧ fish‧?‧\n‧A‧:",
+            " No", // note the prefix space - moved by token healing
+            "\n‧Q‧:‧ Are‧ sh‧arks‧ fish‧?‧\n‧A‧:",
+            " Yes",
+        ],
+    );
+
+    check_lark_grammar(
+        r#"
             start: "Q: 7 * 8\nA: " NUMBER
             NUMBER: /[0-9]+/
         "#,
@@ -198,6 +235,7 @@ fn test_llparser() {
 }
 
 fn main() {
+    test_ll_backtrack_stop();
     test_llparser();
 
     let mut builder = GrammarBuilder::new();

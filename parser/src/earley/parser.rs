@@ -164,6 +164,7 @@ struct Scratch {
 
 #[derive(Clone)]
 struct RowInfo {
+    // TODO: possibly use u32 not usize here
     start_byte_idx: usize,
     lexeme: Lexeme,
     token_idx_start: usize,
@@ -185,11 +186,17 @@ impl RowInfo {
         self.token_idx_stop = self.token_idx_stop.max(idx);
     }
 
+    fn set_token_idx(&mut self, idx: usize) {
+        self.token_idx_start = idx;
+        self.token_idx_stop = idx;
+    }
+
     fn dbg(&self, lexspec: &LexerSpec) -> String {
         format!(
-            "token_idx: {}-{} {} {}",
+            "token_idx: {}-{}; b:{}; {} {}",
             self.token_idx_start,
             self.token_idx_stop,
+            self.start_byte_idx,
             lexspec.dbg_lexeme(&self.lexeme),
             if self.max_tokens.is_empty() {
                 "".to_string()
@@ -243,7 +250,8 @@ struct ParserState {
     row_infos: Vec<RowInfo>,
     token_idx: usize,
     bytes: Vec<u8>,
-    applied_byte_idx: usize,
+    // use u32 to save space
+    byte_to_token_idx: Vec<u32>,
 
     first_row_with_max_token_limit: usize,
     stats: ParserStats,
@@ -386,7 +394,7 @@ impl ParserState {
             scratch,
             stats: ParserStats::default(),
             token_idx: 0,
-            applied_byte_idx: 0,
+            byte_to_token_idx: vec![],
             bytes: vec![],
             max_all_items: usize::MAX,
             first_row_with_max_token_limit: 0,
@@ -666,10 +674,22 @@ impl ParserState {
 
         let mut check_lexer_max_tokens = false;
 
+        let mut row_to_apply = self.num_rows() - 1;
+
+        // find first row to apply new token idx
+        let applied_idx0 = self.byte_to_token_idx.len();
+        while row_to_apply > 0 {
+            if self.row_infos[row_to_apply].start_byte_idx <= applied_idx0 {
+                break;
+            }
+            row_to_apply -= 1;
+        }
+
         for (bidx, &b) in tok_bytes.iter().enumerate() {
             check_lexer_max_tokens = false;
-            if self.applied_byte_idx >= self.bytes.len() {
-                assert!(self.applied_byte_idx == self.bytes.len());
+            let applied_idx = self.byte_to_token_idx.len();
+            if applied_idx >= self.bytes.len() {
+                assert!(applied_idx == self.bytes.len());
 
                 let row_idx = self.num_rows() - 1;
                 self.row_infos[row_idx].apply_token_idx(self.token_idx);
@@ -683,7 +703,7 @@ impl ParserState {
                     );
                 }
                 if bt > 0 {
-                    self.applied_byte_idx = self.bytes.len();
+                    self.byte_to_token_idx.truncate(self.bytes.len());
                     let bt = bt + (tok_bytes.len() - bidx - 1);
                     return Ok(bt);
                 }
@@ -693,17 +713,28 @@ impl ParserState {
                     check_lexer_max_tokens = true;
                 }
             } else {
-                if self.bytes[self.applied_byte_idx] != b {
+                if self.bytes[applied_idx] != b {
                     bail!(
                         "expecting {:?} (forced bytes), got {:?}; applying {:?}",
-                        self.bytes[self.applied_byte_idx] as char,
+                        self.bytes[applied_idx] as char,
                         b as char,
                         String::from_utf8_lossy(tok_bytes)
                     );
                 }
             }
 
-            self.applied_byte_idx += 1;
+            self.byte_to_token_idx
+                .push(self.token_idx.try_into().unwrap());
+        }
+
+        for idx in row_to_apply..self.num_rows() {
+            // for all rows fully contained (so far) in the new token, reset token idx
+            if self.row_infos[idx].start_byte_idx >= applied_idx0 {
+                self.row_infos[idx].set_token_idx(self.token_idx);
+            } else {
+                // otherwise, just apply it
+                self.row_infos[idx].apply_token_idx(self.token_idx);
+            }
         }
 
         if check_lexer_max_tokens {
@@ -721,7 +752,7 @@ impl ParserState {
                 for idx in possible_lexemes.iter() {
                     let lex = LexemeIdx::new(idx as usize);
                     let max_tokens = *info.max_tokens.get(&lex).unwrap_or(&usize::MAX);
-                    trace!(
+                    debug!(
                         "  max_tokens: {} max={} info={}",
                         self.lexer_spec().dbg_lexeme(&Lexeme::just_idx(lex)),
                         max_tokens,
@@ -761,12 +792,6 @@ impl ParserState {
                 item_count,
                 self.limits.max_items_in_row,
             );
-        }
-
-        self.token_idx += 1;
-
-        for infos in self.row_infos.iter() {
-            debug!("  {}", infos.dbg(self.lexer_spec()));
         }
 
         // self.print_row(self.num_rows() - 1);
@@ -847,7 +872,7 @@ impl ParserState {
             }
         }
         self.assert_definitive();
-        let bytes = &self.bytes[self.applied_byte_idx..];
+        let bytes = &self.bytes[self.byte_to_token_idx.len()..];
         trace!(
             "force_bytes exit {} lexer_stack={}",
             bytes.len(),
@@ -1389,11 +1414,21 @@ impl ParserState {
                     max_tokens_map.remove(&lx);
                 }
 
+                // Typically, the current byte was not yet pushed,
+                // yet it's part of the previous lexeme.
+                // This is not true for the first row (which is checked here),
+                // or when there is a transition byte (which is corrected in
+                // lexer_state_for_added_row())
+                let mut start_byte_idx = self.bytes.len();
+                if start_byte_idx > 0 {
+                    start_byte_idx += 1;
+                }
+
                 self.row_infos.push(RowInfo {
                     lexeme: Lexeme::bogus(),
                     token_idx_start: self.token_idx,
                     token_idx_stop: self.token_idx,
-                    start_byte_idx: self.bytes.len(),
+                    start_byte_idx,
                     max_tokens: Arc::new(max_tokens_map),
                 });
                 // debug!("  push: {idx} {} {}", self.rows.len(), self.row_infos.len());
@@ -1480,6 +1515,12 @@ impl ParserState {
         if self.scratch.definitive {
             // save lexeme at the last row, before we mess with the stack
             self.row_infos[added_row - 1].lexeme = lexeme;
+            // if there is a transition byte it means it goes to the next lexeme,
+            // and thus we were overeager assigning start_byte_idx,
+            // so we need to correct it
+            if transition_byte.is_some() {
+                self.row_infos[added_row].start_byte_idx -= 1;
+            }
             debug!(
                 "lex: re-start {:?} (via {:?}); allowed: {}",
                 no_hidden.lexer_state,
@@ -1936,16 +1977,31 @@ impl Parser {
     }
 
     pub(crate) fn apply_forced(&mut self, byte_idx: usize) {
-        self.state.applied_byte_idx = byte_idx;
+        self.state.byte_to_token_idx.resize(byte_idx, 0);
     }
 
     pub fn apply_token(&mut self, tok_bytes: &[u8]) -> Result<usize> {
         let mut shared = self.shared.lock().unwrap();
-        self.state.apply_token(&mut shared, tok_bytes)
+        let r = self.state.apply_token(&mut shared, tok_bytes);
+        self.state.token_idx += 1;
+        r
     }
 
     pub fn filter_max_tokens(&mut self) {
         self.state.filter_max_tokens();
+    }
+
+    pub fn dbg_row_infos(&self, label: &str) {
+        debug!(
+            "row infos {}: token_idx: {}; applied bytes: {}/{}",
+            label,
+            self.state.token_idx,
+            self.state.byte_to_token_idx.len(),
+            self.state.bytes.len()
+        );
+        for infos in self.state.row_infos.iter() {
+            debug!("  {}", infos.dbg(self.state.lexer_spec()));
+        }
     }
 
     pub fn is_accepting(&mut self) -> bool {
