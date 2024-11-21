@@ -132,7 +132,7 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
             .unwrap();
         lexeme_idx_to_token.insert(l, *token);
     }
-    let mut lexer = Lexer::from(&spec, &mut Default::default()).unwrap();
+    let mut lexer = Lexer::from_internal(&spec).unwrap();
     let all_lexemes = spec.all_lexemes();
     let state0 = lexer.start_state(&all_lexemes, None);
     let mut line_no = 1;

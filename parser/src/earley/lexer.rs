@@ -46,6 +46,20 @@ pub enum LexerResult {
 }
 
 impl Lexer {
+    // this is used for internal parser for lark grammars
+    // avoids debug output
+    pub fn from_internal(spec: &LexerSpec) -> Result<Self> {
+        let mut limits = ParserLimits::default();
+        let dfa = spec.to_regex_vec(&mut limits)?;
+
+        let lex = Lexer {
+            dfa,
+            spec: spec.clone(), // TODO check perf of Rc<> ?
+        };
+
+        Ok(lex)
+    }
+
     pub fn from(spec: &LexerSpec, limits: &mut ParserLimits) -> Result<Self> {
         let dfa = spec.to_regex_vec(limits)?;
 
