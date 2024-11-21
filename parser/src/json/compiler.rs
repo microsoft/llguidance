@@ -240,8 +240,9 @@ impl Compiler {
                 additional_properties.as_deref().unwrap_or(&Schema::Any),
                 required.iter().cloned().collect(),
             ),
-            Schema::Const { value } => self.gen_json_const(value.clone()),
-            Schema::Enum { options } => self.gen_json_enum(options.clone()),
+            Schema::LiteralBool { value } => {
+                Ok(self.builder.string(if *value { "true" } else { "false" }))
+            }
             Schema::AnyOf { options } => self.process_any_of(options.clone()),
             Schema::OneOf { options } => self.process_any_of(options.clone()),
             Schema::Ref { uri, .. } => self.get_definition(uri),
@@ -249,51 +250,28 @@ impl Compiler {
     }
 
     fn process_any_of(&mut self, options: Vec<Schema>) -> Result<NodeRef> {
-        let options = options
-            .iter()
-            .map(|v| self.gen_json(v))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(self.builder.select(&options))
-    }
-
-    fn gen_json_enum(&mut self, options: Vec<Value>) -> Result<NodeRef> {
-        let options = options
-            .into_iter()
-            .map(|v| self.gen_json_const(v))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(self.builder.select(&options))
-    }
-
-    fn gen_json_const(&mut self, const_value: Value) -> Result<NodeRef> {
-        // Recursively build a grammar for a constant value (just to play nicely with separators and whitespace flexibility)
-        match const_value {
-            Value::Object(values) => {
-                let properties = IndexMap::from_iter(
-                    values
-                        .into_iter()
-                        .map(|(k, v)| (k, Schema::Const { value: v })),
-                );
-                let required = properties.keys().cloned().collect();
-                self.gen_json_object(&properties, &Schema::false_schema(), required)
+        let mut nodes = vec![];
+        let mut errors = vec![];
+        for option in options.into_iter() {
+            match self.gen_json(&option) {
+                Ok(node) => nodes.push(node),
+                Err(err) => match err.downcast_ref::<UnsatisfiableSchemaError>() {
+                    Some(_) => errors.push(err),
+                    None => return Err(err),
+                },
             }
-            Value::Array(values) => {
-                let n_items = values.len() as u64;
-                let prefix_items = values
-                    .into_iter()
-                    .map(|v| Schema::Const { value: v })
-                    .collect::<Vec<_>>();
-                self.gen_json_array(
-                    &prefix_items,
-                    &Schema::false_schema(),
-                    n_items,
-                    Some(n_items),
-                )
-            }
-            _ => {
-                // let serde_json dump simple values
-                let const_str = json_dumps(&const_value);
-                Ok(self.builder.string(&const_str))
-            }
+        }
+        if !nodes.is_empty() {
+            Ok(self.builder.select(&nodes))
+        } else if let Some(e) = errors.pop() {
+            Err(anyhow!(UnsatisfiableSchemaError {
+                message: format!("All options in anyOf/oneOf are unsatisfiable",),
+            })
+            .context(e))
+        } else {
+            Err(anyhow!(UnsatisfiableSchemaError {
+                message: "No options in anyOf/oneOf".to_string(),
+            }))
         }
     }
 
