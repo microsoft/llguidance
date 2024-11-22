@@ -378,6 +378,29 @@ impl TokenParser {
         self.stop(&format!("{}{}", pref, err.message()), err.stop_reason())
     }
 
+    fn maybe_pop_parsers(&mut self, arg: &StepArg) {
+        if arg.tokens.len() == 1 {
+            if let Some(pop) = &self.pop_tokens {
+                if pop.is_allowed(arg.tokens[0]) {
+                    let trie = self.token_env.tok_trie();
+                    infoln!(self, "pop_tokens hit: {}", trie.token_set_dbg(pop));
+                    loop {
+                        let pentry = self.parser_stack.last().unwrap();
+                        let top_allows_token =
+                            pentry.mask.as_ref().unwrap().is_allowed(arg.tokens[0]);
+                        self.pop_parser();
+                        if top_allows_token {
+                            break;
+                        } else {
+                            // otherwise, we will keep popping parsers
+                        }
+                    }
+                }
+            }
+        }
+        self.pop_tokens = None;
+    }
+
     fn apply_tokens(&mut self, tokens: &[TokenId]) -> Result<usize, StepResult> {
         let trie = self.token_env.tok_trie();
 
@@ -583,7 +606,7 @@ impl TokenParser {
                 infoln!(self, "pop_parser; tokens left {}", self.max_tokens_parser);
                 self.pop_parser();
                 let trie = self.token_env.tok_trie();
-                // re-start the whole process with a nice tail-recursion
+                // re-start the whole process
                 return Err(self.mid_process_inner(StepArg {
                     backtrack: 0,
                     tokens: if has_eos {
@@ -597,6 +620,56 @@ impl TokenParser {
         }
 
         Ok(inner_accepting)
+    }
+
+    fn compute_bias(&mut self, token_prefix: &Vec<u8>) -> SimpleVob {
+        let pre_stats = self.parser.stats().clone();
+        let set = self.parser.compute_bias(&*self.bias_computer, token_prefix);
+        let p_stats = self.parser.stats().delta(&pre_stats);
+        self.last_bias_time = Duration::from_micros(p_stats.compute_time_us);
+        self.last_step_stats = p_stats.clone();
+        self.max_step_stats = self.max_step_stats.max(&p_stats);
+        set
+    }
+
+    fn setup_parser_popping(
+        &mut self,
+        token_prefix: &Vec<u8>,
+        allowed_tokens: &mut SimpleVob,
+    ) -> Result<(), StepResult> {
+        let trie = self.token_env.tok_trie();
+        let mut all_accepting = true;
+        if self.parser_stack.len() > 0 {
+            let mut pop_tokens = trie.alloc_token_set();
+            for pentry in self.parser_stack.iter_mut() {
+                if pentry.mask.is_none() {
+                    assert!(token_prefix.is_empty());
+                    let (is_accepting, mask) = pentry
+                        .parser
+                        .compute_bias_after_gen_grammar(&*self.bias_computer, pentry.symidx);
+                    if let Some(err) = pentry.parser.get_error() {
+                        return Err(self.stop_for_parser_error("inner parser: ", err));
+                    }
+                    infoln!(self, "bias for upper parser: {}", trie.token_set_dbg(&mask));
+                    pentry.mask = Some(mask);
+                    pentry.is_accepting = is_accepting;
+                }
+                let m = pentry.mask.as_ref().unwrap();
+                pop_tokens.or_minus(m, &allowed_tokens);
+                allowed_tokens.or(m);
+                if !pentry.is_accepting {
+                    all_accepting = false;
+                    break;
+                }
+            }
+            infoln!(self, "pop_tokens: {}", trie.token_set_dbg(&pop_tokens));
+            self.pop_tokens = Some(pop_tokens);
+        }
+        self.mid_process_was_accepting = all_accepting;
+        if all_accepting {
+            allowed_tokens.allow_token(trie.eos_token());
+        }
+        Ok(())
     }
 
     fn mid_process_inner(&mut self, mut arg: StepArg) -> StepResult {
@@ -618,25 +691,9 @@ impl TokenParser {
             trie.tokens_dbg(&arg.tokens)
         );
 
-        if arg.tokens.len() == 1 {
-            if let Some(pop) = &self.pop_tokens {
-                if pop.is_allowed(arg.tokens[0]) {
-                    infoln!(self, "pop_tokens hit: {}", trie.token_set_dbg(pop));
-                    let pentry = self.parser_stack.last().unwrap();
-                    // if the top of parse stack allows this token, we should stop
-                    // popping parsers in the next iteration - clear pop_tokens
-                    if pentry.mask.as_ref().unwrap().is_allowed(arg.tokens[0]) {
-                        self.pop_tokens = None;
-                    } else {
-                        // otherwise, we will recursively pop parsers
-                    }
-                    self.pop_parser();
-                    // TODO remove recursion
-                    return self.mid_process_inner(arg);
-                }
-            }
-        }
-        self.pop_tokens = None;
+        self.maybe_pop_parsers(&arg);
+
+        let trie = self.token_env.tok_trie();
 
         let mut has_eos = false;
 
@@ -679,61 +736,26 @@ impl TokenParser {
             }
         }
 
-        let inner_accepting = match self.maybe_accept_or_pop_parser(has_eos, token_prefix.is_empty()) {
-            Ok(inner_accepting) => inner_accepting,
-            Err(res) => return res,
-        };
+        let inner_accepting =
+            match self.maybe_accept_or_pop_parser(has_eos, token_prefix.is_empty()) {
+                Ok(inner_accepting) => inner_accepting,
+                Err(res) => return res,
+            };
 
         if self.no_bias_this_mid_process {
             self.no_bias_this_mid_process = false;
             return StepResult::noop();
         }
 
-        let pre_stats = self.parser.stats().clone();
-        let mut set = self
-            .parser
-            .compute_bias(&*self.bias_computer, &token_prefix);
-        let p_stats = self.parser.stats().delta(&pre_stats);
-        self.last_bias_time = Duration::from_micros(p_stats.compute_time_us);
-        self.last_step_stats = p_stats.clone();
-        self.max_step_stats = self.max_step_stats.max(&p_stats);
+        let mut allowed_tokens = self.compute_bias(&token_prefix);
 
         if let Some(err) = self.parser.get_error() {
             return self.stop_for_parser_error("", err);
         }
 
         if inner_accepting {
-            let trie = self.token_env.tok_trie();
-            let mut all_accepting = true;
-            if self.parser_stack.len() > 0 {
-                let mut pop_tokens = trie.alloc_token_set();
-                for pentry in self.parser_stack.iter_mut() {
-                    if pentry.mask.is_none() {
-                        assert!(token_prefix.is_empty());
-                        let (is_accepting, mask) = pentry
-                            .parser
-                            .compute_bias_after_gen_grammar(&*self.bias_computer, pentry.symidx);
-                        if let Some(err) = pentry.parser.get_error() {
-                            return self.stop_for_parser_error("inner parser: ", err);
-                        }
-                        infoln!(self, "bias for upper parser: {}", trie.token_set_dbg(&mask));
-                        pentry.mask = Some(mask);
-                        pentry.is_accepting = is_accepting;
-                    }
-                    let m = pentry.mask.as_ref().unwrap();
-                    pop_tokens.or_minus(m, &set);
-                    set.or(m);
-                    if !pentry.is_accepting {
-                        all_accepting = false;
-                        break;
-                    }
-                }
-                infoln!(self, "pop_tokens: {}", trie.token_set_dbg(&pop_tokens));
-                self.pop_tokens = Some(pop_tokens);
-            }
-            self.mid_process_was_accepting = all_accepting;
-            if all_accepting {
-                set.allow_token(trie.eos_token());
+            if let Err(e) = self.setup_parser_popping(&token_prefix, &mut allowed_tokens) {
+                return e;
             }
         }
 
@@ -741,8 +763,8 @@ impl TokenParser {
             self,
             "step-stats: {}us; {} lex fuel; {} items; {}",
             start_time.elapsed().as_micros(),
-            p_stats.lexer_cost,
-            p_stats.all_items,
+            self.last_step_stats.lexer_cost,
+            self.last_step_stats.all_items,
             self.parser.lexer_stats(),
         );
 
@@ -751,15 +773,15 @@ impl TokenParser {
             "bias: (pref: {:?}; accpt: {}) {}",
             String::from_utf8_lossy(&token_prefix),
             self.mid_process_was_accepting,
-            self.token_env.tok_trie().token_set_dbg(&set)
+            self.token_env.tok_trie().token_set_dbg(&allowed_tokens)
         );
 
-        if set.num_set() == 0 {
+        if allowed_tokens.num_set() == 0 {
             infoln!(self, "no tokens allowed, stopping");
             return self.stop("", StopReason::NoExtensionBias);
         }
 
-        return StepResult::sample(set, self.parser.temperature());
+        return StepResult::sample(allowed_tokens, self.parser.temperature());
     }
 
     fn maybe_push_parser(&mut self) -> Result<()> {
