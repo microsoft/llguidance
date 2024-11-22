@@ -132,9 +132,9 @@ pub struct Grammar {
 }
 
 impl Grammar {
-    pub fn new() -> Self {
+    pub fn new(name: Option<String>) -> Self {
         Grammar {
-            name: None,
+            name,
             symbols: vec![],
             symbol_by_name: FxHashMap::default(),
         }
@@ -339,8 +339,7 @@ impl Grammar {
             }
         }
 
-        let mut outp = Grammar::new();
-        outp.name = self.name.clone();
+        let mut outp = Grammar::new(self.name.clone());
 
         let start_data = self.sym_data(self.start());
         if start_data.is_terminal() || start_data.rules.iter().any(|r| r.rhs.is_empty()) {

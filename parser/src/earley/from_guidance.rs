@@ -130,7 +130,7 @@ fn grammar_from_json(
     if input.allow_initial_skip {
         lexer_spec.allow_initial_skip = true;
     }
-    let mut grm = Grammar::new();
+    let mut grm = Grammar::new(input.name.clone());
     let node_map = input
         .nodes
         .iter()
