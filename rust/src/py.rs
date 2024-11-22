@@ -113,13 +113,15 @@ impl LLInterpreter {
     fn commit_token(
         &mut self,
         sampled_token: Option<TokenId>,
-    ) -> PyResult<Option<(u32, Vec<TokenId>)>> {
+    ) -> PyResult<(u32, Vec<TokenId>)> {
         let pres = self.inner.commit_token(sampled_token).map_err(val_error)?;
 
         if pres.stop {
-            Ok(None)
+            // inner.commit_token() only returns stop, when compute_mask()
+            // had already returned stop
+            Ok((0, vec![]))
         } else {
-            Ok(Some((pres.backtrack, pres.ff_tokens)))
+            Ok((pres.backtrack, pres.ff_tokens))
         }
     }
 

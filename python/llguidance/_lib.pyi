@@ -116,12 +116,13 @@ class LLInterpreter:
 
     def commit_token(
         self, sampled_token: Optional[TokenId]
-    ) -> Optional[Tuple[int, List[TokenId]]]:
+    ) -> Tuple[int, List[TokenId]]:
         """
         Perform any adjustments to the sampled token.
         Returns the number of tokens to remove from the prompt and the
         list of tokens to append.
-        If compute_mask() returned None, this should be called immedietly with None.
+        If compute_mask() returned None mask, this should be called immediately with None.
+        If compute_mask() returned stop, you don't need to call this (but can).
         """
 
     def has_pending_stop(self) -> bool:
