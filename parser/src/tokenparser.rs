@@ -754,16 +754,11 @@ impl TokenParser {
         Ok(())
     }
 
-    fn log_final(
-        &mut self,
-        token_prefix: &Vec<u8>,
-        allowed_tokens: &mut SimpleVob,
-        start_time: instant::Instant,
-    ) {
+    fn log_final(&mut self, token_prefix: &Vec<u8>, allowed_tokens: &mut SimpleVob) {
         infoln!(
             self,
             "step-stats: {}us; {} lex fuel; {} items; {}",
-            start_time.elapsed().as_micros(),
+            self.mid_process_start_time.elapsed().as_micros(),
             self.last_step_stats.lexer_cost,
             self.last_step_stats.all_items,
             self.parser.lexer_stats(),
@@ -779,8 +774,6 @@ impl TokenParser {
     }
 
     fn mid_process_inner(&mut self, mut arg: StepArg) -> StepResult {
-        let start_time = instant::Instant::now();
-
         self.mid_process_was_accepting = false;
 
         self.log_inital(&arg);
@@ -839,7 +832,7 @@ impl TokenParser {
             }
         }
 
-        self.log_final(&token_prefix, &mut allowed_tokens, start_time);
+        self.log_final(&token_prefix, &mut allowed_tokens);
 
         if allowed_tokens.num_set() == 0 {
             infoln!(self, "no tokens allowed, stopping");
