@@ -13,6 +13,9 @@ Following are the extensions to Lark syntax:
 - special tokens can referenced via `<token_name>` syntax, for example `<|ENDOFTEXT|>`;
   they cannot be used inside of terminals, but can be used in regular rules;
   the exact syntax depends on the tokenizer
+- `max_tokens` and `stop` can be specified on rules, but the rule body must be a token expression,
+  for example: `mygen[stop="\n", max_tokens=10]: /.*/`
+
 
 Following are currently not supported:
 
@@ -25,6 +28,4 @@ Following are currently not supported:
 
 Following features of llguidance are currently not exposed in Lark syntax:
 
-- `max_tokens` limits
-- hiding of `stop=...`
 - per-lexeme contextual and lazy flags

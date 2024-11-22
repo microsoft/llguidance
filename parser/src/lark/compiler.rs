@@ -6,7 +6,9 @@ use std::{
 use anyhow::{anyhow, bail, ensure, Result};
 
 use crate::{
-    api::{GrammarId, GrammarWithLexer, RegexId, RegexSpec, TopLevelGrammar},
+    api::{
+        GenOptions, GrammarId, GrammarWithLexer, NodeProps, RegexId, RegexSpec, TopLevelGrammar,
+    },
     GrammarBuilder, NodeRef,
 };
 
@@ -291,7 +293,41 @@ impl Compiler {
             .rules
             .get(name)
             .ok_or_else(|| anyhow!("rule {:?} not found", name))?;
-        let id = self.do_expansions(&rule.expansions)?;
+        let id = if let Some(stop) = &rule.stop {
+            let rx_id = self.do_token_expansions(&rule.expansions)?;
+            let stop_id = self.do_token_atom(&Atom::Value(stop.clone()))?;
+            let is_empty = matches!(stop, Value::LiteralString(s, _) if s.is_empty());
+            self.builder.gen(
+                GenOptions {
+                    body_rx: RegexSpec::RegexId(rx_id),
+                    stop_rx: RegexSpec::RegexId(stop_id),
+                    stop_capture_name: None,
+                    lazy: Some(!is_empty), // follow guidance: "lazy": node.stop_regex != "",
+                    temperature: None,
+                },
+                NodeProps {
+                    max_tokens: rule.max_tokens,
+                    // assume the user also wants capture
+                    capture_name: Some(name.to_string()),
+                    ..Default::default()
+                },
+            )
+        } else {
+            let inner = self.do_expansions(&rule.expansions)?;
+            if let Some(max_tokens) = rule.max_tokens {
+                self.builder.join_props(
+                    &[inner],
+                    NodeProps {
+                        max_tokens: Some(max_tokens),
+                        // assume the user also wants capture
+                        capture_name: Some(name.to_string()),
+                        ..Default::default()
+                    },
+                )
+            } else {
+                inner
+            }
+        };
         if let Some(placeholder) = self.node_ids.get(name) {
             self.builder.set_placeholder(*placeholder, id);
         }

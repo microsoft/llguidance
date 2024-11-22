@@ -406,28 +406,35 @@ impl Default for ParserLimits {
 
 impl TopLevelGrammar {
     pub fn from_regex(rx: RegexNode) -> Self {
-        TopLevelGrammar {
-            grammars: vec![GrammarWithLexer {
-                name: Some("regex_grammar".to_string()),
-                nodes: vec![Node::Lexeme {
-                    rx: RegexSpec::RegexId(RegexId(0)),
-                    contextual: None,
-                    temperature: None,
-                    props: NodeProps::default(),
-                    json_string: None,
-                    json_allowed_escapes: None,
-                    json_raw: None,
-                }],
-                json_schema: None,
-                lark_grammar: None,
-                greedy_lexer: true,
-                greedy_skip_rx: None,
+        Self::from_grammar(GrammarWithLexer {
+            name: Some("regex_grammar".to_string()),
+            nodes: vec![Node::Lexeme {
+                rx: RegexSpec::RegexId(RegexId(0)),
                 contextual: None,
-                rx_nodes: vec![rx],
-                no_forcing: false,
-                allow_initial_skip: false,
-                allow_invalid_utf8: false,
+                temperature: None,
+                props: NodeProps::default(),
+                json_string: None,
+                json_allowed_escapes: None,
+                json_raw: None,
             }],
+            greedy_lexer: true,
+            rx_nodes: vec![rx],
+            ..Default::default()
+        })
+    }
+
+    pub fn from_lark(lark_grammar: String) -> Self {
+        Self::from_grammar(GrammarWithLexer {
+            name: Some("lark_grammar".to_string()),
+            lark_grammar: Some(lark_grammar),
+            greedy_lexer: true,
+            ..GrammarWithLexer::default()
+        })
+    }
+
+    pub fn from_grammar(grammar: GrammarWithLexer) -> Self {
+        TopLevelGrammar {
+            grammars: vec![grammar],
             max_tokens: None,
             test_trace: false,
         }

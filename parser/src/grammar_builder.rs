@@ -212,20 +212,20 @@ impl GrammarBuilder {
     }
 
     pub fn gen_rx(&mut self, regex: &str, stop_regex: &str) -> NodeRef {
-        self.gen(GenOptions {
-            body_rx: RegexSpec::Regex(regex.to_string()),
-            stop_rx: RegexSpec::Regex(stop_regex.to_string()),
-            stop_capture_name: None,
-            lazy: None,
-            temperature: None,
-        })
+        self.gen(
+            GenOptions {
+                body_rx: RegexSpec::Regex(regex.to_string()),
+                stop_rx: RegexSpec::Regex(stop_regex.to_string()),
+                stop_capture_name: None,
+                lazy: None,
+                temperature: None,
+            },
+            NodeProps::default(),
+        )
     }
 
-    pub fn gen(&mut self, data: GenOptions) -> NodeRef {
-        self.add_node(Node::Gen {
-            data,
-            props: NodeProps::default(),
-        })
+    pub fn gen(&mut self, data: GenOptions, props: NodeProps) -> NodeRef {
+        self.add_node(Node::Gen { data, props })
     }
 
     pub fn lexeme(&mut self, rx: RegexSpec, json_quoted: bool) -> NodeRef {
@@ -258,7 +258,21 @@ impl GrammarBuilder {
         })
     }
 
+    pub fn max_tokens(&mut self, node: NodeRef, max_tokens: usize) -> NodeRef {
+        self.join_props(
+            &[node],
+            NodeProps {
+                max_tokens: Some(max_tokens),
+                ..Default::default()
+            },
+        )
+    }
+
     pub fn join(&mut self, values: &[NodeRef]) -> NodeRef {
+        self.join_props(values, NodeProps::default())
+    }
+
+    pub fn join_props(&mut self, values: &[NodeRef], props: NodeProps) -> NodeRef {
         let mut ch = self.child_nodes(&values);
         let empty = NodeId(self.empty().idx);
         ch.retain(|&n| n != empty);
@@ -273,7 +287,7 @@ impl GrammarBuilder {
         }
         self.add_node(Node::Join {
             sequence: ch,
-            props: NodeProps::default(),
+            props,
         })
     }
 

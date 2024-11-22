@@ -58,7 +58,7 @@ impl LexemeSpec {
     /// Check if the lexeme always matches bytes, and has at least one more byte to spare.
     pub fn has_forced_bytes(&self, bytes: &[u8]) -> bool {
         match &self.rx {
-            RegexAst::Literal(s) if s.len() > bytes.len() => &s.as_bytes()[0..bytes.len()] == bytes,
+            RegexAst::Literal(s) if s.len() >= bytes.len() => &s.as_bytes()[0..bytes.len()] == bytes,
             _ => false,
         }
     }

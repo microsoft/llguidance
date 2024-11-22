@@ -29,6 +29,9 @@ pub struct Rule {
     pub params: Option<RuleParams>,
     pub priority: Option<i32>,
     pub expansions: Expansions,
+
+    pub stop: Option<Value>,
+    pub max_tokens: Option<usize>,
 }
 
 /// Represents a token definition.

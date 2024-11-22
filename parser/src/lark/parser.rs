@@ -66,8 +66,6 @@ impl Parser {
         } else {
             None
         };
-        self.expect_token(Token::Colon)?;
-        let expansions = self.parse_expansions()?;
         let (name, pin_terminals) = if name.starts_with("!") {
             (name[1..].to_string(), true)
         } else {
@@ -78,14 +76,25 @@ impl Parser {
         } else {
             (name, false)
         };
-        Ok(Rule {
+
+        let mut rule = Rule {
             name,
             pin_terminals,
             cond_inline,
             params,
             priority,
-            expansions,
-        })
+            expansions: Expansions(self.location(), Vec::new()),
+            stop: None,
+            max_tokens: None,
+        };
+
+        if self.has_token(Token::LBracket) {
+            self.parse_attributes(&mut rule)?;
+        }
+
+        self.expect_token(Token::Colon)?;
+        rule.expansions = self.parse_expansions()?;
+        Ok(rule)
     }
 
     /// Parses a token definition.
@@ -101,14 +110,44 @@ impl Parser {
         } else {
             None
         };
-        self.expect_token(Token::Colon)?;
-        let expansions = self.parse_expansions()?;
-        Ok(TokenDef {
+
+        let mut token_def = TokenDef {
             name,
             params,
             priority,
-            expansions,
-        })
+            expansions: Expansions(self.location(), Vec::new()),
+        };
+
+        self.expect_token(Token::Colon)?;
+        token_def.expansions = self.parse_expansions()?;
+        Ok(token_def)
+    }
+
+    /// Parses attributes inside square brackets.
+    fn parse_attributes(&mut self, rule: &mut Rule) -> Result<()> {
+        self.expect_token(Token::LBracket)?;
+        while !self.has_token(Token::RBracket) {
+            let key = self.expect_token(Token::Rule)?.value;
+            self.expect_token(Token::Equals)?;
+            match key.as_str() {
+                "stop" => {
+                    let value = self.parse_value()?;
+                    rule.stop = Some(value);
+                }
+                "max_tokens" => {
+                    let value = self.expect_token(Token::Number)?.value.parse::<usize>()?;
+                    rule.max_tokens = Some(value);
+                }
+                _ => bail!("Unknown attribute: {}", key),
+            }
+            if self.has_token(Token::Comma) {
+                self.expect_token(Token::Comma)?;
+            } else {
+                break;
+            }
+        }
+        self.expect_token(Token::RBracket)?;
+        Ok(())
     }
 
     /// Parses a statement.
