@@ -69,14 +69,18 @@ pub struct ParserStats {
 impl ParserStats {
     pub fn delta(&self, previous: &ParserStats) -> ParserStats {
         ParserStats {
-            rows: self.rows - previous.rows,
-            definitive_bytes: self.definitive_bytes - previous.definitive_bytes,
-            lexer_ops: self.lexer_ops - previous.lexer_ops,
-            num_lexemes: self.num_lexemes - previous.num_lexemes,
-            num_lex_errors: self.num_lex_errors - previous.num_lex_errors,
-            all_items: self.all_items - previous.all_items,
-            lexer_cost: self.lexer_cost - previous.lexer_cost,
-            compute_time_us: self.compute_time_us - previous.compute_time_us,
+            rows: self.rows.saturating_sub(previous.rows),
+            definitive_bytes: self
+                .definitive_bytes
+                .saturating_sub(previous.definitive_bytes),
+            lexer_ops: self.lexer_ops.saturating_sub(previous.lexer_ops),
+            num_lexemes: self.num_lexemes.saturating_sub(previous.num_lexemes),
+            num_lex_errors: self.num_lex_errors.saturating_sub(previous.num_lex_errors),
+            all_items: self.all_items.saturating_sub(previous.all_items),
+            lexer_cost: self.lexer_cost.saturating_sub(previous.lexer_cost),
+            compute_time_us: self
+                .compute_time_us
+                .saturating_sub(previous.compute_time_us),
         }
     }
 
@@ -1519,7 +1523,10 @@ impl ParserState {
             // and thus we were overeager assigning start_byte_idx,
             // so we need to correct it
             if transition_byte.is_some() {
-                self.row_infos[added_row].start_byte_idx -= 1;
+                let new_start = self.row_infos[added_row - 1]
+                    .start_byte_idx
+                    .saturating_sub(1);
+                self.row_infos[added_row].start_byte_idx -= new_start;
             }
             debug!(
                 "lex: re-start {:?} (via {:?}); allowed: {}",
@@ -1982,9 +1989,10 @@ impl Parser {
 
     pub(crate) fn additional_backtrack(&mut self, n_bytes: usize) {
         assert!(self.state.byte_to_token_idx.len() >= n_bytes);
-        self.state.byte_to_token_idx.truncate(self.state.byte_to_token_idx.len() - n_bytes);
+        self.state
+            .byte_to_token_idx
+            .truncate(self.state.byte_to_token_idx.len() - n_bytes);
     }
-
 
     pub fn apply_token(&mut self, tok_bytes: &[u8]) -> Result<usize> {
         let mut shared = self.shared.lock().unwrap();
