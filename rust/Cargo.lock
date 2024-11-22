@@ -1099,7 +1099,7 @@ dependencies = [
 [[package]]
 name = "toktrie"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/toktrie?rev=6172936f8c965d2050a53d14de0e3410ecc78ad1#6172936f8c965d2050a53d14de0e3410ecc78ad1"
+source = "git+https://github.com/microsoft/toktrie?rev=148399b250ec9bbf0fc97149534035d8fad71164#148399b250ec9bbf0fc97149534035d8fad71164"
 dependencies = [
  "anyhow",
  "bytemuck",

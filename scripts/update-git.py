@@ -3,6 +3,9 @@
 import subprocess
 import re
 import sys
+import json
+import os
+
 
 # Function to get the latest commit hash of a git repository
 def get_latest_commit_hash(repo_path):
@@ -66,13 +69,41 @@ if not toktrie_commit or not derivre_commit:
 cargo_toml_paths = [
     "parser/Cargo.toml",
     "sample_parser/Cargo.toml",
+    "rust/Cargo.toml",
 ]
 
 # Update each Cargo.toml file
 for cargo_toml_path in cargo_toml_paths:
     update_cargo_toml(cargo_toml_path, toktrie_commit, derivre_commit)
 
-# Run cargo fetch for each path to update Cargo.lock
-subprocess.run(["cargo", "fetch", "--manifest-path", "rust/Cargo.toml"], check=True)
+
+def get_workspace_cargo_toml():
+    try:
+        result = subprocess.run(
+            ["cargo", "locate-project", "--workspace"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+        return data["root"]
+    except subprocess.CalledProcessError as e:
+        print("Error running cargo command:", e)
+    except KeyError:
+        print("Unexpected JSON structure from cargo command.")
+    return None
+
+
+ws = get_workspace_cargo_toml()
+if ws:
+    os.rename(ws, ws + ".tmp")
+
+try:
+    # Run cargo fetch for each path to update Cargo.lock
+    for path in cargo_toml_paths:
+        subprocess.run(["cargo", "fetch", "--manifest-path", path], check=True)
+finally:
+    if ws:
+        os.rename(ws + ".tmp", ws)
 
 print("All Cargo.toml files updated and cargo fetch run successfully.")
