@@ -323,8 +323,7 @@ impl TokenParser {
             None
         };
 
-        let r = self.mid_process_inner(arg.tokens);
-
+        let r = self.mid_process_inner(&arg.tokens).unwrap_err();
         if self.test_trace {
             let res = if r.is_stop() {
                 json!("stop")
@@ -409,13 +408,12 @@ impl TokenParser {
         self.pop_tokens = None;
     }
 
-    fn maybe_scan_eos(&mut self, tokens: &mut Vec<TokenId>) -> bool {
+    fn maybe_scan_eos(&mut self, tokens: &[TokenId]) -> bool {
         if tokens.contains(&self.token_env.tok_trie().eos_token()) {
             assert!(tokens.len() == 1);
             if self.parser.scan_eos() {
                 // it got scanned correctly, so we remove it
                 infoln!(self, "scanned eos_token");
-                tokens.clear();
                 return true;
             } else {
                 infoln!(self, "didn't scan eos_token; saving");
@@ -424,6 +422,9 @@ impl TokenParser {
         false
     }
 
+    // In this file, when using Result<T, StepResult>, the StepResult is just
+    // an early exit, not necessarily an error. It often is an error (when calling self.stop()),
+    // but sometimes it is used to return a StepResult::splice() value.
     fn apply_tokens(&mut self, tokens: &[TokenId]) -> Result<usize, StepResult> {
         let trie = self.token_env.tok_trie();
 
@@ -682,11 +683,12 @@ impl TokenParser {
                 let trie = self.token_env.tok_trie();
                 // re-start the whole process
                 let tokens = if pending_eos {
-                    vec![trie.eos_token()]
+                    &[trie.eos_token()]
                 } else {
-                    Vec::new()
+                    &[] as &[TokenId]
                 };
-                return Err(self.mid_process_inner(tokens));
+                self.mid_process_was_accepting = false;
+                return Err(self.mid_process_inner(tokens).unwrap_err());
             }
         }
 
@@ -765,71 +767,75 @@ impl TokenParser {
         );
     }
 
-    fn mid_process_inner(&mut self, mut tokens: Vec<TokenId>) -> StepResult {
-        self.mid_process_was_accepting = false;
-
-        self.log_inital(&tokens);
+    fn commit_tokens_inner(&mut self, tokens: &[TokenId]) -> Result<(Vec<u8>, bool), StepResult> {
         self.maybe_pop_parsers(&tokens);
 
-        let pending_eos = self.maybe_scan_eos(&mut tokens);
+        let (pending_eos, tokens) = if self.maybe_scan_eos(tokens) {
+            (true, &[] as &[TokenId])
+        } else {
+            (false, tokens)
+        };
 
         self.parser.log_row_infos("pre-apply");
         let apply_res = self.apply_tokens(&tokens);
         self.parser.log_row_infos("post-apply");
-        let backtrack_tokens = match apply_res {
-            Ok(backtrack_tokens) => backtrack_tokens,
-            Err(res) => return res,
-        };
+        let backtrack_tokens = apply_res?;
 
         self.parser.filter_max_tokens();
 
         // force after scanning tokens from LLM (this may walk the parser some more)
 
         let forced_bytes = self.compute_forced_bytes();
-        let token_prefix = match self.maybe_force_tokens(backtrack_tokens, forced_bytes) {
-            Ok(token_prefix) => token_prefix,
-            Err(res) => return res,
-        };
+        let token_prefix = self.maybe_force_tokens(backtrack_tokens, forced_bytes)?;
 
         if token_prefix.is_empty() {
             if let Err(e) = self.maybe_push_parser() {
-                return self.stop(
+                return Err(self.stop(
                     &format!("Error creating nested parser: {}", e),
                     StopReason::InternalError,
-                );
+                ));
             }
         }
 
         let inner_accepting =
-            match self.maybe_accept_or_pop_parser(pending_eos, token_prefix.is_empty()) {
-                Ok(inner_accepting) => inner_accepting,
-                Err(res) => return res,
-            };
+            self.maybe_accept_or_pop_parser(pending_eos, token_prefix.is_empty())?;
+
+        Ok((token_prefix, inner_accepting))
+    }
+
+    // This never returns Ok(()); we use Result<> as return type to be able to use '?' operator
+    fn mid_process_inner(&mut self, tokens: &[TokenId]) -> Result<(), StepResult> {
+        self.mid_process_was_accepting = false;
+
+        self.log_inital(&tokens);
+
+        let (token_prefix, inner_accepting) = self.commit_tokens_inner(tokens)?;
 
         if self.no_bias_this_mid_process {
             self.no_bias_this_mid_process = false;
-            return StepResult::noop();
+            return Err(StepResult::noop());
         }
 
         let mut allowed_tokens = self.compute_bias(&token_prefix);
 
         if let Some(err) = self.parser.get_error() {
-            return self.stop_for_parser_error("", err);
+            return Err(self.stop_for_parser_error("", err));
         }
 
         if inner_accepting {
-            if let Err(e) = self.setup_parser_popping(&token_prefix, &mut allowed_tokens) {
-                return e;
-            }
+            self.setup_parser_popping(&token_prefix, &mut allowed_tokens)?;
         }
 
         self.log_final(&token_prefix, &mut allowed_tokens);
 
         if allowed_tokens.num_set() == 0 {
             infoln!(self, "no tokens allowed, stopping");
-            return self.stop("", StopReason::NoExtensionBias);
+            return Err(self.stop("", StopReason::NoExtensionBias));
         }
 
-        return StepResult::sample(allowed_tokens, self.parser.temperature());
+        return Err(StepResult::sample(
+            allowed_tokens,
+            self.parser.temperature(),
+        ));
     }
 }
