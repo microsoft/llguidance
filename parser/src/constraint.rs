@@ -178,11 +178,14 @@ impl Constraint {
         Ok(CommitResult::from_step_result(&self.last_res))
     }
 
-    /// commit_token() is a top-level method in this file and is called indirectly via
-    /// the advance_parser() method of the LLIinterpreter trait in py.rs.
+    /// commit_token() is a top-level method in this file and is called by
+    /// the LLInterpreter::commit_token().
     ///
     /// commit_token() commits the sampled token (if any), and sees if this forces any more tokens
     /// on the output (if ff_tokens are enabled in InferenceCapabilities).
+    /// 
+    /// It only returns 'STOP' if previous compute_mask() already returned 'STOP'
+    /// (in which case there's little point calling commit_token()).
     pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<CommitResult> {
         loginfo!(self.parser.logger, "\ncommit_token({:?})", sampled_token);
 

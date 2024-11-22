@@ -80,11 +80,6 @@ impl LLInterpreter {
         self.inner.process_prompt(prompt)
     }
 
-    // deprecated
-    fn mid_process(&mut self, py: Python<'_>) -> PyResult<(Option<Cow<[u8]>>, String)> {
-        self.compute_mask(py)
-    }
-
     fn compute_mask(&mut self, py: Python<'_>) -> PyResult<(Option<Cow<[u8]>>, String)> {
         let r = py
             .allow_threads(|| self.inner.compute_mask())
@@ -115,17 +110,6 @@ impl LLInterpreter {
         }
     }
 
-    // deprecated
-    fn advance_parser(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
-        let pres = self.inner.commit_token(sampled_token).map_err(val_error)?;
-        if pres.stop {
-            // let the next mid_process deal with it
-            Ok((0, vec![]))
-        } else {
-            Ok((pres.backtrack, pres.ff_tokens))
-        }
-    }
-
     fn commit_token(
         &mut self,
         sampled_token: Option<TokenId>,
@@ -137,11 +121,6 @@ impl LLInterpreter {
         } else {
             Ok(Some((pres.backtrack, pres.ff_tokens)))
         }
-    }
-
-    // deprecated
-    fn post_process(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
-        self.advance_parser(sampled_token)
     }
 
     fn has_pending_stop(&self) -> bool {

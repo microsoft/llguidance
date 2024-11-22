@@ -129,27 +129,6 @@ class LLInterpreter:
         If true, next compute_mask() call will return stop
         """
 
-    # deprecated:
-
-    def post_process(
-        self, sampled_token: Optional[TokenId]
-    ) -> Tuple[int, List[TokenId]]:
-        """
-        Deprecated: use commit_token() instead.
-        """
-
-    def advance_parser(
-        self, sampled_token: Optional[TokenId]
-    ) -> Tuple[int, List[TokenId]]:
-        """
-        Deprecated: use commit_token() instead.
-        """
-
-    def mid_process(self) -> Tuple[Optional[bytes], str]:
-        """
-        Deprecated: use compute_mask() instead.
-        """
-
 class JsonCompiler:
     def __new__(
         cls,
