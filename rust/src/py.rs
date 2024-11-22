@@ -6,7 +6,9 @@ use llguidance_parser::toktrie::{
     self, InferenceCapabilities, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
 };
 use llguidance_parser::{api::TopLevelGrammar, output::ParserOutput, TokenParser};
-use llguidance_parser::{lark_to_llguidance, Constraint, GrammarBuilder, JsonCompileOptions, Logger};
+use llguidance_parser::{
+    lark_to_llguidance, Constraint, GrammarBuilder, JsonCompileOptions, Logger,
+};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -78,7 +80,7 @@ impl LLInterpreter {
         self.inner.process_prompt(prompt)
     }
 
-    fn mid_process(&mut self, py: Python<'_>) -> PyResult<(Option<Cow<[u8]>>, String)> {
+    fn compute_mask(&mut self, py: Python<'_>) -> PyResult<(Option<Cow<[u8]>>, String)> {
         let r = py
             .allow_threads(|| self.inner.compute_mask())
             .map_err(val_error)?
@@ -108,19 +110,19 @@ impl LLInterpreter {
         }
     }
 
-    fn advance_parser(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
+    fn commit_token(
+        &mut self,
+        sampled_token: Option<TokenId>,
+    ) -> PyResult<(u32, Vec<TokenId>)> {
         let pres = self.inner.commit_token(sampled_token).map_err(val_error)?;
 
         if pres.stop {
-            // let the next mid_process() call handle it
-            return Ok((0, vec![]));
+            // inner.commit_token() only returns stop, when compute_mask()
+            // had already returned stop
+            Ok((0, vec![]))
+        } else {
+            Ok((pres.backtrack, pres.ff_tokens))
         }
-
-        Ok((pres.backtrack, pres.ff_tokens))
-    }
-
-    fn post_process(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
-        self.advance_parser(sampled_token)
     }
 
     fn has_pending_stop(&self) -> bool {
@@ -246,7 +248,7 @@ impl TokenizerEnv for LLTokenizer {
 struct JsonCompiler {
     item_separator: String,
     key_separator: String,
-    whitespace_flexible: bool
+    whitespace_flexible: bool,
 }
 
 #[pymethods]
@@ -254,10 +256,12 @@ impl JsonCompiler {
     #[new]
     #[pyo3(signature = (separators = None, whitespace_flexible = false))]
     fn py_new(separators: Option<(String, String)>, whitespace_flexible: bool) -> Self {
-        let (item_separator, key_separator) = separators.unwrap_or_else(|| if whitespace_flexible {
-            (",".to_owned(), ":".to_owned())
-        } else {
-            (", ".to_owned(), ": ".to_owned())
+        let (item_separator, key_separator) = separators.unwrap_or_else(|| {
+            if whitespace_flexible {
+                (",".to_owned(), ":".to_owned())
+            } else {
+                (", ".to_owned(), ": ".to_owned())
+            }
         });
         JsonCompiler {
             item_separator: item_separator,

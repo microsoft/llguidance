@@ -668,7 +668,7 @@ impl ParserState {
 
     // apply_tokens() "pushes" the bytes in 'tokens' into the lexer and parser.  It is a top-level
     // method in this file.  It is well below llguidance's top-level methods, but in the llguidance
-    // LLInterpreter interface, it is called indirectly via the advance_parser() method.
+    // LLInterpreter interface, it is called indirectly via the commit_token() method.
     pub fn apply_token(&mut self, shared: &mut SharedState, tok_bytes: &[u8]) -> Result<usize> {
         self.assert_definitive();
 

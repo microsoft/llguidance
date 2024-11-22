@@ -2,7 +2,6 @@ from typing import List, Tuple, Mapping, Optional, Sequence, Union
 from ._util import TokenId, StopReason
 from ._tokenizer import TokenizerWrapper
 
-
 class LLTokenizer:
     vocab_size: int
     eos_token: TokenId
@@ -57,9 +56,7 @@ class LLTokenizer:
         Decode the tokens into a bytes object.
         """
 
-
 class LLInterpreter:
-
     def __new__(
         cls,
         tokenizer: LLTokenizer,
@@ -86,7 +83,7 @@ class LLInterpreter:
 
     def is_accepting(self) -> bool:
         """
-        Check if the last mid_process() call resulted in overall accepting state
+        Check if the last compute_mask() call resulted in overall accepting state
         of the parser.
         """
 
@@ -111,33 +108,26 @@ class LLInterpreter:
         Returns the adjusted prompt.
         """
 
-    def mid_process(self) -> Tuple[Optional[bytes], str]:
+    def compute_mask(self) -> Tuple[Optional[bytes], str]:
         """
         Perform next parsing step.
         Returns: optional token mask and a JSON string.
         """
 
-    def post_process(
-            self,
-            sampled_token: Optional[TokenId]) -> Tuple[int, List[TokenId]]:
+    def commit_token(
+        self, sampled_token: Optional[TokenId]
+    ) -> Tuple[int, List[TokenId]]:
         """
         Perform any adjustments to the sampled token.
         Returns the number of tokens to remove from the prompt and the
         list of tokens to append.
-        If mid_process() returned None, this should be called immedietly with None.
-        """
-
-    def advance_parser(
-            self,
-            sampled_token: Optional[TokenId]) -> Tuple[int, List[TokenId]]:
-        """
-        Like post_process(), but goes further.
-        This is experimental and breaks tests when used instead of post_process().
+        If compute_mask() returned None mask, this should be called immediately with None.
+        If compute_mask() returned stop, you don't need to call this (but can).
         """
 
     def has_pending_stop(self) -> bool:
         """
-        If true, next mid_process() call will return stop
+        If true, next compute_mask() call will return stop
         """
 
 class JsonCompiler:
