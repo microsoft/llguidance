@@ -159,3 +159,36 @@ class JsonCompiler:
         """
         Compile the JSON representation of the AG2 grammar/constraint.
         """
+
+class LarkCompiler:
+    def __new__(
+        cls,
+    ) -> "LarkCompiler":
+        """
+        Create a new Lark compiler.
+        """
+
+    def compile(
+        self,
+        lark: str,
+    ) -> str:
+        """
+        Compile the JSON representation of the AG2 grammar/constraint.
+        """
+
+class RegexCompiler:
+    def __new__(
+        cls,
+    ) -> "RegexCompiler":
+        """
+        Create a new Regex compiler.
+        """
+
+    def compile(
+        self,
+        regex: str,
+        stop_regex: Optional[str] = None,
+    ) -> str:
+        """
+        Compile the JSON representation of the AG2 grammar/constraint.
+        """
