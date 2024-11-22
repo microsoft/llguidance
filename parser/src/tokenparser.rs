@@ -8,7 +8,7 @@ use crate::{
     },
     infoln, warn, Logger,
 };
-use anyhow::Result;
+use anyhow::{ensure, Result};
 use serde_json::json;
 use toktrie::{InferenceCapabilities, SimpleVob, StepArg, StepResult, TokEnv, TokenId};
 
@@ -36,8 +36,6 @@ pub struct TokenParser {
     mid_process_was_accepting: bool,
     stop_reason: StopReason,
     error_message: Option<String>,
-
-    no_bias_this_mid_process: bool,
 
     max_tokens_total: usize,
     max_tokens_parser: usize,
@@ -97,7 +95,6 @@ impl TokenParser {
             last_step_stats: ParserStats::default(),
             mid_process_start_time,
             mid_process_was_accepting: false,
-            no_bias_this_mid_process: false,
             stop_reason: StopReason::NotStopped,
             error_message: None,
             pop_tokens: None,
@@ -265,17 +262,31 @@ impl TokenParser {
     //
     // The result here *never* includes a mask.
     // It's either stop or an unconditional splice (possibly noop).
-    pub fn advance_parser(&mut self, arg: StepArg) -> StepResult {
-        assert!(self.inference_caps.ff_tokens);
-        assert!(!self.test_trace);
+    pub fn advance_parser(&mut self, token: TokenId) -> Result<StepResult> {
+        ensure!(self.is_fresh == false, "process_prompt() not called");
+        ensure!(self.inference_caps.ff_tokens, "ff_tokens required");
+        ensure!(
+            self.stop_reason == StopReason::NotStopped,
+            "commit_token() on stopped parser"
+        );
 
-        self.no_bias_this_mid_process = true;
-        let r = self.mid_process(arg);
-        self.no_bias_this_mid_process = false;
+        self.mid_process_was_accepting = false;
+
+        let tokens = &[token];
+        infoln!(
+            self,
+            "commit_token: {}",
+            self.token_env.tok_trie().tokens_dbg(tokens)
+        );
+
+        let r = match self.commit_tokens_inner(tokens) {
+            Ok(_) => StepResult::noop(),
+            Err(r) => r,
+        };
 
         assert!(r.sample_mask.is_none());
 
-        r
+        Ok(r)
     }
 
     // mid_process() is a top-level method in this file.
@@ -369,20 +380,6 @@ impl TokenParser {
 
     fn stop_for_parser_error(&mut self, pref: &str, err: ParserError) -> StepResult {
         self.stop(&format!("{}{}", pref, err.message()), err.stop_reason())
-    }
-
-    fn log_inital(&mut self, tokens: &[TokenId]) {
-        let trie = self.token_env.tok_trie();
-        infoln!(
-            self,
-            "{}: {}",
-            if self.no_bias_this_mid_process {
-                "commit_token"
-            } else {
-                "compute_mask"
-            },
-            trie.tokens_dbg(tokens)
-        );
     }
 
     fn maybe_pop_parsers(&mut self, tokens: &[TokenId]) {
@@ -812,14 +809,10 @@ impl TokenParser {
     fn mid_process_inner(&mut self, tokens: &[TokenId]) -> Result<(), StepResult> {
         self.mid_process_was_accepting = false;
 
-        self.log_inital(&tokens);
+        let trie = self.token_env.tok_trie();
+        infoln!(self, "compute_mask: {}", trie.tokens_dbg(tokens));
 
         let (token_prefix, inner_accepting) = self.commit_tokens_inner(tokens)?;
-
-        if self.no_bias_this_mid_process {
-            self.no_bias_this_mid_process = false;
-            return Err(StepResult::noop());
-        }
 
         let mut allowed_tokens = self.compute_bias(&token_prefix);
 

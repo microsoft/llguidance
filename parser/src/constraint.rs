@@ -237,11 +237,7 @@ impl Constraint {
         }
 
         // now, advance the parser with the sampled token - this should be very quick
-        let pres = self.parser.advance_parser(StepArg {
-            backtrack: 0,
-            tokens: vec![sampled_token],
-            sampled: Some(sampled_token),
-        });
+        let pres = self.parser.advance_parser(sampled_token)?;
 
         // save any logs
         self.save_progress_and_result(pres);
