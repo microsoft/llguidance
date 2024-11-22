@@ -283,7 +283,7 @@ impl TokenParser {
     // It is also be called by TokenParser::commit_token()
     // within this file, in which case it is accessible
     // via the commit_token() method of the LLInterpreter interface.
-    pub fn mid_process(&mut self, mut arg: StepArg) -> StepResult {
+    pub fn mid_process(&mut self, arg: StepArg) -> StepResult {
         assert!(self.is_fresh == false, "process_prompt() not called");
 
         self.mid_process_start_time = instant::Instant::now();
@@ -323,7 +323,7 @@ impl TokenParser {
             None
         };
 
-        let r = self.mid_process_inner(arg);
+        let r = self.mid_process_inner(arg.tokens);
 
         if self.test_trace {
             let res = if r.is_stop() {
@@ -349,6 +349,7 @@ impl TokenParser {
         }
 
         if !self.inference_caps.ff_tokens && r.has_ff_tokens() {
+            // PERF: avoid this for commit token
             let spl = r.unconditional_splice().unwrap();
             assert!(spl.backtrack == 0);
             if spl.ff_tokens.len() == 0 {
@@ -371,32 +372,30 @@ impl TokenParser {
         self.stop(&format!("{}{}", pref, err.message()), err.stop_reason())
     }
 
-    fn log_inital(&mut self, arg: &StepArg) {
+    fn log_inital(&mut self, tokens: &[TokenId]) {
         let trie = self.token_env.tok_trie();
-
         infoln!(
             self,
-            "{}: bt={} {}",
+            "{}: {}",
             if self.no_bias_this_mid_process {
                 "commit_token"
             } else {
                 "compute_mask"
             },
-            arg.backtrack,
-            trie.tokens_dbg(&arg.tokens)
+            trie.tokens_dbg(tokens)
         );
     }
 
-    fn maybe_pop_parsers(&mut self, arg: &StepArg) {
-        if arg.tokens.len() == 1 {
+    fn maybe_pop_parsers(&mut self, tokens: &[TokenId]) {
+        if tokens.len() == 1 {
+            let token = tokens[0];
             if let Some(pop) = &self.pop_tokens {
-                if pop.is_allowed(arg.tokens[0]) {
+                if pop.is_allowed(token) {
                     let trie = self.token_env.tok_trie();
                     infoln!(self, "pop_tokens hit: {}", trie.token_set_dbg(pop));
                     loop {
                         let pentry = self.parser_stack.last().unwrap();
-                        let top_allows_token =
-                            pentry.mask.as_ref().unwrap().is_allowed(arg.tokens[0]);
+                        let top_allows_token = pentry.mask.as_ref().unwrap().is_allowed(token);
                         self.pop_parser();
                         if top_allows_token {
                             break;
@@ -682,15 +681,12 @@ impl TokenParser {
                 self.pop_parser();
                 let trie = self.token_env.tok_trie();
                 // re-start the whole process
-                return Err(self.mid_process_inner(StepArg {
-                    backtrack: 0,
-                    tokens: if pending_eos {
-                        vec![trie.eos_token()]
-                    } else {
-                        Vec::new()
-                    },
-                    sampled: None,
-                }));
+                let tokens = if pending_eos {
+                    vec![trie.eos_token()]
+                } else {
+                    Vec::new()
+                };
+                return Err(self.mid_process_inner(tokens));
             }
         }
 
@@ -707,6 +703,7 @@ impl TokenParser {
         set
     }
 
+    // this only executes when the top-level parser is accepting
     fn setup_parser_popping(
         &mut self,
         token_prefix: &Vec<u8>,
@@ -730,7 +727,9 @@ impl TokenParser {
                     pentry.is_accepting = is_accepting;
                 }
                 let m = pentry.mask.as_ref().unwrap();
+                // pop_tokens |= m & ~allowed_tokens
                 pop_tokens.or_minus(m, &allowed_tokens);
+                // allowed_tokens |= m
                 allowed_tokens.or(m);
                 if !pentry.is_accepting {
                     all_accepting = false;
@@ -766,17 +765,16 @@ impl TokenParser {
         );
     }
 
-    fn mid_process_inner(&mut self, mut arg: StepArg) -> StepResult {
+    fn mid_process_inner(&mut self, mut tokens: Vec<TokenId>) -> StepResult {
         self.mid_process_was_accepting = false;
 
-        self.log_inital(&arg);
+        self.log_inital(&tokens);
+        self.maybe_pop_parsers(&tokens);
 
-        self.maybe_pop_parsers(&arg);
-
-        let pending_eos = self.maybe_scan_eos(&mut arg.tokens);
+        let pending_eos = self.maybe_scan_eos(&mut tokens);
 
         self.parser.log_row_infos("pre-apply");
-        let apply_res = self.apply_tokens(&arg.tokens);
+        let apply_res = self.apply_tokens(&tokens);
         self.parser.log_row_infos("post-apply");
         let backtrack_tokens = match apply_res {
             Ok(backtrack_tokens) => backtrack_tokens,
