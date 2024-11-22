@@ -1997,7 +1997,7 @@ impl Parser {
         self.state.filter_max_tokens();
     }
 
-    pub fn dbg_row_infos(&self, label: &str) {
+    pub fn log_row_infos(&self, label: &str) {
         debug!(
             "row infos {}: token_idx: {}; applied bytes: {}/{}",
             label,

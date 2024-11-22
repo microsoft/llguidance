@@ -378,6 +378,22 @@ impl TokenParser {
         self.stop(&format!("{}{}", pref, err.message()), err.stop_reason())
     }
 
+    fn log_inital(&mut self, arg: &StepArg) {
+        let trie = self.token_env.tok_trie();
+
+        infoln!(
+            self,
+            "{}: bt={} {}",
+            if self.no_bias_this_mid_process {
+                "commit_token"
+            } else {
+                "compute_mask"
+            },
+            arg.backtrack,
+            trie.tokens_dbg(&arg.tokens)
+        );
+    }
+
     fn maybe_pop_parsers(&mut self, arg: &StepArg) {
         if arg.tokens.len() == 1 {
             if let Some(pop) = &self.pop_tokens {
@@ -399,6 +415,21 @@ impl TokenParser {
             }
         }
         self.pop_tokens = None;
+    }
+
+    fn maybe_scan_eos(&mut self, tokens: &mut Vec<TokenId>) -> bool {
+        if tokens.contains(&self.token_env.tok_trie().eos_token()) {
+            assert!(tokens.len() == 1);
+            if self.parser.scan_eos() {
+                // it got scanned correctly, so we remove it
+                infoln!(self, "scanned eos_token");
+                tokens.clear();
+                return true;
+            } else {
+                infoln!(self, "didn't scan eos_token; saving");
+            }
+        }
+        false
     }
 
     fn apply_tokens(&mut self, tokens: &[TokenId]) -> Result<usize, StepResult> {
@@ -563,18 +594,18 @@ impl TokenParser {
 
     fn maybe_accept_or_pop_parser(
         &mut self,
-        has_eos: bool,
+        pending_eos: bool,
         empty_token_prefix: bool,
     ) -> Result<bool, StepResult> {
         let (inner_done, inner_accepting) = {
             let lexer_bytes = self.parser.has_pending_lexeme_bytes();
             let is_accepting = self.parser.is_accepting();
             let can_advance = self.parser.can_advance();
-            let inner_done = empty_token_prefix && is_accepting && (!can_advance || has_eos);
+            let inner_done = empty_token_prefix && is_accepting && (!can_advance || pending_eos);
             infoln!(
                 self,
                 "inner_done: {inner_done}; lexer_bytes: {lexer_bytes}; \
-                can_advance: {can_advance} (eos:{has_eos}); \
+                can_advance: {can_advance} (eos:{pending_eos}); \
                 accept: {is_accepting}; \
                 empty_token_prefix: {empty_token_prefix}"
             );
@@ -593,7 +624,7 @@ impl TokenParser {
                 return Err(self.stop(
                     "",
                     if inner_done {
-                        if has_eos {
+                        if pending_eos {
                             StopReason::EndOfSentence
                         } else {
                             StopReason::NoExtension
@@ -609,7 +640,7 @@ impl TokenParser {
                 // re-start the whole process
                 return Err(self.mid_process_inner(StepArg {
                     backtrack: 0,
-                    tokens: if has_eos {
+                    tokens: if pending_eos {
                         vec![trie.eos_token()]
                     } else {
                         Vec::new()
@@ -672,46 +703,44 @@ impl TokenParser {
         Ok(())
     }
 
+    fn log_final(
+        &self,
+        token_prefix: &Vec<u8>,
+        allowed_tokens: &mut SimpleVob,
+        start_time: instant::Instant,
+    ) {
+        infoln!(
+            self,
+            "step-stats: {}us; {} lex fuel; {} items; {}",
+            start_time.elapsed().as_micros(),
+            self.last_step_stats.lexer_cost,
+            self.last_step_stats.all_items,
+            self.parser.lexer_stats(),
+        );
+
+        infoln!(
+            self,
+            "bias: (pref: {:?}; accpt: {}) {}",
+            String::from_utf8_lossy(&token_prefix),
+            self.mid_process_was_accepting,
+            self.token_env.tok_trie().token_set_dbg(&allowed_tokens)
+        );
+    }
+
     fn mid_process_inner(&mut self, mut arg: StepArg) -> StepResult {
         let start_time = instant::Instant::now();
 
         self.mid_process_was_accepting = false;
 
-        let trie = self.token_env.tok_trie();
-
-        infoln!(
-            self,
-            "{}: bt={} {}",
-            if self.no_bias_this_mid_process {
-                "commit_token"
-            } else {
-                "compute_mask"
-            },
-            arg.backtrack,
-            trie.tokens_dbg(&arg.tokens)
-        );
+        self.log_inital(&arg);
 
         self.maybe_pop_parsers(&arg);
 
-        let trie = self.token_env.tok_trie();
+        let pending_eos = self.maybe_scan_eos(&mut arg.tokens);
 
-        let mut has_eos = false;
-
-        if arg.tokens.contains(&trie.eos_token()) {
-            assert!(arg.tokens.len() == 1);
-            if self.parser.scan_eos() {
-                // it got scanned correctly, so we remove it
-                infoln!(self, "scanned eos_token");
-                arg.tokens.clear();
-            } else {
-                infoln!(self, "didn't scan eos_token; saving");
-                has_eos = true;
-            }
-        }
-
-        self.parser.dbg_row_infos("pre-apply");
+        self.parser.log_row_infos("pre-apply");
         let apply_res = self.apply_tokens(&arg.tokens);
-        self.parser.dbg_row_infos("post-apply");
+        self.parser.log_row_infos("post-apply");
         let backtrack_tokens = match apply_res {
             Ok(backtrack_tokens) => backtrack_tokens,
             Err(res) => return res,
@@ -737,7 +766,7 @@ impl TokenParser {
         }
 
         let inner_accepting =
-            match self.maybe_accept_or_pop_parser(has_eos, token_prefix.is_empty()) {
+            match self.maybe_accept_or_pop_parser(pending_eos, token_prefix.is_empty()) {
                 Ok(inner_accepting) => inner_accepting,
                 Err(res) => return res,
             };
@@ -759,22 +788,7 @@ impl TokenParser {
             }
         }
 
-        infoln!(
-            self,
-            "step-stats: {}us; {} lex fuel; {} items; {}",
-            start_time.elapsed().as_micros(),
-            self.last_step_stats.lexer_cost,
-            self.last_step_stats.all_items,
-            self.parser.lexer_stats(),
-        );
-
-        infoln!(
-            self,
-            "bias: (pref: {:?}; accpt: {}) {}",
-            String::from_utf8_lossy(&token_prefix),
-            self.mid_process_was_accepting,
-            self.token_env.tok_trie().token_set_dbg(&allowed_tokens)
-        );
+        self.log_final(&token_prefix, &mut allowed_tokens, start_time);
 
         if allowed_tokens.num_set() == 0 {
             infoln!(self, "no tokens allowed, stopping");
