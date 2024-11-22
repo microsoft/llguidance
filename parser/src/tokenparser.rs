@@ -24,7 +24,6 @@ pub struct TokenParser {
     pub bias_computer: Arc<dyn BiasComputer>,
     last_step_stats: ParserStats,
     max_step_stats: ParserStats,
-    pending_bogus_backtrack: u32,
     // sampling any of these will pop the parser stack:
     pop_tokens: Option<SimpleVob>,
     test_trace: bool,
@@ -94,7 +93,6 @@ impl TokenParser {
             token_env,
             inference_caps,
             limits,
-            pending_bogus_backtrack: 0,
             max_step_stats: ParserStats::default(),
             last_step_stats: ParserStats::default(),
             mid_process_start_time,
@@ -314,11 +312,6 @@ impl TokenParser {
         }
         self.max_tokens_total -= 1;
         self.max_tokens_parser = self.max_tokens_parser.saturating_sub(1);
-
-        if self.pending_bogus_backtrack != 0 {
-            arg.backtrack = self.pending_bogus_backtrack;
-            self.pending_bogus_backtrack = 0;
-        }
 
         let trace = if self.test_trace {
             let tokens = self.token_env.tok_trie().test_trace_tokens(&arg.tokens);
