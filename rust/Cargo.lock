@@ -594,7 +594,7 @@ checksum = "643cb0b8d4fcc284004d5fd0d67ccf61dfffadb7f75e1e71bc420f4688a3a704"
 
 [[package]]
 name = "llguidance"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "llguidance_parser",
@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "llguidance_parser"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "cbindgen",

@@ -1,6 +1,6 @@
 [project]
 name = "llguidance"
-version = "0.3.0"
+version = "0.4.0"
 description = "Bindings for the Low-level Guidance (llguidance) Rust library for use within Guidance"
 requires-python = ">=3.9"
 license = "MIT"
