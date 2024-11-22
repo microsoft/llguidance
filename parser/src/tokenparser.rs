@@ -592,6 +592,57 @@ impl TokenParser {
         Ok(token_prefix)
     }
 
+    fn maybe_push_parser(&mut self) -> Result<()> {
+        if let Some((msg, symidx, gen_grammar)) = self.parser.maybe_gen_grammar() {
+            if msg.len() > 0 {
+                warn!(self, "{}", msg);
+            }
+            let grm = Arc::clone(&self.compiled_grammars[gen_grammar.grammar.to_index().unwrap()]);
+            let max_tokens = self.parser.grammar().sym_data(symidx).props.max_tokens;
+            let parser = Parser::new(grm, gen_grammar, self.limits.clone())?;
+            let mut old_parser = std::mem::replace(&mut self.parser, parser);
+            self.parser.take_global_state_from(&mut old_parser);
+            let entry = ParserStackEntry {
+                parser: old_parser,
+                parser_llm_tokens_offset: self.parser_llm_tokens_offset,
+                previous_grm_bytes_len: self.previous_grm_bytes.len(),
+                symidx,
+                max_tokens_offset: self.max_tokens_total.saturating_sub(self.max_tokens_parser),
+                mask: None,
+                is_accepting: false, // computed with mask
+            };
+            self.max_tokens_parser = std::cmp::min(self.max_tokens_parser, max_tokens);
+            self.parser_llm_tokens_offset = self.llm_tokens.len();
+            self.previous_grm_bytes
+                .extend_from_slice(&entry.parser.get_bytes());
+            self.parser_stack.push(entry);
+        }
+        Ok(())
+    }
+
+    fn pop_parser(&mut self) {
+        let inner_bytes = self.parser.get_bytes().to_vec();
+        let entry = self.parser_stack.pop().unwrap();
+        let mut prev_parser = std::mem::replace(&mut self.parser, entry.parser);
+        self.parser.take_global_state_from(&mut prev_parser);
+        self.parser_llm_tokens_offset = entry.parser_llm_tokens_offset;
+        self.previous_grm_bytes
+            .truncate(entry.previous_grm_bytes_len);
+        infoln!(
+            self,
+            "pop_parser: {} tokens left; new {} - {} = {}",
+            self.max_tokens_parser,
+            self.max_tokens_total,
+            entry.max_tokens_offset,
+            self.max_tokens_total
+                .saturating_sub(entry.max_tokens_offset)
+        );
+        self.max_tokens_parser = self
+            .max_tokens_total
+            .saturating_sub(entry.max_tokens_offset);
+        self.parser.scan_gen_grammar(entry.symidx, inner_bytes);
+    }
+
     fn maybe_accept_or_pop_parser(
         &mut self,
         pending_eos: bool,
@@ -704,7 +755,7 @@ impl TokenParser {
     }
 
     fn log_final(
-        &self,
+        &mut self,
         token_prefix: &Vec<u8>,
         allowed_tokens: &mut SimpleVob,
         start_time: instant::Instant,
@@ -796,56 +847,5 @@ impl TokenParser {
         }
 
         return StepResult::sample(allowed_tokens, self.parser.temperature());
-    }
-
-    fn maybe_push_parser(&mut self) -> Result<()> {
-        if let Some((msg, symidx, gen_grammar)) = self.parser.maybe_gen_grammar() {
-            if msg.len() > 0 {
-                warn!(self, "{}", msg);
-            }
-            let grm = Arc::clone(&self.compiled_grammars[gen_grammar.grammar.to_index().unwrap()]);
-            let max_tokens = self.parser.grammar().sym_data(symidx).props.max_tokens;
-            let parser = Parser::new(grm, gen_grammar, self.limits.clone())?;
-            let mut old_parser = std::mem::replace(&mut self.parser, parser);
-            self.parser.take_global_state_from(&mut old_parser);
-            let entry = ParserStackEntry {
-                parser: old_parser,
-                parser_llm_tokens_offset: self.parser_llm_tokens_offset,
-                previous_grm_bytes_len: self.previous_grm_bytes.len(),
-                symidx,
-                max_tokens_offset: self.max_tokens_total.saturating_sub(self.max_tokens_parser),
-                mask: None,
-                is_accepting: false, // computed with mask
-            };
-            self.max_tokens_parser = std::cmp::min(self.max_tokens_parser, max_tokens);
-            self.parser_llm_tokens_offset = self.llm_tokens.len();
-            self.previous_grm_bytes
-                .extend_from_slice(&entry.parser.get_bytes());
-            self.parser_stack.push(entry);
-        }
-        Ok(())
-    }
-
-    fn pop_parser(&mut self) {
-        let inner_bytes = self.parser.get_bytes().to_vec();
-        let entry = self.parser_stack.pop().unwrap();
-        let mut prev_parser = std::mem::replace(&mut self.parser, entry.parser);
-        self.parser.take_global_state_from(&mut prev_parser);
-        self.parser_llm_tokens_offset = entry.parser_llm_tokens_offset;
-        self.previous_grm_bytes
-            .truncate(entry.previous_grm_bytes_len);
-        infoln!(
-            self,
-            "pop_parser: {} tokens left; new {} - {} = {}",
-            self.max_tokens_parser,
-            self.max_tokens_total,
-            entry.max_tokens_offset,
-            self.max_tokens_total
-                .saturating_sub(entry.max_tokens_offset)
-        );
-        self.max_tokens_parser = self
-            .max_tokens_total
-            .saturating_sub(entry.max_tokens_offset);
-        self.parser.scan_gen_grammar(entry.symidx, inner_bytes);
     }
 }
