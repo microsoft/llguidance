@@ -203,7 +203,7 @@ fn test_llparser() {
     check_lark_grammar_prompt(
         r#"
             start: gen
-            gen[max_tokens=3]: /.*/
+            gen[stop=""]: /.*/
         "#,
         "2 + 2 =",
         &["2‧ +‧ ‧2", " =>‧ ‧4‧≺EOS≻"],
@@ -262,22 +262,22 @@ fn test_ll_nullable_lexeme() {
     // Emake sure 'a' is not forced
     check_lark_grammar(
         r#"start: gen
-           gen[max_tokens=3]: /a*/"#,
+           gen[stop=""]: /a*/"#,
         &["", "a‧≺EOS≻"],
     );
 
     // this one doesn't work - no lexeme was scanned by EOS, so we allow more lexemes...
     check_lark_grammar(
         r#"start: gen
-           gen[max_tokens=3]: /a*/"#,
+           gen[stop=""]: /a*/"#,
         &["", "≺EOS≻"],
     );
 
     // see that we can skip 5*
     check_lark_grammar(
         r#"start: "6 * 7 = " five_seq num "\n"
-           five_seq[max_tokens=3]: /5*/
-           num[max_tokens=3]: /[1-4][0-9]/"#,
+           five_seq[stop=""]: /5*/
+           num[stop=""]: /[1-4][0-9]/"#,
         &["6‧ *‧ ‧7‧ =‧ ", "4‧2", "\n"],
     );
 

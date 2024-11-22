@@ -300,7 +300,11 @@ impl Compiler {
             self.builder.gen(
                 GenOptions {
                     body_rx: RegexSpec::RegexId(rx_id),
-                    stop_rx: RegexSpec::RegexId(stop_id),
+                    stop_rx: if is_empty {
+                        RegexSpec::Regex("".to_string())
+                    } else {
+                        RegexSpec::RegexId(stop_id)
+                    },
                     stop_capture_name: None,
                     lazy: Some(!is_empty), // follow guidance: "lazy": node.stop_regex != "",
                     temperature: None,
