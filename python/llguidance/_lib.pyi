@@ -83,7 +83,7 @@ class LLInterpreter:
 
     def is_accepting(self) -> bool:
         """
-        Check if the last mid_process() call resulted in overall accepting state
+        Check if the last compute_mask() call resulted in overall accepting state
         of the parser.
         """
 
@@ -114,24 +114,26 @@ class LLInterpreter:
         Returns: optional token mask and a JSON string.
         """
 
-    def mid_process(self) -> Tuple[Optional[bytes], str]:
-        """
-        Deprecated: use compute_mask() instead.
-        """
-
-    def post_process(
+    def commit_token(
         self, sampled_token: Optional[TokenId]
-    ) -> Tuple[int, List[TokenId]]:
+    ) -> Optional[Tuple[int, List[TokenId]]]:
         """
         Perform any adjustments to the sampled token.
         Returns the number of tokens to remove from the prompt and the
         list of tokens to append.
-        If mid_process() returned None, this should be called immedietly with None.
+        If compute_mask() returned None, this should be called immedietly with None.
         """
 
-    def commit_token(
+    def has_pending_stop(self) -> bool:
+        """
+        If true, next compute_mask() call will return stop
+        """
+
+    # deprecated:
+
+    def post_process(
         self, sampled_token: Optional[TokenId]
-    ) -> Optional[Tuple[int, List[TokenId]]]:
+    ) -> Tuple[int, List[TokenId]]:
         """
         Deprecated: use commit_token() instead.
         """
@@ -143,9 +145,9 @@ class LLInterpreter:
         Deprecated: use commit_token() instead.
         """
 
-    def has_pending_stop(self) -> bool:
+    def mid_process(self) -> Tuple[Optional[bytes], str]:
         """
-        If true, next mid_process() call will return stop
+        Deprecated: use compute_mask() instead.
         """
 
 class JsonCompiler:
