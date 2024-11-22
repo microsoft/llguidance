@@ -408,18 +408,22 @@ impl TokenParser {
         self.pop_tokens = None;
     }
 
-    fn maybe_scan_eos(&mut self, tokens: &[TokenId]) -> bool {
+    fn maybe_scan_eos(&mut self, tokens: &[TokenId]) -> (bool, bool) {
+        let mut pending_eos = false;
+        let mut clear_tokens = false;
         if tokens.contains(&self.token_env.tok_trie().eos_token()) {
             assert!(tokens.len() == 1);
             if self.parser.scan_eos() {
                 // it got scanned correctly, so we remove it
                 infoln!(self, "scanned eos_token");
-                return true;
+                clear_tokens = true;
             } else {
                 infoln!(self, "didn't scan eos_token; saving");
+                pending_eos = true;
             }
         }
-        false
+
+        (pending_eos, clear_tokens)
     }
 
     // In this file, when using Result<T, StepResult>, the StepResult is just
@@ -770,10 +774,11 @@ impl TokenParser {
     fn commit_tokens_inner(&mut self, tokens: &[TokenId]) -> Result<(Vec<u8>, bool), StepResult> {
         self.maybe_pop_parsers(&tokens);
 
-        let (pending_eos, tokens) = if self.maybe_scan_eos(tokens) {
-            (true, &[] as &[TokenId])
+        let (pending_eos, clear_tokens) = self.maybe_scan_eos(tokens);
+        let tokens = if clear_tokens {
+            &[] as &[TokenId]
         } else {
-            (false, tokens)
+            tokens
         };
 
         self.parser.log_row_infos("pre-apply");
