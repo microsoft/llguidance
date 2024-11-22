@@ -2,7 +2,6 @@ from typing import List, Tuple, Mapping, Optional, Sequence, Union
 from ._util import TokenId, StopReason
 from ._tokenizer import TokenizerWrapper
 
-
 class LLTokenizer:
     vocab_size: int
     eos_token: TokenId
@@ -57,9 +56,7 @@ class LLTokenizer:
         Decode the tokens into a bytes object.
         """
 
-
 class LLInterpreter:
-
     def __new__(
         cls,
         tokenizer: LLTokenizer,
@@ -111,15 +108,20 @@ class LLInterpreter:
         Returns the adjusted prompt.
         """
 
-    def mid_process(self) -> Tuple[Optional[bytes], str]:
+    def compute_mask(self) -> Tuple[Optional[bytes], str]:
         """
         Perform next parsing step.
         Returns: optional token mask and a JSON string.
         """
 
+    def mid_process(self) -> Tuple[Optional[bytes], str]:
+        """
+        Deprecated: use compute_mask() instead.
+        """
+
     def post_process(
-            self,
-            sampled_token: Optional[TokenId]) -> Tuple[int, List[TokenId]]:
+        self, sampled_token: Optional[TokenId]
+    ) -> Tuple[int, List[TokenId]]:
         """
         Perform any adjustments to the sampled token.
         Returns the number of tokens to remove from the prompt and the
@@ -127,12 +129,18 @@ class LLInterpreter:
         If mid_process() returned None, this should be called immedietly with None.
         """
 
-    def advance_parser(
-            self,
-            sampled_token: Optional[TokenId]) -> Tuple[int, List[TokenId]]:
+    def commit_token(
+        self, sampled_token: Optional[TokenId]
+    ) -> Optional[Tuple[int, List[TokenId]]]:
         """
-        Like post_process(), but goes further.
-        This is experimental and breaks tests when used instead of post_process().
+        Deprecated: use commit_token() instead.
+        """
+
+    def advance_parser(
+        self, sampled_token: Optional[TokenId]
+    ) -> Tuple[int, List[TokenId]]:
+        """
+        Deprecated: use commit_token() instead.
         """
 
     def has_pending_stop(self) -> bool:
