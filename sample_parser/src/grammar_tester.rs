@@ -159,13 +159,21 @@ lazy_static! {
     };
 }
 
-fn check_lark_grammar2(lark: &str, prompt_str: &str, output: &[&str]) {
+fn check_lark_grammar_prompt(lark: &str, prompt_str: &str, output: &[&str]) {
     let grm = TopLevelGrammar::from_lark(lark.to_string());
     check_grammar(&TOK_ENV, prompt_str, grm, output);
 }
 
 fn check_lark_grammar(lark: &str, output: &[&str]) {
-    check_lark_grammar2(lark, "", output);
+    check_lark_grammar_prompt(lark, "", output);
+}
+
+fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) {
+    let mut top_grm = TopLevelGrammar::from_lark(lark.to_string());
+    let mut sub_grm = GrammarWithLexer::from_lark(sub_lark.to_string());
+    sub_grm.name = Some("sub".to_string());
+    top_grm.grammars.push(sub_grm);
+    check_grammar(&TOK_ENV, "", top_grm, output);
 }
 
 fn test_ll_backtrack_stop() {
@@ -192,7 +200,7 @@ fn test_ll_backtrack_stop() {
 }
 
 fn test_llparser() {
-    check_lark_grammar2(
+    check_lark_grammar_prompt(
         r#"
             start: gen
             gen[max_tokens=3]: /.*/
@@ -250,9 +258,60 @@ fn test_llparser() {
     );
 }
 
+fn test_ll_nullable_lexeme() {
+    // Emake sure 'a' is not forced
+    check_lark_grammar(
+        r#"start: gen
+           gen[max_tokens=3]: /a*/"#,
+        &["", "a‧≺EOS≻"],
+    );
+
+    // this one doesn't work - no lexeme was scanned by EOS, so we allow more lexemes...
+    check_lark_grammar(
+        r#"start: gen
+           gen[max_tokens=3]: /a*/"#,
+        &["", "≺EOS≻"],
+    );
+
+    // see that we can skip 5*
+    check_lark_grammar(
+        r#"start: "6 * 7 = " five_seq num "\n"
+           five_seq[max_tokens=3]: /5*/
+           num[max_tokens=3]: /[1-4][0-9]/"#,
+        &["6‧ *‧ ‧7‧ =‧ ", "4‧2", "\n"],
+    );
+
+    check_lark_grammar_nested(
+        r#"start: "Here: 2 + 2 = " @sub"#,
+        r#"start: /[0-9]+/"#,
+        &["Here‧:‧ ‧2‧ +‧ ‧2‧ =‧ ", "4‧≺EOS≻"],
+    );
+
+    // make sure it stops at EOS
+    check_lark_grammar_nested(
+        r#"start: "Here: 2 + 2 = " @sub"#,
+        r#"start: num q
+           num: /[0-9]+/
+           q: /Q?/
+        "#,
+        &["Here‧:‧ ‧2‧ +‧ ‧2‧ =‧ ", "4‧≺EOS≻"],
+    );
+
+    let float_grammar = r#"
+        start: num1 | num2
+        num1: /-?(?:0|[1-9][0-9]*)/
+        num2: /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)/
+    "#;
+    check_lark_grammar_nested(r#"start: @sub"#, &float_grammar, &["", "1‧≺EOS≻"]);
+    check_lark_grammar_nested(r#"start: @sub"#, &float_grammar, &["", "0‧≺EOS≻"]);
+    check_lark_grammar_nested(r#"start: @sub"#, &float_grammar, &["", "1‧.‧1‧≺EOS≻"]);
+    check_lark_grammar_nested(r#"start: @sub"#, &float_grammar, &["", "0‧.‧1‧≺EOS≻"]);
+}
+
 fn main() {
     test_llparser();
     test_ll_backtrack_stop();
+    test_ll_nullable_lexeme();
 
     let mut builder = GrammarBuilder::new();
 
