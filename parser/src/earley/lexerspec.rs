@@ -22,6 +22,8 @@ pub struct LexerSpec {
 pub struct LexemeClass(u8);
 
 impl LexemeClass {
+    pub const ROOT: LexemeClass = LexemeClass(0);
+
     pub fn as_usize(&self) -> usize {
         self.0 as usize
     }
@@ -40,6 +42,7 @@ pub struct LexemeSpec {
     ends_at_eos: bool,
     lazy: bool,
     contextual: bool,
+    pub(crate) is_skip: bool,
     json_options: Option<JsonQuoteOptions>,
 }
 
@@ -50,12 +53,6 @@ pub struct LexemeSpec {
 pub struct LexemeIdx(usize);
 
 impl LexemeIdx {
-    // SKIP is a pseudo-lexeme, a "no-op" which it is sometimes
-    // convenient to insert in the lexeme stream.  As the name
-    // suggests, it is skipped in parsing.
-    // It is typically used for skipping whitespace.
-    pub const SKIP: LexemeIdx = LexemeIdx(0);
-
     pub fn new(idx: usize) -> Self {
         LexemeIdx(idx)
     }
@@ -118,6 +115,7 @@ impl LexerSpec {
             .add_lexeme_spec(LexemeSpec {
                 name: format!("SKIP{}", self.current_class.as_usize()),
                 rx: skip,
+                is_skip: true,
                 ..self.empty_spec()
             })
             .expect("already validated");
@@ -213,6 +211,7 @@ impl LexerSpec {
             lazy: false,
             contextual: false,
             ends_at_eos: false,
+            is_skip: false,
             json_options: None,
             class: self.current_class,
         }

@@ -21,7 +21,7 @@ use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie};
 
 use crate::{
     api::{GenGrammarOptions, ParserLimits, StopReason},
-    earley::lexer::Lexer,
+    earley::{lexer::Lexer, lexerspec::LexemeClass},
 };
 
 use super::{
@@ -105,6 +105,8 @@ impl ParserStats {
 struct Row {
     first_item: usize,
     last_item: usize,
+
+    lexeme_class: LexemeClass,
 
     // The "allowed lexemes".  The allowed lexemes (aka acceptable
     // lexemes, aka relevant lexemes) are those which the recognizer
@@ -260,8 +262,6 @@ struct ParserState {
     first_row_with_max_token_limit: usize,
     stats: ParserStats,
     options: GenGrammarOptions,
-    trie_gen_grammar: Option<CSymIdx>,
-    trie_gen_grammar_accepting: bool,
     limits: ParserLimits,
     max_all_items: usize,
     parser_error: Option<String>,
@@ -304,10 +304,11 @@ impl Scratch {
 
     // Add a new row to the Earley table.  It will be the
     // current, working, row.
-    fn work_row(&self, allowed_lexemes: SimpleVob) -> Row {
+    fn work_row(&self, allowed_lexemes: SimpleVob, lexeme_class: LexemeClass) -> Row {
         Row {
             first_item: self.row_start,
             last_item: self.row_end,
+            lexeme_class,
             allowed_lexemes,
         }
     }
@@ -403,8 +404,6 @@ impl ParserState {
             max_all_items: usize::MAX,
             first_row_with_max_token_limit: 0,
             options,
-            trie_gen_grammar: None,
-            trie_gen_grammar_accepting: false,
             limits,
             backtrack_byte_count: 0,
             lexer_stack: vec![LexerState {
@@ -434,9 +433,8 @@ impl ParserState {
             // Disallow initial SKIP if asked to.
             // This is done, for example, we are trying to force
             // the generation of JSON to start.
-            r.rows[0]
-                .allowed_lexemes
-                .set(LexemeIdx::SKIP.as_usize(), false);
+            let skip_id = r.grammar.lexer_spec().skip_id(LexemeClass::ROOT);
+            r.rows[0].allowed_lexemes.set(skip_id.as_usize(), false);
         }
 
         let state = lexer.start_state(&r.rows[0].allowed_lexemes, None);
@@ -514,7 +512,7 @@ impl ParserState {
 
     fn can_advance_inner(&self) -> bool {
         for data in self.after_dots_symdata() {
-            if data.lexeme == Some(LexemeIdx::SKIP) || data.idx == CSymIdx::NULL {
+            if data.idx == CSymIdx::NULL {
                 continue;
             }
             if data.is_terminal || data.gen_grammar.is_some() {
@@ -1068,95 +1066,6 @@ impl ParserState {
         r
     }
 
-    pub fn maybe_gen_grammar(&mut self) -> Option<(String, CSymIdx, GenGrammarOptions)> {
-        self.assert_definitive();
-
-        if true {
-            return None;
-        }
-
-        let mut res: Option<GenGrammarOptions> = None;
-        let mut res_idx = None;
-        let mut gen_grm = vec![];
-        for pos in self.after_dots() {
-            let idx = self.grammar.sym_idx_dot(pos);
-            let sym_data = self.grammar.sym_data_dot(pos);
-            if let Some(ref gg) = sym_data.gen_grammar {
-                // break ties by preferring the one with the lowest grammar number
-                if res.is_none()
-                    || res.as_ref().unwrap().grammar.to_index().unwrap()
-                        > gg.grammar.to_index().unwrap()
-                {
-                    res = Some(gg.clone());
-                    res_idx = Some(idx);
-                }
-                gen_grm.push(idx);
-            } else if sym_data.is_terminal {
-                gen_grm.push(idx);
-            }
-        }
-
-        if res.is_none() {
-            return None;
-        }
-
-        let msg = if gen_grm.len() > 1 {
-            format!(
-                "ambiguity between GenGrammar and terminals {:?}",
-                gen_grm
-                    .iter()
-                    .map(|&x| self.grammar.sym_name(x))
-                    .collect::<Vec<_>>()
-            )
-        } else {
-            String::new()
-        };
-
-        Some((msg, res_idx.unwrap(), res.unwrap()))
-    }
-
-    fn flush_gen_grammar(&mut self, shared: &mut SharedState) {
-        if let Some(idx) = self.trie_gen_grammar.take() {
-            let r = self.scan_gen_grammar_inner(shared, idx, vec![]);
-            self.trie_gen_grammar_accepting = r && self.row_is_accepting();
-        }
-    }
-
-    fn scan_gen_grammar_inner(
-        &mut self,
-        shared: &mut SharedState,
-        symidx: CSymIdx,
-        inner_bytes: Vec<u8>,
-    ) -> bool {
-        debug!("  scan gen_grammar: {}", self.grammar.sym_name(symidx));
-
-        self.scratch.new_row(self.curr_row().last_item);
-
-        for idx in self.curr_row().item_indices() {
-            let item = self.scratch.items[idx];
-            let sidx = self.grammar.sym_idx_dot(item.rule_idx());
-            if sidx == symidx {
-                self.scratch
-                    .add_unique(item.advance_dot(), idx, "gen_grammar");
-            }
-        }
-
-        assert!(self.scratch.row_len() > 0);
-
-        let lexeme = Lexeme::new(LexemeIdx::SKIP, inner_bytes, 0);
-
-        let r = self.push_row(self.num_rows(), self.scratch.row_start, &lexeme);
-        if r {
-            debug!("  gen_grammar OK");
-            let lexer_state = self.lexer_state_for_added_row(shared, lexeme, None);
-            self.lexer_stack.push(lexer_state);
-            true
-        } else {
-            debug!("  gen_grammar failed!");
-            false
-        }
-    }
-
     pub fn scan_eos(&mut self, shared: &mut SharedState) -> bool {
         self.assert_definitive(); // ???
 
@@ -1386,8 +1295,17 @@ impl ParserState {
         } else {
             self.stats.all_items += row_len;
 
+            let idx = self.num_rows();
+            let prev_class = if idx > 0 {
+                self.rows[idx - 1].lexeme_class
+            } else {
+                LexemeClass::ROOT
+            };
+
             // Always accept a SKIP lexeme
-            allowed_lexemes.set(LexemeIdx::SKIP.as_usize(), true);
+            let lex_spec = self.grammar.lexer_spec();
+            let skip = lex_spec.skip_id(prev_class);
+            allowed_lexemes.set(skip.as_usize(), true);
 
             if self.scratch.definitive {
                 debug!(
@@ -1397,8 +1315,8 @@ impl ParserState {
             }
 
             // Add the working row to the parser state
-            let idx = self.num_rows();
-            let row = self.scratch.work_row(allowed_lexemes);
+            let curr_class = lex_spec.lexeme_spec(lexeme.idx).class();
+            let row = self.scratch.work_row(allowed_lexemes, curr_class);
             if self.rows.len() == 0 || self.rows.len() == idx {
                 // If the physical 'rows' Vec is full, we push a new row
                 // otherwise ...
@@ -1516,9 +1434,7 @@ impl ParserState {
         let mut matched_something = false;
         for lexeme_idx in allowed_lexemes.iter() {
             let lex_spec = &self.lexer_spec().lexemes[lexeme_idx as usize];
-            if lexeme_idx as usize == LexemeIdx::SKIP.as_usize()
-                && matches!(lex_spec.rx, RegexAst::NoMatch)
-            {
+            if lex_spec.is_skip && matches!(lex_spec.rx, RegexAst::NoMatch) {
                 continue;
             }
             if !lex_spec.has_forced_bytes(bytes) {
@@ -1713,7 +1629,8 @@ impl ParserState {
             Lexeme::just_idx(lexeme_idx)
         };
 
-        let scan_res = if lexeme.idx == LexemeIdx::SKIP {
+        let lex_spec = self.grammar.lexer_spec().lexeme_spec(lexeme.idx);
+        let scan_res = if lex_spec.is_skip {
             // If this is the SKIP lexeme, then skip it
             self.scan_skip_lexeme(&lexeme)
         } else {
@@ -1846,7 +1763,6 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
 
     fn trie_started(&mut self) {
         self.state.trie_started_inner();
-        self.state.flush_gen_grammar(self.shared);
     }
 
     fn trie_finished(&mut self) {
@@ -1928,20 +1844,6 @@ impl Parser {
     /// This is a top-level method in this file.  It is called by mid_process_inner()
     /// in TokenParser in tokenparser.rs.  It is used by the mid_process() method of
     /// the LLInterpreter interface.
-    pub fn compute_bias_after_gen_grammar(
-        &mut self,
-        computer: &dyn BiasComputer,
-        symidx: CSymIdx,
-    ) -> (bool, SimpleVob) {
-        self.state.trie_gen_grammar = Some(symidx);
-        let r = self.compute_bias(computer, &[]);
-        assert!(self.state.trie_gen_grammar.is_none());
-        (self.state.trie_gen_grammar_accepting, r)
-    }
-
-    /// This is a top-level method in this file.  It is called by mid_process_inner()
-    /// in TokenParser in tokenparser.rs.  It is used by the mid_process() method of
-    /// the LLInterpreter interface.
     pub fn compute_bias(&mut self, computer: &dyn BiasComputer, start: &[u8]) -> SimpleVob {
         let mut shared = self.shared.lock().unwrap();
         self.state.compute_bias(&mut shared, computer, start)
@@ -1953,11 +1855,6 @@ impl Parser {
 
     pub fn stats(&self) -> &ParserStats {
         &self.state.stats
-    }
-
-    pub(crate) fn take_global_state_from(&mut self, other: &mut Parser) {
-        self.state.stats = other.state.stats.clone();
-        self.state.captures = std::mem::take(&mut other.state.captures);
     }
 
     // The "hidden" feature must be supported for historical reasons.
@@ -1992,13 +1889,6 @@ impl Parser {
             state: &mut self.state,
         };
         f(&mut p)
-    }
-
-    pub fn scan_gen_grammar(&mut self, symidx: CSymIdx, inner_bytes: Vec<u8>) -> bool {
-        self.state.assert_definitive();
-        let mut shared = self.shared.lock().unwrap();
-        self.state
-            .scan_gen_grammar_inner(&mut shared, symidx, inner_bytes)
     }
 
     pub fn get_bytes(&self) -> &[u8] {
@@ -2074,10 +1964,6 @@ impl Parser {
 
     pub fn temperature(&self) -> Option<f32> {
         self.state.temperature()
-    }
-
-    pub fn maybe_gen_grammar(&mut self) -> Option<(String, CSymIdx, GenGrammarOptions)> {
-        self.state.maybe_gen_grammar()
     }
 
     pub fn deep_clone(&self) -> Self {

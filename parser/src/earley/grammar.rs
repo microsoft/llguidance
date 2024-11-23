@@ -700,18 +700,6 @@ impl CGrammar {
 
         assert!(grammar.symbols.len() < u16::MAX as usize - 10);
 
-        outp.add_symbol(CSymbol {
-            idx: CSymIdx::NULL,
-            name: "<SKIP>".to_string(),
-            is_terminal: true,
-            is_nullable: false,
-            rules: vec![],
-            props: SymbolProps::default(),
-            sym_flags: SymFlags(0),
-            gen_grammar: None,
-            lexeme: Some(LexemeIdx::SKIP),
-        });
-
         // lexemes go first
         for sym in grammar.symbols.iter() {
             if let Some(lx) = sym.lexeme {

@@ -8,6 +8,7 @@ use crate::api::{
     GrammarId, GrammarWithLexer, Node, ParserLimits, RegexId, RegexNode, RegexSpec,
     TopLevelGrammar, DEFAULT_CONTEXTUAL,
 };
+use crate::earley::lexerspec::LexemeClass;
 use crate::{lark_to_llguidance, loginfo, JsonCompileOptions, Logger};
 use anyhow::{bail, ensure, Result};
 use derivre::{ExprRef, JsonQuoteOptions, RegexAst};
@@ -126,13 +127,13 @@ fn grammar_from_json(
         _ => RegexAst::NoMatch,
     };
 
-    let _class = lexer_spec.new_lexeme_class(skip);
+    let class = lexer_spec.new_lexeme_class(skip)?;
 
     if input.no_forcing {
         lexer_spec.no_forcing = true;
     }
-    if input.allow_initial_skip {
-        // TODO: this will apply to all lexers...
+    if input.allow_initial_skip && class == LexemeClass::ROOT {
+        // TODO: what about sub-grammars?
         lexer_spec.allow_initial_skip = true;
     }
 
