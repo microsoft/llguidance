@@ -106,8 +106,6 @@ struct Row {
     first_item: usize,
     last_item: usize,
 
-    lexeme_class: LexemeClass,
-
     // The "allowed lexemes".  The allowed lexemes (aka acceptable
     // lexemes, aka relevant lexemes) are those which the recognizer
     // will accept in the next row.  They are all and only those lexemes
@@ -304,11 +302,10 @@ impl Scratch {
 
     // Add a new row to the Earley table.  It will be the
     // current, working, row.
-    fn work_row(&self, allowed_lexemes: SimpleVob, lexeme_class: LexemeClass) -> Row {
+    fn work_row(&self, allowed_lexemes: SimpleVob) -> Row {
         Row {
             first_item: self.row_start,
             last_item: self.row_end,
-            lexeme_class,
             allowed_lexemes,
         }
     }
@@ -429,12 +426,16 @@ impl ParserState {
 
         // Set the correct initial lexer state
 
-        if !r.grammar.lexer_spec().allow_initial_skip {
+        if !r.lexer_spec().allow_initial_skip {
             // Disallow initial SKIP if asked to.
             // This is done, for example, we are trying to force
             // the generation of JSON to start.
-            let skip_id = r.grammar.lexer_spec().skip_id(LexemeClass::ROOT);
+            let skip_id = r.lexer_spec().skip_id(LexemeClass::ROOT);
             r.rows[0].allowed_lexemes.set(skip_id.as_usize(), false);
+            debug!(
+                "disallowing initial SKIP; {}",
+                r.lexer_spec().dbg_lexeme_set(&r.rows[0].allowed_lexemes)
+            );
         }
 
         let state = lexer.start_state(&r.rows[0].allowed_lexemes, None);
@@ -1295,29 +1296,23 @@ impl ParserState {
         } else {
             self.stats.all_items += row_len;
 
-            let idx = self.num_rows();
-            let prev_class = if self.rows.len() > 0 {
-                self.rows[idx - 1].lexeme_class
-            } else {
-                // only happens in initial push_row()
-                LexemeClass::ROOT
-            };
-
             // Always accept a SKIP lexeme
-            let lex_spec = self.grammar.lexer_spec();
-            let skip = lex_spec.skip_id(prev_class);
+            let lex_spec = self.lexer_spec();
+            let curr_class = lex_spec.lexeme_spec(lexeme.idx).class();
+            let skip = lex_spec.skip_id(curr_class);
             allowed_lexemes.set(skip.as_usize(), true);
 
             if self.scratch.definitive {
                 debug!(
-                    "  push row: {}",
+                    "  push row: {} {:?}",
                     self.lexer_spec().dbg_lexeme_set(&allowed_lexemes),
+                    curr_class
                 );
             }
 
             // Add the working row to the parser state
-            let curr_class = lex_spec.lexeme_spec(lexeme.idx).class();
-            let row = self.scratch.work_row(allowed_lexemes, curr_class);
+            let idx = self.num_rows();
+            let row = self.scratch.work_row(allowed_lexemes);
             if self.rows.len() == 0 || self.rows.len() == idx {
                 // If the physical 'rows' Vec is full, we push a new row
                 // otherwise ...
@@ -1630,7 +1625,7 @@ impl ParserState {
             Lexeme::just_idx(lexeme_idx)
         };
 
-        let lex_spec = self.grammar.lexer_spec().lexeme_spec(lexeme.idx);
+        let lex_spec = self.lexer_spec().lexeme_spec(lexeme.idx);
         let scan_res = if lex_spec.is_skip {
             // If this is the SKIP lexeme, then skip it
             self.scan_skip_lexeme(&lexeme)

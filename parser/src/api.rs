@@ -206,9 +206,6 @@ pub struct GenGrammarOptions {
 
     /// Override sampling temperature.
     pub temperature: Option<f32>,
-
-    #[serde(skip)]
-    pub max_tokens_grm: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
@@ -315,7 +312,6 @@ impl Default for GenGrammarOptions {
         GenGrammarOptions {
             grammar: GrammarId::Index(0),
             temperature: None,
-            max_tokens_grm: usize::MAX,
         }
     }
 }

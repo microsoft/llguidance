@@ -4,7 +4,7 @@ use anyhow::{bail, ensure, Result};
 
 use crate::api::{GenGrammarOptions, GrammarId};
 
-use super::lexerspec::{LexemeIdx, LexerSpec};
+use super::lexerspec::{LexemeClass, LexemeIdx, LexerSpec};
 use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -377,12 +377,29 @@ impl Grammar {
         CGrammar::from_grammar(self, lexer_spec)
     }
 
-    pub fn resolve_grammar_refs(&mut self, ctx: &HashMap<GrammarId, SymIdx>) -> Result<()> {
+    pub fn resolve_grammar_refs(
+        &mut self,
+        lexer_spec: &mut LexerSpec,
+        ctx: &HashMap<GrammarId, (SymIdx, LexemeClass)>,
+    ) -> Result<()> {
         let mut rules = vec![];
+        let mut temperatures: HashMap<LexemeClass, f32> = HashMap::new();
         for sym in &mut self.symbols {
             if let Some(opts) = &sym.gen_grammar {
-                if let Some(&idx) = ctx.get(&opts.grammar) {
+                if let Some((idx, cls)) = ctx.get(&opts.grammar).cloned() {
                     rules.push((sym.idx, idx));
+                    let temp = opts.temperature.unwrap_or(0.0);
+                    if let Some(&existing) = temperatures.get(&cls) {
+                        if existing != temp {
+                            bail!(
+                                "temperature mismatch for nested grammar {:?}: {} vs {}",
+                                opts.grammar,
+                                existing,
+                                temp
+                            );
+                        }
+                    }
+                    temperatures.insert(cls, temp);
                 } else {
                     bail!("unknown grammar {}", opts.grammar);
                 }
@@ -391,6 +408,21 @@ impl Grammar {
         for (lhs, rhs) in rules {
             self.add_rule(lhs, vec![rhs])?;
         }
+
+        let sym_by_lexeme_idx = self
+            .symbols
+            .iter()
+            .filter_map(|s| s.lexeme.map(|lx| (lx, s.idx)))
+            .collect::<HashMap<_, _>>();
+
+        for lspec in lexer_spec.lexemes.iter_mut() {
+            if let Some(&temp) = temperatures.get(&lspec.class()) {
+                if let Some(&sidx) = sym_by_lexeme_idx.get(&lspec.idx) {
+                    self.sym_props_mut(sidx).temperature = temp;
+                }
+            }
+        }
+
         Ok(())
     }
 

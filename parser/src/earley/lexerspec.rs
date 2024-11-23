@@ -18,7 +18,7 @@ pub struct LexerSpec {
     pub current_class: LexemeClass,
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct LexemeClass(u8);
 
 impl LexemeClass {

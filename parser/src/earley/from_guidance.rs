@@ -86,7 +86,7 @@ fn grammar_from_json(
     grm: &mut Grammar,
     lexer_spec: &mut LexerSpec,
     mut input: GrammarWithLexer,
-) -> Result<SymIdx> {
+) -> Result<(SymIdx, LexemeClass)> {
     if input.json_schema.is_some() || input.lark_grammar.is_some() {
         ensure!(
             input.nodes.is_empty() && input.rx_nodes.is_empty(),
@@ -264,10 +264,8 @@ fn grammar_from_json(
                     grm.make_terminal(lhs, idx, &lexer_spec)?;
                 }
             }
-            Node::GenGrammar { data, props } => {
-                let mut data = data.clone();
-                data.max_tokens_grm = props.max_tokens.unwrap_or(usize::MAX);
-                grm.make_gen_grammar(lhs, data)?;
+            Node::GenGrammar { data, .. } => {
+                grm.make_gen_grammar(lhs, data.clone())?;
             }
             Node::SpecialToken { token, .. } => {
                 let trie = tok_env.tok_trie();
@@ -300,7 +298,7 @@ fn grammar_from_json(
     limits.initial_lexer_fuel = limits.initial_lexer_fuel.saturating_sub(lexer_spec.cost());
     limits.max_grammar_size = limits.max_grammar_size.saturating_sub(size);
 
-    Ok(node_map[0])
+    Ok((node_map[0], class))
 }
 
 pub fn grammars_from_json(
@@ -333,12 +331,12 @@ pub fn grammars_from_json(
         .map(|g| grammar_from_json(tok_env, &mut limits, &mut grammar, &mut lexer_spec, g))
         .collect::<Result<Vec<_>>>()?;
 
-    let grammar_by_idx: HashMap<GrammarId, SymIdx> = grammar_by_idx
+    let grammar_by_idx: HashMap<GrammarId, (SymIdx, LexemeClass)> = grammar_by_idx
         .into_iter()
         .map(|(k, v)| (k, root_syms[v]))
         .collect();
 
-    grammar.resolve_grammar_refs(&grammar_by_idx)?;
+    grammar.resolve_grammar_refs(&mut lexer_spec, &grammar_by_idx)?;
 
     lexer_spec.add_extra_lexemes(&extra_lexemes);
 

@@ -178,6 +178,12 @@ fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) {
 
 fn test_ll_skip() {
     check_lark_grammar(
+        r#"start: "A" "!"
+           %ignore /[ \t]+/"#,
+        &["A", " ‧ ‧!"],
+    );
+
+    check_lark_grammar(
         r#"
             start: "A: " NUMBER
             NUMBER: /[0-9]+/
@@ -186,12 +192,11 @@ fn test_ll_skip() {
         &["A‧:", " ‧ ‧5‧6‧≺EOS≻"],
     );
 
-    check_lark_grammar(
-        r#"
-            start: "A" "B"
-            %ignore /[ \t]+/
-        "#,
-        &["A", " ‧ ‧B‧≺EOS≻"],
+    check_lark_grammar_nested(
+        r#"start: "." @sub"#,
+        r#"start: "A" "!"
+           %ignore /[ \t]+/"#,
+        &[".‧A", " ‧ ‧!"],
     );
 }
 
