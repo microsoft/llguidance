@@ -19,7 +19,13 @@ use lazy_static::lazy_static;
 ///
 /// These tests are "recorded" by passing "test_trace": true in the llguidance
 /// request and post-processing.
-fn check_grammar(tok_env: &TokEnv, prompt_str: &str, grammar: TopLevelGrammar, output: &[&str]) {
+fn check_grammar(
+    tok_env: &TokEnv,
+    prompt_str: &str,
+    grammar: TopLevelGrammar,
+    output: &[&str],
+    temp: f32,
+) {
     println!("\nChecking grammar");
 
     let parser = TokenParser::from_llguidance_json(
@@ -44,9 +50,22 @@ fn check_grammar(tok_env: &TokEnv, prompt_str: &str, grammar: TopLevelGrammar, o
 
     let mut idx = 1;
     let mut gen_tokens = tokenize_trace(tok_env, output[idx]);
+    let mut seen_temp = temp == 0.0;
 
     for _ in 0..200 {
         let res = constraint.compute_mask().unwrap();
+
+        if let Some(t) = res.temperature {
+            assert!(
+                t == temp || t == 0.0,
+                "Expected temperature {} got {}",
+                temp,
+                t
+            );
+            if t == temp {
+                seen_temp = true;
+            }
+        }
 
         if res.is_stop() {
             assert!(idx >= output.len() - 1, "Expected more output at {}", idx);
@@ -114,6 +133,8 @@ fn check_grammar(tok_env: &TokEnv, prompt_str: &str, grammar: TopLevelGrammar, o
             gen_tokens = tokenize_trace(tok_env, output[idx]);
         }
     }
+
+    assert!(seen_temp, "Expected temperature {} not seen", temp);
 }
 
 fn check_eq(tok_env: &TokEnv, label: &str, tokens: &[TokenId], expected_tokens: &str) {
@@ -161,7 +182,7 @@ lazy_static! {
 
 fn check_lark_grammar_prompt(lark: &str, prompt_str: &str, output: &[&str]) {
     let grm = TopLevelGrammar::from_lark(lark.to_string());
-    check_grammar(&TOK_ENV, prompt_str, grm, output);
+    check_grammar(&TOK_ENV, prompt_str, grm, output, 0.0);
 }
 
 fn check_lark_grammar(lark: &str, output: &[&str]) {
@@ -169,11 +190,24 @@ fn check_lark_grammar(lark: &str, output: &[&str]) {
 }
 
 fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) {
+    let temp = lark
+        .find("temperature=")
+        .map(|i| {
+            let i = i + "temperature=".len();
+            let mut end = i;
+            while end < lark.len()
+                && (lark.as_bytes()[end].is_ascii_digit() || lark.as_bytes()[end] == b'.')
+            {
+                end += 1;
+            }
+            lark[i..end].parse::<f32>().unwrap()
+        })
+        .unwrap_or(0.0);
     let mut top_grm = TopLevelGrammar::from_lark(lark.to_string());
     let mut sub_grm = GrammarWithLexer::from_lark(sub_lark.to_string());
     sub_grm.name = Some("sub".to_string());
     top_grm.grammars.push(sub_grm);
-    check_grammar(&TOK_ENV, "", top_grm, output);
+    check_grammar(&TOK_ENV, "", top_grm, output, temp);
 }
 
 fn test_ll_skip() {
