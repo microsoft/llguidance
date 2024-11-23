@@ -1296,9 +1296,10 @@ impl ParserState {
             self.stats.all_items += row_len;
 
             let idx = self.num_rows();
-            let prev_class = if idx > 0 {
+            let prev_class = if self.rows.len() > 0 {
                 self.rows[idx - 1].lexeme_class
             } else {
+                // only happens in initial push_row()
                 LexemeClass::ROOT
             };
 

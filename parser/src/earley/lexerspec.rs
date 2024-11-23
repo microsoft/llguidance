@@ -111,6 +111,7 @@ impl LexerSpec {
     pub fn new_lexeme_class(&mut self, skip: RegexAst) -> Result<LexemeClass> {
         let _ = self.regex_builder.mk(&skip)?; // validate first
         self.current_class = LexemeClass::new(self.skip_by_class.len());
+        self.skip_by_class.push(LexemeIdx(0)); // avoid assert in empty_spec()
         let idx = self
             .add_lexeme_spec(LexemeSpec {
                 name: format!("SKIP{}", self.current_class.as_usize()),
@@ -119,6 +120,7 @@ impl LexerSpec {
                 ..self.empty_spec()
             })
             .expect("already validated");
+        self.skip_by_class.pop();
         self.skip_by_class.push(idx);
         Ok(self.current_class)
     }

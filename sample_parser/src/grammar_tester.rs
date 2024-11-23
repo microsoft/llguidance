@@ -176,6 +176,25 @@ fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) {
     check_grammar(&TOK_ENV, "", top_grm, output);
 }
 
+fn test_ll_skip() {
+    check_lark_grammar(
+        r#"
+            start: "A: " NUMBER
+            NUMBER: /[0-9]+/
+            %ignore /[ \t]+/
+        "#,
+        &["A‧:", " ‧ ‧5‧6‧≺EOS≻"],
+    );
+
+    check_lark_grammar(
+        r#"
+            start: "A" "B"
+            %ignore /[ \t]+/
+        "#,
+        &["A", " ‧ ‧B‧≺EOS≻"],
+    );
+}
+
 fn test_ll_backtrack_stop() {
     check_lark_grammar(
         r#"
@@ -309,6 +328,7 @@ fn test_ll_nullable_lexeme() {
 }
 
 fn main() {
+    test_ll_skip();
     test_llparser();
     test_ll_backtrack_stop();
     test_ll_nullable_lexeme();

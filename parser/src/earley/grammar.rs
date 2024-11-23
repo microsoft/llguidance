@@ -18,13 +18,10 @@ impl SymIdx {
 
 impl Symbol {
     fn is_terminal(&self) -> bool {
-        self.is_lexeme_terminal() || self.is_grammar_ref()
+        self.is_lexeme_terminal()
     }
     fn is_lexeme_terminal(&self) -> bool {
         self.lexeme.is_some()
-    }
-    fn is_grammar_ref(&self) -> bool {
-        self.gen_grammar.is_some()
     }
 }
 
