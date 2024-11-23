@@ -71,7 +71,7 @@ impl TokenParser {
         let mid_process_start_time = instant::Instant::now();
         let test_trace = top_grammar.test_trace;
         let max_tokens = top_grammar.max_tokens.unwrap_or(usize::MAX);
-        let compiled_grammars = grammars_from_json(
+        let compiled_grammar = grammars_from_json(
             top_grammar,
             &token_env,
             &mut logger,
@@ -79,7 +79,7 @@ impl TokenParser {
             extra_lexemes,
         )?;
         let parser = Parser::new(
-            Arc::clone(&compiled_grammars[0]),
+            compiled_grammar,
             GenGrammarOptions::default(),
             limits.clone(),
         )?;
@@ -102,7 +102,7 @@ impl TokenParser {
             parser_llm_tokens_offset: 0,
             parser_stack: Vec::new(),
             previous_grm_bytes: Vec::new(),
-            compiled_grammars,
+            compiled_grammars: vec![],
             llm_tokens: Vec::new(),
             llm_bytes: Vec::new(),
             grm_prefix: Vec::new(),

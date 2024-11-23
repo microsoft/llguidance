@@ -1070,6 +1070,11 @@ impl ParserState {
 
     pub fn maybe_gen_grammar(&mut self) -> Option<(String, CSymIdx, GenGrammarOptions)> {
         self.assert_definitive();
+
+        if true {
+            return None;
+        }
+
         let mut res: Option<GenGrammarOptions> = None;
         let mut res_idx = None;
         let mut gen_grm = vec![];

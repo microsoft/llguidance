@@ -1,11 +1,11 @@
 use std::{collections::HashMap, fmt::Display};
 
 use anyhow::{bail, Result};
-use derivre::{RegexAst, RegexBuilder};
+use derivre::RegexAst;
 
 use crate::earley::{
     lexer::{Lexer, LexerResult},
-    lexerspec::{LexemeIdx, LexerSpec},
+    lexerspec::LexerSpec,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub enum Token {
     Newline,
     VBar,
     SpecialToken, // <something>
-    GrammarRef, // @grammar_id or @7
+    GrammarRef,   // @grammar_id or @7
     // special
     SKIP,
     EOF,
@@ -110,11 +110,13 @@ impl Token {
 }
 
 pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
-    let builder = RegexBuilder::new();
     let comment_or_ws = r"((#|//)[^\n]*)|[ \t]+".to_string();
-    let mut spec = LexerSpec::new(builder, RegexAst::Regex(comment_or_ws)).unwrap();
+    let mut spec = LexerSpec::new().unwrap();
+    let cls = spec
+        .new_lexeme_class(RegexAst::Regex(comment_or_ws))
+        .unwrap();
     let mut lexeme_idx_to_token = HashMap::new();
-    lexeme_idx_to_token.insert(LexemeIdx::SKIP, Token::SKIP);
+    lexeme_idx_to_token.insert(spec.skip_id(cls), Token::SKIP);
     for (token, literal) in Token::LITERAL_TOKENS {
         let l = spec
             .add_simple_literal(format!("{:?}", token), *literal, false)

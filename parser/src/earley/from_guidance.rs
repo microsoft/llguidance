@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::{sync::Arc, vec};
 
+use super::grammar::SymIdx;
 use super::{grammar::SymbolProps, lexerspec::LexerSpec, CGrammar, Grammar};
 use crate::api::{
     GrammarId, GrammarWithLexer, Node, ParserLimits, RegexId, RegexNode, RegexSpec,
@@ -9,7 +10,7 @@ use crate::api::{
 };
 use crate::{lark_to_llguidance, loginfo, JsonCompileOptions, Logger};
 use anyhow::{bail, ensure, Result};
-use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
+use derivre::{ExprRef, JsonQuoteOptions, RegexAst};
 use instant::Instant;
 use toktrie::TokEnv;
 
@@ -39,15 +40,11 @@ fn map_rx_refs(rx_refs: &[ExprRef], ids: Vec<RegexId>) -> Result<Vec<RegexAst>> 
 }
 
 fn map_rx_nodes(
+    spec: &mut LexerSpec,
     limits: &ParserLimits,
     rx_nodes: Vec<RegexNode>,
-    allow_invalid_utf8: bool,
-) -> Result<(RegexBuilder, Vec<ExprRef>)> {
-    let mut builder = RegexBuilder::new();
-    if allow_invalid_utf8 {
-        builder.utf8(false);
-        builder.unicode(false);
-    }
+) -> Result<Vec<ExprRef>> {
+    let builder = &mut spec.regex_builder;
     let mut rx_refs = vec![];
     for node in rx_nodes {
         rx_refs.push(builder.mk(&map_node(&rx_refs, node)?)?);
@@ -57,7 +54,7 @@ fn map_rx_nodes(
             limits.initial_lexer_fuel
         );
     }
-    return Ok((builder, rx_refs));
+    return Ok(rx_refs);
 
     fn map_node(rx_refs: &[ExprRef], node: RegexNode) -> Result<RegexAst> {
         match node {
@@ -85,8 +82,10 @@ fn map_rx_nodes(
 fn grammar_from_json(
     tok_env: &TokEnv,
     limits: &mut ParserLimits,
+    grm: &mut Grammar,
+    lexer_spec: &mut LexerSpec,
     mut input: GrammarWithLexer,
-) -> Result<(LexerSpec, Grammar)> {
+) -> Result<SymIdx> {
     if input.json_schema.is_some() || input.lark_grammar.is_some() {
         ensure!(
             input.nodes.is_empty() && input.rx_nodes.is_empty(),
@@ -117,20 +116,26 @@ fn grammar_from_json(
 
     ensure!(input.nodes.len() > 0, "empty grammar");
 
-    let (builder, rx_nodes) = map_rx_nodes(limits, input.rx_nodes, input.allow_invalid_utf8)?;
+    let utf8 = !input.allow_invalid_utf8;
+    lexer_spec.regex_builder.utf8(utf8);
+    lexer_spec.regex_builder.unicode(utf8);
 
+    let rx_nodes = map_rx_nodes(lexer_spec, limits, input.rx_nodes)?;
     let skip = match input.greedy_skip_rx {
         Some(rx) => resolve_rx(&rx_nodes, &rx)?,
         _ => RegexAst::NoMatch,
     };
-    let mut lexer_spec = LexerSpec::new(builder, skip)?;
+
+    let _class = lexer_spec.new_lexeme_class(skip);
+
     if input.no_forcing {
         lexer_spec.no_forcing = true;
     }
     if input.allow_initial_skip {
+        // TODO: this will apply to all lexers...
         lexer_spec.allow_initial_skip = true;
     }
-    let mut grm = Grammar::new(input.name.clone());
+
     let node_map = input
         .nodes
         .iter()
@@ -294,7 +299,7 @@ fn grammar_from_json(
     limits.initial_lexer_fuel = limits.initial_lexer_fuel.saturating_sub(lexer_spec.cost());
     limits.max_grammar_size = limits.max_grammar_size.saturating_sub(size);
 
-    Ok((lexer_spec, grm))
+    Ok(node_map[0])
 }
 
 pub fn grammars_from_json(
@@ -303,71 +308,67 @@ pub fn grammars_from_json(
     logger: &mut Logger,
     mut limits: ParserLimits,
     extra_lexemes: Vec<String>,
-) -> Result<Vec<Arc<CGrammar>>> {
+) -> Result<Arc<CGrammar>> {
     let t0 = Instant::now();
-    let mut grammars = input
-        .grammars
-        .into_iter()
-        .map(|g| grammar_from_json(tok_env, &mut limits, g))
-        .collect::<Result<Vec<_>>>()?;
+
+    let mut lexer_spec = LexerSpec::new()?;
+    let mut grammar = Grammar::new(None);
 
     let mut grammar_by_idx = HashMap::new();
-    for (idx, (_, g)) in grammars.iter().enumerate() {
-        grammar_by_idx.insert(GrammarId::Index(idx), idx);
-        if let Some(n) = g.name() {
+    for (idx, grm) in input.grammars.iter().enumerate() {
+        if let Some(n) = &grm.name {
             let n = GrammarId::Name(n.to_string());
             if grammar_by_idx.contains_key(&n) {
                 bail!("duplicate grammar name: {}", n);
             }
             grammar_by_idx.insert(n, idx);
         }
+        grammar_by_idx.insert(GrammarId::Index(idx), idx);
     }
 
-    for (_, g) in grammars.iter_mut() {
-        g.validate_grammar_refs(&grammar_by_idx)?;
+    let root_syms = input
+        .grammars
+        .into_iter()
+        .map(|g| grammar_from_json(tok_env, &mut limits, &mut grammar, &mut lexer_spec, g))
+        .collect::<Result<Vec<_>>>()?;
+
+    let grammar_by_idx: HashMap<GrammarId, SymIdx> = grammar_by_idx
+        .into_iter()
+        .map(|(k, v)| (k, root_syms[v]))
+        .collect();
+
+    grammar.resolve_grammar_refs(&grammar_by_idx)?;
+
+    lexer_spec.add_extra_lexemes(&extra_lexemes);
+
+    let log_grammar = logger.level_enabled(3) || (logger.level_enabled(2) && grammar.is_small());
+    if log_grammar {
+        writeln!(
+            logger.info_logger(),
+            "Grammar:\n{:?}\n{:?}\n",
+            lexer_spec,
+            grammar
+        )
+        .unwrap();
+    } else if logger.level_enabled(2) {
+        writeln!(
+            logger.info_logger(),
+            "Grammar: (skipping body; log_level=3 will print it); {}",
+            grammar.stats()
+        )
+        .unwrap();
     }
 
     let t1 = Instant::now();
+    grammar = grammar.optimize();
 
-    let grammars = grammars
-        .into_iter()
-        .enumerate()
-        .map(|(idx, (mut lex, mut grm))| {
-            lex.add_extra_lexemes(&extra_lexemes);
+    if log_grammar {
+        write!(logger.info_logger(), "  == Optimize ==>\n{:?}", grammar).unwrap();
+    } else if logger.level_enabled(2) {
+        writeln!(logger.info_logger(), "  ==> {}", grammar.stats()).unwrap();
+    }
 
-            let log_grammar =
-                logger.level_enabled(3) || (logger.level_enabled(2) && grm.is_small());
-            if log_grammar {
-                writeln!(
-                    logger.info_logger(),
-                    "Grammar #{} {}:\n{:?}\n{:?}\n",
-                    idx,
-                    grm.name().unwrap_or(""),
-                    lex,
-                    grm
-                )
-                .unwrap();
-            } else if logger.level_enabled(2) {
-                writeln!(
-                    logger.info_logger(),
-                    "Grammar #{}; (skipping body; log_level=3 will print it); {}",
-                    idx,
-                    grm.stats()
-                )
-                .unwrap();
-            }
-
-            grm = grm.optimize();
-
-            if log_grammar {
-                write!(logger.info_logger(), "  == Optimize ==>\n{:?}", grm).unwrap();
-            } else if logger.level_enabled(2) {
-                writeln!(logger.info_logger(), "  ==> {}", grm.stats()).unwrap();
-            }
-
-            Arc::new(grm.compile(lex))
-        })
-        .collect::<Vec<_>>();
+    let grammars = Arc::new(grammar.compile(lexer_spec));
 
     loginfo!(
         logger,

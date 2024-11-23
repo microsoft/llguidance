@@ -380,18 +380,19 @@ impl Grammar {
         CGrammar::from_grammar(self, lexer_spec)
     }
 
-    pub fn validate_grammar_refs(&mut self, ctx: &HashMap<GrammarId, usize>) -> Result<()> {
+    pub fn resolve_grammar_refs(&mut self, ctx: &HashMap<GrammarId, SymIdx>) -> Result<()> {
+        let mut rules = vec![];
         for sym in &mut self.symbols {
-            match sym.gen_grammar {
-                Some(ref mut opts) => {
-                    if let Some(idx) = ctx.get(&opts.grammar) {
-                        opts.grammar = GrammarId::Index(*idx);
-                    } else {
-                        bail!("unknown grammar {}", opts.grammar);
-                    }
+            if let Some(opts) = &sym.gen_grammar {
+                if let Some(&idx) = ctx.get(&opts.grammar) {
+                    rules.push((sym.idx, idx));
+                } else {
+                    bail!("unknown grammar {}", opts.grammar);
                 }
-                None => {}
             }
+        }
+        for (lhs, rhs) in rules {
+            self.add_rule(lhs, vec![rhs])?;
         }
         Ok(())
     }

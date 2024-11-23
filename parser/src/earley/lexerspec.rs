@@ -14,6 +14,20 @@ pub struct LexerSpec {
     pub no_forcing: bool,
     pub allow_initial_skip: bool,
     pub num_extra_lexemes: usize,
+    pub skip_by_class: Vec<LexemeIdx>,
+    pub current_class: LexemeClass,
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub struct LexemeClass(u8);
+
+impl LexemeClass {
+    pub fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+    pub fn new(class: usize) -> Self {
+        LexemeClass(class.try_into().expect("class too large"))
+    }
 }
 
 #[derive(Clone)]
@@ -21,6 +35,7 @@ pub struct LexemeSpec {
     pub(crate) idx: LexemeIdx,
     name: String,
     pub(crate) rx: RegexAst,
+    class: LexemeClass,
     compiled_rx: ExprRef,
     ends_at_eos: bool,
     lazy: bool,
@@ -58,9 +73,15 @@ impl LexemeSpec {
     /// Check if the lexeme always matches bytes, and has at least one more byte to spare.
     pub fn has_forced_bytes(&self, bytes: &[u8]) -> bool {
         match &self.rx {
-            RegexAst::Literal(s) if s.len() >= bytes.len() => &s.as_bytes()[0..bytes.len()] == bytes,
+            RegexAst::Literal(s) if s.len() >= bytes.len() => {
+                &s.as_bytes()[0..bytes.len()] == bytes
+            }
             _ => false,
         }
+    }
+
+    pub fn class(&self) -> LexemeClass {
+        self.class
     }
 }
 
@@ -78,21 +99,30 @@ impl Debug for LexemeSpec {
 }
 
 impl LexerSpec {
-    pub fn new(regex_builder: RegexBuilder, skip: RegexAst) -> Result<Self> {
-        let mut r = LexerSpec {
+    pub fn new() -> Result<Self> {
+        Ok(LexerSpec {
             lexemes: Vec::new(),
-            regex_builder,
+            regex_builder: RegexBuilder::new(),
             no_forcing: false,
             allow_initial_skip: false,
             num_extra_lexemes: 0,
-        };
-        let skip = r.add_lexeme_spec(LexemeSpec {
-            name: "SKIP".to_string(),
-            rx: skip,
-            ..r.empty_spec()
-        })?;
-        assert!(skip == LexemeIdx::SKIP);
-        Ok(r)
+            skip_by_class: Vec::new(),
+            current_class: LexemeClass(0),
+        })
+    }
+
+    pub fn new_lexeme_class(&mut self, skip: RegexAst) -> Result<LexemeClass> {
+        let _ = self.regex_builder.mk(&skip)?; // validate first
+        self.current_class = LexemeClass::new(self.skip_by_class.len());
+        let idx = self
+            .add_lexeme_spec(LexemeSpec {
+                name: format!("SKIP{}", self.current_class.as_usize()),
+                rx: skip,
+                ..self.empty_spec()
+            })
+            .expect("already validated");
+        self.skip_by_class.push(idx);
+        Ok(self.current_class)
     }
 
     pub fn alloc_lexeme_set(&self) -> SimpleVob {
@@ -159,7 +189,7 @@ impl LexerSpec {
         if let Some(idx) = self
             .lexemes
             .iter()
-            .position(|lex| lex.compiled_rx == compiled)
+            .position(|lex| lex.compiled_rx == compiled && lex.class == spec.class)
         {
             return Ok(LexemeIdx(idx));
         }
@@ -171,6 +201,10 @@ impl LexerSpec {
     }
 
     fn empty_spec(&self) -> LexemeSpec {
+        assert!(
+            self.skip_by_class.len() > 0,
+            "new_lexeme_class() not called"
+        );
         LexemeSpec {
             idx: LexemeIdx(0),
             name: "".to_string(),
@@ -180,6 +214,7 @@ impl LexerSpec {
             contextual: false,
             ends_at_eos: false,
             json_options: None,
+            class: self.current_class,
         }
     }
 
@@ -296,6 +331,10 @@ impl LexerSpec {
 
     pub fn cost(&self) -> u64 {
         self.regex_builder.exprset().cost()
+    }
+
+    pub fn skip_id(&self, class: LexemeClass) -> LexemeIdx {
+        self.skip_by_class[class.as_usize()]
     }
 }
 
