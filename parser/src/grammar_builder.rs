@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::atomic::AtomicU32};
 use anyhow::{ensure, Result};
 
 use crate::api::{
-    GenGrammarOptions, GenOptions, GrammarId, GrammarWithLexer, Node, NodeId, NodeProps, RegexId,
-    RegexNode, RegexSpec, TopLevelGrammar,
+    GenGrammarOptions, GenOptions, GrammarWithLexer, Node, NodeId, NodeProps, RegexId, RegexNode,
+    RegexSpec, TopLevelGrammar,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -173,7 +173,7 @@ impl GrammarBuilder {
         assert!(id.idx == 0);
     }
 
-    fn add_node(&mut self, node: Node) -> NodeRef {
+    pub fn add_node(&mut self, node: Node) -> NodeRef {
         let r = NodeRef {
             idx: self.nodes.len(),
             grammar_id: self.curr_grammar_id,
@@ -201,14 +201,8 @@ impl GrammarBuilder {
         })
     }
 
-    pub fn gen_grammar(&mut self, name: GrammarId) -> NodeRef {
-        self.add_node(Node::GenGrammar {
-            data: GenGrammarOptions {
-                grammar: name,
-                ..GenGrammarOptions::default()
-            },
-            props: NodeProps::default(),
-        })
+    pub fn gen_grammar(&mut self, data: GenGrammarOptions, props: NodeProps) -> NodeRef {
+        self.add_node(Node::GenGrammar { data, props })
     }
 
     pub fn gen_rx(&mut self, regex: &str, stop_regex: &str) -> NodeRef {

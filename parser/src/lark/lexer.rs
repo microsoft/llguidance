@@ -102,7 +102,7 @@ impl Token {
             r#""(\\([\"\\\/bfnrt]|u[a-fA-F0-9]{4})|[^\"\\\x00-\x1F\x7F])*"(i|)"#,
         ),
         (Token::Regexp, r#"/(\\.|[^/\\])+/[imslux]*"#),
-        (Token::Number, r#"[+-]?[0-9]+"#),
+        (Token::Number, r#"[+-]?[0-9]+(\.[0-9]*)?"#),
         (Token::Newline, r"(\r?\n)+[ \t]*"),
         (Token::SpecialToken, r"<[^<>\s]+>"),
         (Token::GrammarRef, r"@[a-zA-Z0-9_\-]+"),

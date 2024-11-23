@@ -10,11 +10,15 @@ Following are the extensions to Lark syntax:
   they ones using Lark can reference others using syntax like `@17` refering
   to grammar at index 17 in the `grammars` list, or `@my_grammar` refering to grammar
   with `"name": "my_grammar"`.
+- you can specify temperature for subgrammar by referencing it via
+  `my_temp_json[temperature=0.7]: @json` syntax
 - special tokens can referenced via `<token_name>` syntax, for example `<|ENDOFTEXT|>`;
   they cannot be used inside of terminals, but can be used in regular rules;
   the exact syntax depends on the tokenizer
-- `max_tokens` and `stop` can be specified on rules, but the rule body must be a token expression,
-  for example: `mygen[stop="\n", max_tokens=10]: /.*/`
+- `max_tokens`, `temperature` and `stop` can be specified on rules, but the rule body must be a token expression,
+  for example: `mygen[stop="\n", max_tokens=10, temperature=0.7]: /.*/`
+- if `stop` is specified (possibly as `""`) the rule is treated as `gen()` in Guidance;
+  otherwise it is treated as `lexeme()`
 
 
 Following are currently not supported:

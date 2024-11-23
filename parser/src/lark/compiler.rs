@@ -7,7 +7,8 @@ use anyhow::{anyhow, bail, ensure, Result};
 
 use crate::{
     api::{
-        GenOptions, GrammarId, GrammarWithLexer, NodeProps, RegexId, RegexSpec, TopLevelGrammar,
+        GenGrammarOptions, GenOptions, GrammarId, GrammarWithLexer, Node, NodeProps, RegexId,
+        RegexSpec, TopLevelGrammar,
     },
     GrammarBuilder, NodeRef,
 };
@@ -193,6 +194,16 @@ impl Compiler {
         Ok(self.builder.lexeme(RegexSpec::RegexId(rx_id), false))
     }
 
+    fn get_grammar_id(g: &str) -> GrammarId {
+        assert!(g.starts_with("@"));
+        // see if g[1..] is an integer
+        if let Ok(id) = g[1..].parse::<usize>() {
+            GrammarId::Index(id)
+        } else {
+            GrammarId::Name(g[1..].to_string())
+        }
+    }
+
     fn do_atom(&mut self, expr: &Atom) -> Result<NodeRef> {
         match expr {
             Atom::Group(expansions) => self.do_expansions(expansions),
@@ -213,14 +224,13 @@ impl Compiler {
                     }
                     Value::SpecialToken(s) => return Ok(self.builder.special_token(s)),
                     Value::GrammarRef(g) => {
-                        assert!(g.starts_with("@"));
-                        // see if g[1..] is an integer
-                        let id = if let Ok(id) = g[1..].parse::<usize>() {
-                            GrammarId::Index(id)
-                        } else {
-                            GrammarId::Name(g[1..].to_string())
-                        };
-                        return Ok(self.builder.gen_grammar(id));
+                        return Ok(self.builder.gen_grammar(
+                            GenGrammarOptions {
+                                grammar: Compiler::get_grammar_id(g),
+                                temperature: None,
+                            },
+                            NodeProps::default(),
+                        ));
                     }
                     Value::LiteralRange(_, _)
                     | Value::LiteralString(_, _)
@@ -293,10 +303,19 @@ impl Compiler {
             .rules
             .get(name)
             .ok_or_else(|| anyhow!("rule {:?} not found", name))?;
+
+        let props = NodeProps {
+            max_tokens: rule.max_tokens,
+            // assume the user also wants capture
+            capture_name: Some(name.to_string()),
+            ..Default::default()
+        };
+
         let id = if let Some(stop) = &rule.stop {
             let rx_id = self.do_token_expansions(&rule.expansions)?;
             let stop_id = self.do_token_atom(&Atom::Value(stop.clone()))?;
             let is_empty = matches!(stop, Value::LiteralString(s, _) if s.is_empty());
+
             self.builder.gen(
                 GenOptions {
                     body_rx: RegexSpec::RegexId(rx_id),
@@ -307,16 +326,38 @@ impl Compiler {
                     },
                     stop_capture_name: None,
                     lazy: Some(!is_empty), // follow guidance: "lazy": node.stop_regex != "",
-                    temperature: None,
+                    temperature: rule.temperature,
                 },
-                NodeProps {
-                    max_tokens: rule.max_tokens,
-                    // assume the user also wants capture
-                    capture_name: Some(name.to_string()),
-                    ..Default::default()
-                },
+                props,
             )
         } else {
+            if rule.temperature.is_some() {
+                match rule.expansions.single_atom() {
+                    Some(Atom::Value(Value::GrammarRef(g))) => {
+                        return Ok(self.builder.gen_grammar(
+                            GenGrammarOptions {
+                                grammar: Compiler::get_grammar_id(g),
+                                temperature: rule.temperature,
+                            },
+                            props,
+                        ));
+                    }
+                    _ => {
+                        // try as terminal
+                        let rx_id = self.do_token_expansions(&rule.expansions)?;
+                        return Ok(self.builder.add_node(Node::Lexeme {
+                            rx: RegexSpec::RegexId(rx_id),
+                            contextual: None,
+                            temperature: None,
+                            json_string: None,
+                            json_raw: None,
+                            json_allowed_escapes: None,
+                            props,
+                        }));
+                    }
+                }
+            }
+
             let inner = self.do_expansions(&rule.expansions)?;
             if let Some(max_tokens) = rule.max_tokens {
                 self.builder.join_props(

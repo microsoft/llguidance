@@ -198,6 +198,24 @@ fn test_ll_skip() {
            %ignore /[ \t]+/"#,
         &[".‧A", " ‧ ‧!"],
     );
+
+    check_lark_grammar_nested(
+        r#"start: /[xy]/ sub_temp
+           sub_temp[temperature=0.5]: @sub
+        "#,
+        r#"start: "[" ("A")* "]"
+           %ignore /[ \t]+/"#,
+        &["", "x‧[‧]"],
+    );
+
+    check_lark_grammar_nested(
+        r#"start: sub_temp
+           sub_temp[temperature=0.5]: @sub
+        "#,
+        r#"start: "[" ("A")* "]"
+           %ignore /[ \t]+/"#,
+        &["", "[‧]"],
+    );
 }
 
 fn test_ll_backtrack_stop() {

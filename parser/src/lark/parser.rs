@@ -86,6 +86,7 @@ impl Parser {
             expansions: Expansions(self.location(), Vec::new()),
             stop: None,
             max_tokens: None,
+            temperature: None,
         };
 
         if self.has_token(Token::LBracket) {
@@ -137,6 +138,10 @@ impl Parser {
                 "max_tokens" => {
                     let value = self.expect_token(Token::Number)?.value.parse::<usize>()?;
                     rule.max_tokens = Some(value);
+                }
+                "temperature" => {
+                    let value = self.expect_token(Token::Number)?.value.parse::<f32>()?;
+                    rule.temperature = Some(value);
                 }
                 _ => bail!("Unknown attribute: {}", key),
             }

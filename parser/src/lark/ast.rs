@@ -32,6 +32,7 @@ pub struct Rule {
 
     pub stop: Option<Value>,
     pub max_tokens: Option<usize>,
+    pub temperature: Option<f32>,
 }
 
 /// Represents a token definition.
@@ -74,6 +75,16 @@ pub struct TokenParams(pub Vec<String>);
 /// Represents a list of expansions.
 #[derive(Debug, Clone)]
 pub struct Expansions(pub Location, pub Vec<Alias>);
+
+impl Expansions {
+    pub fn single_atom(&self) -> Option<&Atom> {
+        if self.1.len() == 1 && self.1[0].expansion.0.len() == 1 {
+            Some(&self.1[0].expansion.0[0].atom)
+        } else {
+            None
+        }
+    }
+}
 
 /// Represents an alias in the grammar.
 #[derive(Debug, Clone)]
