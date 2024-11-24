@@ -169,7 +169,7 @@ impl TokenParser {
             self.llm_bytes = grm_bytes[0..grm_bytes.len() - chop_bytes].to_vec();
             self.llm_tokens = self.token_env.tokenize_bytes_prefix(&self.llm_bytes);
             self.parser.apply_forced(self.llm_bytes.len());
-            let decoded = self.token_env.tok_trie().decode_raw(&self.llm_tokens);
+            let decoded = self.tok_trie().decode_raw(&self.llm_tokens);
             if self.llm_bytes.len() > 0
                 && decoded.len() > 0
                 && &decoded[1..] == &self.llm_bytes
@@ -215,6 +215,10 @@ impl TokenParser {
         }
         self.stop_reason = reason;
         StepResult::stop()
+    }
+
+    fn tok_trie(&self) -> &toktrie::TokTrie {
+        self.token_env.tok_trie()
     }
 
     pub fn error_message(&self) -> Option<String> {
@@ -291,7 +295,7 @@ impl TokenParser {
         self.max_tokens_parser = self.max_tokens_parser.saturating_sub(1);
 
         let trace = if self.test_trace {
-            let tokens = self.token_env.tok_trie().test_trace_tokens(&arg.tokens);
+            let tokens = self.tok_trie().test_trace_tokens(&arg.tokens);
             Some(json!({
                 "backtrack": arg.backtrack,
                 "tokens": tokens,
@@ -313,7 +317,7 @@ impl TokenParser {
                         json!({
                             "when_sampled": s.when_sampled,
                             "backtrack": s.backtrack,
-                            "tokens": self.token_env.tok_trie().test_trace_tokens(&s.ff_tokens),
+                            "tokens": self.tok_trie().test_trace_tokens(&s.ff_tokens),
                         })
                     }).collect::<Vec<_>>(),
                 })
@@ -337,7 +341,7 @@ impl TokenParser {
 
             let t = spl.ff_tokens[0];
             infoln!(self, "forcing ff_token by mask: {}", t);
-            let mask = self.token_env.tok_trie().singleton_token_set(t);
+            let mask = self.tok_trie().singleton_token_set(t);
             return StepResult::sample(mask, None);
         }
 
@@ -351,7 +355,7 @@ impl TokenParser {
     fn maybe_scan_eos(&mut self, tokens: &[TokenId]) -> (bool, bool) {
         let mut pending_eos = false;
         let mut clear_tokens = false;
-        if tokens.contains(&self.token_env.tok_trie().eos_token()) {
+        if tokens.contains(&self.tok_trie().eos_token()) {
             assert!(tokens.len() == 1);
             if self.parser.scan_eos() {
                 // it got scanned correctly, so we remove it
@@ -550,8 +554,9 @@ impl TokenParser {
             (inner_done, inner_accepting)
         };
 
+        self.mid_process_was_accepting = inner_accepting;
+
         if inner_done || self.max_tokens_parser == 0 {
-            self.mid_process_was_accepting = inner_accepting;
             infoln!(
                 self,
                 "only eos token allowed, stopping; accepting: {}",
@@ -633,8 +638,11 @@ impl TokenParser {
     fn mid_process_inner(&mut self, tokens: &[TokenId]) -> Result<(), StepResult> {
         self.mid_process_was_accepting = false;
 
-        let trie = self.token_env.tok_trie();
-        infoln!(self, "compute_mask: {}", trie.tokens_dbg(tokens));
+        infoln!(
+            self,
+            "compute_mask: {}",
+            self.token_env.tok_trie().tokens_dbg(tokens)
+        );
 
         let (token_prefix, inner_accepting) = self.commit_tokens_inner(tokens)?;
 
@@ -645,9 +653,7 @@ impl TokenParser {
         }
 
         if inner_accepting {
-            let trie = self.token_env.tok_trie();
-            self.mid_process_was_accepting = true;
-            allowed_tokens.allow_token(trie.eos_token());
+            allowed_tokens.allow_token(self.tok_trie().eos_token());
         }
 
         self.log_final(&token_prefix, &mut allowed_tokens);
