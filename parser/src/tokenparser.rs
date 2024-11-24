@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    api::{GenGrammarOptions, ParserLimits, StopReason, TopLevelGrammar},
+    api::{ParserLimits, StopReason, TopLevelGrammar},
     earley::{
         grammars_from_json, BiasComputer, DefaultBiasComputer, Parser, ParserError, ParserStats,
     },
@@ -58,11 +58,7 @@ impl TokenParser {
             limits.clone(),
             extra_lexemes,
         )?;
-        let parser = Parser::new(
-            compiled_grammar,
-            GenGrammarOptions::default(),
-            limits.clone(),
-        )?;
+        let parser = Parser::new(compiled_grammar, limits.clone())?;
 
         Ok(TokenParser {
             bias_computer: Arc::new(DefaultBiasComputer::new(token_env.clone())),

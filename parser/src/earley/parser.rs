@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie};
 
 use crate::{
-    api::{GenGrammarOptions, ParserLimits, StopReason},
+    api::{ParserLimits, StopReason},
     earley::{lexer::Lexer, lexerspec::LexemeClass},
 };
 
@@ -259,7 +259,6 @@ struct ParserState {
 
     first_row_with_max_token_limit: usize,
     stats: ParserStats,
-    options: GenGrammarOptions,
     limits: ParserLimits,
     max_all_items: usize,
     parser_error: Option<String>,
@@ -378,11 +377,7 @@ macro_rules! ensure_internal {
 impl ParserState {
     // Create a new state for an empty parser.
     // The parser starts in definitive mode.
-    fn new(
-        grammar: Arc<CGrammar>,
-        options: GenGrammarOptions,
-        mut limits: ParserLimits,
-    ) -> Result<(Self, Lexer)> {
+    fn new(grammar: Arc<CGrammar>, mut limits: ParserLimits) -> Result<(Self, Lexer)> {
         let start = grammar.start();
         let mut lexer = Lexer::from(grammar.lexer_spec(), &mut limits)?;
         let scratch = Scratch::new(Arc::clone(&grammar));
@@ -400,7 +395,6 @@ impl ParserState {
             bytes: vec![],
             max_all_items: usize::MAX,
             first_row_with_max_token_limit: 0,
-            options,
             limits,
             backtrack_byte_count: 0,
             lexer_stack: vec![LexerState {
@@ -658,9 +652,6 @@ impl ParserState {
             if data.is_terminal {
                 temp = temp.max(data.props.temperature);
             }
-        }
-        if let Some(t) = self.options.temperature {
-            temp = temp.max(t);
         }
         if temp < 0.00000001 {
             None
@@ -1827,12 +1818,8 @@ impl ParserError {
 }
 
 impl Parser {
-    pub fn new(
-        grammar: Arc<CGrammar>,
-        options: GenGrammarOptions,
-        limits: ParserLimits,
-    ) -> Result<Self> {
-        let (state, lexer) = ParserState::new(grammar, options, limits)?;
+    pub fn new(grammar: Arc<CGrammar>, limits: ParserLimits) -> Result<Self> {
+        let (state, lexer) = ParserState::new(grammar, limits)?;
         let shared = Arc::new(Mutex::new(SharedState { lexer }));
         Ok(Parser { shared, state })
     }
