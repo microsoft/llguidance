@@ -24,13 +24,13 @@ pub struct TokenParser {
     last_step_stats: ParserStats,
     max_step_stats: ParserStats,
     test_trace: bool,
+    eos_token: TokenId,
 
     mid_process_was_accepting: bool,
     stop_reason: StopReason,
     error_message: Option<String>,
 
     max_tokens_total: usize,
-    max_tokens_parser: usize,
 
     // tokens currently in KV cache
     llm_tokens: Vec<TokenId>,
@@ -59,6 +59,7 @@ impl TokenParser {
             extra_lexemes,
         )?;
         let parser = Parser::new(compiled_grammar, limits.clone())?;
+        let eos_token = token_env.tok_trie().eos_token();
 
         Ok(TokenParser {
             bias_computer: Arc::new(DefaultBiasComputer::new(token_env.clone())),
@@ -74,11 +75,11 @@ impl TokenParser {
             stop_reason: StopReason::NotStopped,
             error_message: None,
             parser,
+            eos_token,
             llm_tokens: Vec::new(),
             llm_bytes: Vec::new(),
             grm_prefix: Vec::new(),
             max_tokens_total: max_tokens,
-            max_tokens_parser: max_tokens,
             last_bias_time: Duration::from_secs(0),
             is_fresh: true,
         })
@@ -279,7 +280,7 @@ impl TokenParser {
 
             if arg.backtrack == 0
                 && (arg.tokens.len() == 0
-                    || (arg.tokens.len() == 1 && arg.tokens[0] == trie.eos_token()))
+                    || (arg.tokens.len() == 1 && arg.tokens[0] == self.eos_token))
             {
                 // Don't warn in this case
                 return StepResult::stop();
@@ -292,7 +293,6 @@ impl TokenParser {
             return self.stop("max_tokens_total reached", StopReason::MaxTokensTotal);
         }
         self.max_tokens_total -= 1;
-        self.max_tokens_parser = self.max_tokens_parser.saturating_sub(1);
 
         let trace = if self.test_trace {
             let tokens = self.tok_trie().test_trace_tokens(&arg.tokens);
@@ -355,7 +355,7 @@ impl TokenParser {
     fn maybe_scan_eos(&mut self, tokens: &[TokenId]) -> (bool, bool) {
         let mut pending_eos = false;
         let mut clear_tokens = false;
-        if tokens.contains(&self.tok_trie().eos_token()) {
+        if tokens.contains(&self.eos_token) {
             assert!(tokens.len() == 1);
             if self.parser.scan_eos() {
                 // it got scanned correctly, so we remove it
@@ -556,7 +556,7 @@ impl TokenParser {
 
         self.mid_process_was_accepting = inner_accepting;
 
-        if inner_done || self.max_tokens_parser == 0 {
+        if inner_done {
             infoln!(
                 self,
                 "only eos token allowed, stopping; accepting: {}",
@@ -564,14 +564,10 @@ impl TokenParser {
             );
             return Err(self.stop(
                 "",
-                if inner_done {
-                    if pending_eos {
-                        StopReason::EndOfSentence
-                    } else {
-                        StopReason::NoExtension
-                    }
+                if pending_eos {
+                    StopReason::EndOfSentence
                 } else {
-                    StopReason::MaxTokensParser
+                    StopReason::NoExtension
                 },
             ));
         }
@@ -625,7 +621,6 @@ impl TokenParser {
         self.parser.filter_max_tokens();
 
         // force after scanning tokens from LLM (this may walk the parser some more)
-
         let forced_bytes = self.compute_forced_bytes();
         let token_prefix = self.maybe_force_tokens(backtrack_tokens, forced_bytes)?;
 
@@ -653,7 +648,7 @@ impl TokenParser {
         }
 
         if inner_accepting {
-            allowed_tokens.allow_token(self.tok_trie().eos_token());
+            allowed_tokens.allow_token(self.eos_token);
         }
 
         self.log_final(&token_prefix, &mut allowed_tokens);

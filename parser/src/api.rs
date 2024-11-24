@@ -322,7 +322,7 @@ pub enum StopReason {
     NotStopped,
     /// max_tokens limit on the total number of tokens has been reached.
     MaxTokensTotal,
-    /// max_tokens limit on the number of tokens in the top-level parser has been reached.
+    /// max_tokens limit on the number of tokens in the top-level parser has been reached. (no longer used)
     MaxTokensParser,
     /// Top-level parser indicates that no more bytes can be added.
     NoExtension,
