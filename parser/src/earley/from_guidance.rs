@@ -310,6 +310,8 @@ pub fn grammars_from_json(
 ) -> Result<Arc<CGrammar>> {
     let t0 = Instant::now();
 
+    // eprintln!("grammars_from_json: {}", serde_json::to_string(&input).unwrap());
+
     let mut lexer_spec = LexerSpec::new()?;
     let mut grammar = Grammar::new(None);
 
@@ -342,13 +344,7 @@ pub fn grammars_from_json(
 
     let log_grammar = logger.level_enabled(3) || (logger.level_enabled(2) && grammar.is_small());
     if log_grammar {
-        writeln!(
-            logger.info_logger(),
-            "Grammar:\n{:?}\n{:?}\n",
-            lexer_spec,
-            grammar
-        )
-        .unwrap();
+        writeln!(logger.info_logger(), "{:?}\n{:?}\n", lexer_spec, grammar).unwrap();
     } else if logger.level_enabled(2) {
         writeln!(
             logger.info_logger(),

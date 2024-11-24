@@ -409,16 +409,11 @@ impl Grammar {
             self.add_rule(lhs, vec![rhs])?;
         }
 
-        let sym_by_lexeme_idx = self
-            .symbols
-            .iter()
-            .filter_map(|s| s.lexeme.map(|lx| (lx, s.idx)))
-            .collect::<HashMap<_, _>>();
-
-        for lspec in lexer_spec.lexemes.iter_mut() {
-            if let Some(&temp) = temperatures.get(&lspec.class()) {
-                if let Some(&sidx) = sym_by_lexeme_idx.get(&lspec.idx) {
-                    self.sym_props_mut(sidx).temperature = temp;
+        for sym in self.symbols.iter_mut() {
+            if let Some(idx) = sym.lexeme {
+                let spec = lexer_spec.lexeme_spec(idx);
+                if let Some(&temp) = temperatures.get(&spec.class()) {
+                    sym.props.temperature = temp;
                 }
             }
         }
@@ -494,7 +489,19 @@ impl Debug for Grammar {
         for sym in &self.symbols {
             match sym.gen_grammar {
                 Some(ref opts) => {
-                    writeln!(f, "{} ==> {:?}", sym.name, opts.grammar)?;
+                    writeln!(f, "{:15} ==> {:?}", sym.name, opts.grammar)?;
+                }
+                _ => {}
+            }
+            match sym.lexeme {
+                Some(lx) => {
+                    writeln!(
+                        f,
+                        "{:15} ==> [{}] temp={:.2}",
+                        sym.name,
+                        lx.as_usize(),
+                        sym.props.temperature
+                    )?;
                 }
                 _ => {}
             }

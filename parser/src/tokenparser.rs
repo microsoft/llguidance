@@ -600,7 +600,7 @@ impl TokenParser {
 
         infoln!(
             self,
-            "bias: (pref: {:?}; accpt: {}; temp: {:.2}) {}",
+            "bias: (pref: {:?}; accpt: {}; temp: {:.3}) {}",
             String::from_utf8_lossy(&token_prefix),
             self.mid_process_was_accepting,
             self.parser.temperature().unwrap_or(0.0),
