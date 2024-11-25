@@ -660,30 +660,37 @@ impl ParserState {
         }
     }
 
-    pub fn bytes_allowed(&mut self, shared: &mut SharedState, tok_bytes: &[u8]) -> bool {
+    pub fn validate_bytes(&mut self, shared: &mut SharedState, tok_bytes: &[u8]) -> usize {
         self.assert_definitive();
         let applied_idx = self.byte_to_token_idx.len();
+        let mut prefix_len = 0;
         let tok_bytes = if applied_idx < self.bytes.len() {
-            let prefix_len = std::cmp::min(tok_bytes.len(), self.bytes.len() - applied_idx);
+            prefix_len = std::cmp::min(tok_bytes.len(), self.bytes.len() - applied_idx);
             if self.bytes[applied_idx..applied_idx + prefix_len] != tok_bytes[..prefix_len] {
-                return false;
+                // find common prefix
+                let mut i = 0;
+                while i < prefix_len && self.bytes[applied_idx + i] == tok_bytes[i] {
+                    i += 1;
+                }
+                return i;
             }
             &tok_bytes[prefix_len..]
         } else {
             tok_bytes
         };
         if tok_bytes.is_empty() {
-            return true;
+            return prefix_len;
         }
 
         self.run_speculative(|s| {
             let mut r = ParserRecognizer { shared, state: s };
             for &b in tok_bytes {
                 if !r.try_push_byte(b) {
-                    return false;
+                    return prefix_len;
                 }
+                prefix_len += 1;
             }
-            true
+            prefix_len
         })
     }
 
@@ -1906,9 +1913,10 @@ impl Parser {
         r
     }
 
-    pub fn bytes_allowed(&mut self, tok_bytes: &[u8]) -> bool {
+    /// Returns how many bytes can be applied.
+    pub fn validate_bytes(&mut self, tok_bytes: &[u8]) -> usize {
         let mut shared = self.shared.lock().unwrap();
-        self.state.bytes_allowed(&mut shared, tok_bytes)
+        self.state.validate_bytes(&mut shared, tok_bytes)
     }
 
     pub fn filter_max_tokens(&mut self) {

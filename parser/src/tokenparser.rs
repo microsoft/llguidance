@@ -226,6 +226,72 @@ impl TokenParser {
         self.error_message.clone()
     }
 
+    fn check_initialized(&self, lbl: &str) -> Result<()> {
+        ensure!(!self.is_fresh, "process_prompt() not called in {}", lbl);
+        ensure!(
+            self.stop_reason == StopReason::NotStopped,
+            "parsed stopped in {}; {}",
+            lbl,
+            self.error_message()
+                .unwrap_or("no error message".to_string())
+        );
+        Ok(())
+    }
+
+    /// Returns how many of the passed tokens can be accepted by the parser.
+    /// It does not tokenize forced bytes, so will accept non-canonical tokenizations.
+    pub fn validate_tokens_raw(&mut self, tokens: &[TokenId]) -> Result<usize> {
+        self.check_initialized("validate_tokens_raw")?;
+
+        let bytes = self.tok_trie().decode_raw(tokens);
+        let n_valid = self.parser.validate_bytes(&bytes);
+        assert!(n_valid <= bytes.len());
+
+        // fast paths
+        if n_valid == bytes.len() {
+            return Ok(tokens.len());
+        }
+        if n_valid == 0 {
+            return Ok(0);
+        }
+
+        let mut byte_ptr = 0;
+        for (token_ptr, tok) in tokens.iter().enumerate() {
+            byte_ptr += self.tok_trie().token(*tok).len();
+            if byte_ptr > n_valid {
+                return Ok(token_ptr);
+            }
+        }
+        Ok(tokens.len())
+    }
+
+    /// This advances the parser by bytes resulting from decoding the token.
+    /// It will accept non-canonical tokenizations.
+    /// If the token is not accepted, the parser goes into an non-recoverable error state.
+    pub fn commit_token_raw(&mut self, token: TokenId) -> Result<()> {
+        self.check_initialized("commit_token_raw")?;
+
+        let (_, scanned) = self.maybe_scan_eos(&[token]);
+        if scanned {
+            return Ok(());
+        }
+
+        match self.apply_tokens(&[token]) {
+            Err(_) => {
+                let msg = self
+                    .error_message
+                    .clone()
+                    .unwrap_or(self.stop_reason.to_string());
+                return Err(anyhow::anyhow!(msg));
+            }
+            Ok(n) => {
+                ensure!(n == 0, "commit_token_raw: unexpected backtrack");
+            }
+        }
+
+        Ok(())
+    }
+
     // advance_parser() is a top-level method in this file.
     // This advance_parser() is called by Constraint::commit_token().
     // It is accessible via the commit_token() method of
@@ -234,12 +300,8 @@ impl TokenParser {
     // The result here *never* includes a mask.
     // It's either stop or an unconditional splice (possibly noop).
     pub fn advance_parser(&mut self, token: TokenId) -> Result<StepResult> {
-        ensure!(self.is_fresh == false, "process_prompt() not called");
+        self.check_initialized("advance_parser")?;
         ensure!(self.inference_caps.ff_tokens, "ff_tokens required");
-        ensure!(
-            self.stop_reason == StopReason::NotStopped,
-            "commit_token() on stopped parser"
-        );
 
         self.mid_process_was_accepting = false;
 
