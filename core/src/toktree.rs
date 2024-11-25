@@ -162,11 +162,11 @@ pub trait TokenizerEnv: Send {
         self.tok_trie().eos_token()
     }
 
-    /// If this returns true, this tokenizer may return non-canonical tokenizations
-    /// and should generally not be used for forcing tokens.
-    /// Typically, it will just use TokTrie::greedy_tokenize().
-    fn tokenize_is_approximate(&self) -> bool {
-        false
+    /// If this returns true, this tokenizer always returns canonical tokenizations
+    /// and can be used for forcing tokens.
+    /// Non-canonical tokenizers will typically just use TokTrie::greedy_tokenize().
+    fn tokenize_is_canonical(&self) -> bool {
+        true
     }
 }
 
