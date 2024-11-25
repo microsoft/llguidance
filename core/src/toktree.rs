@@ -119,21 +119,36 @@ pub trait TokenizerEnv: Send {
     /// Tokenize a given byte sequence.
     /// It will interpret text starting with SPECIAL_TOKEN_PREFIX_BYTE as special tokens.
     fn tokenize_bytes_prefix(&self, s: &[u8]) -> Vec<TokenId> {
-        if s.contains(&TokTrie::SPECIAL_TOKEN_PREFIX_BYTE) {
-            let copy = s
+        let mut idx = 0;
+        let ff = TokTrie::SPECIAL_TOKEN_PREFIX_BYTE;
+        let mut result = Vec::new();
+        let trie = self.tok_trie();
+        while idx < s.len() {
+            let normal_len = s[idx..]
                 .iter()
-                .filter_map(|&b| {
-                    if b == TokTrie::SPECIAL_TOKEN_PREFIX_BYTE {
-                        None
-                    } else {
-                        Some(b)
+                .position(|&x| x == ff)
+                .unwrap_or(s.len() - idx);
+            if normal_len != 0 {
+                result.extend_from_slice(&self.tokenize_bytes(&s[idx..idx + normal_len]));
+                idx += normal_len;
+            }
+            idx += 1; // skip ff
+            if idx + 3 < s.len() && s[idx] == '<' as u8 {
+                let spec_len = s[idx..std::cmp::min(s.len(), idx + 100)]
+                    .iter()
+                    .position(|&x| x == '>' as u8);
+                if let Some(mut spec_len) = spec_len {
+                    spec_len += 1;
+                    let spec_token = &s[idx - 1..idx + spec_len];
+                    if let Some(id) = trie.token_id_at_bytes(spec_token) {
+                        result.push(id);
+                        idx += spec_len;
                     }
-                })
-                .collect::<Vec<_>>();
-            self.tokenize_bytes(&copy)
-        } else {
-            self.tokenize_bytes(s)
+                }
+            }
         }
+
+        result
     }
 
     /// Tokenize a string coming from user. It may or may not interpret <|special_tokens|> as special.
@@ -739,6 +754,10 @@ impl TokTrie {
             }
         }
         Some(n)
+    }
+
+    pub fn token_id_at_bytes(&self, bytes: &[u8]) -> Option<TokenId> {
+        self.child_at_bytes(self.root(), bytes).and_then(|n| n.token_id())
     }
 
     pub fn compute_bias(&self, r: &mut impl Recognizer, logits: &mut SimpleVob) {
