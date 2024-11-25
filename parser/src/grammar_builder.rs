@@ -20,6 +20,7 @@ pub struct GrammarBuilder {
     placeholder: Node,
     strings: HashMap<String, NodeRef>,
     curr_grammar_id: u32,
+    node_refs: HashMap<String, NodeRef>,
     nodes: Vec<Node>,
     pub regex: RegexBuilder,
 }
@@ -136,6 +137,7 @@ impl GrammarBuilder {
             },
             strings: HashMap::new(),
             curr_grammar_id: 0,
+            node_refs: HashMap::new(),
             nodes: vec![],
             regex: RegexBuilder::new(),
         }
@@ -174,11 +176,27 @@ impl GrammarBuilder {
     }
 
     pub fn add_node(&mut self, node: Node) -> NodeRef {
+        // Generate a key for the node from its serialized form if it is not the placeholder
+        let key = (node != self.placeholder).then(|| serde_json::to_string(&node).unwrap());
+
+        // Return the node reference if it already exists
+        if let Some(ref key) = key {
+            if let Some(node_ref) = self.node_refs.get(key) {
+                return *node_ref;
+            }
+        }
+
+        // Create new node reference
         let r = NodeRef {
             idx: self.nodes.len(),
             grammar_id: self.curr_grammar_id,
         };
+
+        // Add the node and store the reference (if it's not the placeholder)
         self.nodes.push(node);
+        if let Some(key) = key {
+            self.node_refs.insert(key, r);
+        }
         r
     }
 
