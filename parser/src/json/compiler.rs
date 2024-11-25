@@ -20,6 +20,7 @@ pub struct JsonCompileOptions {
     pub item_separator: String,
     pub key_separator: String,
     pub whitespace_flexible: bool,
+    pub coerce_one_of: bool,
 }
 
 fn json_dumps(target: &serde_json::Value) -> String {
@@ -98,6 +99,7 @@ impl Default for JsonCompileOptions {
             item_separator: ",".to_string(),
             key_separator: ":".to_string(),
             whitespace_flexible: true,
+            coerce_one_of: false,
         }
     }
 }
@@ -244,8 +246,16 @@ impl Compiler {
                 Ok(self.builder.string(if *value { "true" } else { "false" }))
             }
             Schema::AnyOf { options } => self.process_any_of(options.clone()),
-            Schema::OneOf { options } => self.process_any_of(options.clone()),
+            Schema::OneOf { options } => self.process_one_of(options.clone()),
             Schema::Ref { uri, .. } => self.get_definition(uri),
+        }
+    }
+
+    fn process_one_of(&mut self, options: Vec<Schema>) -> Result<NodeRef> {
+        if self.options.coerce_one_of {
+            self.process_any_of(options)
+        } else {
+            Err(anyhow!("oneOf constraints are not supported. Enable 'coerce_one_of' option to coerce oneOf to anyOf"))
         }
     }
 
@@ -265,12 +275,12 @@ impl Compiler {
             Ok(self.builder.select(&nodes))
         } else if let Some(e) = errors.pop() {
             Err(anyhow!(UnsatisfiableSchemaError {
-                message: format!("All options in anyOf/oneOf are unsatisfiable",),
+                message: format!("All options in anyOf are unsatisfiable",),
             })
             .context(e))
         } else {
             Err(anyhow!(UnsatisfiableSchemaError {
-                message: "No options in anyOf/oneOf".to_string(),
+                message: "No options in anyOf".to_string(),
             }))
         }
     }
