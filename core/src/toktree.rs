@@ -105,10 +105,6 @@ pub trait Recognizer {
 }
 
 pub trait TokenizerEnv: Send {
-    /// Stop the program; not used.
-    // TODO remove this
-    fn stop(&self) -> !;
-
     /// Associated trie.
     fn tok_trie(&self) -> &TokTrie;
 
@@ -183,10 +179,6 @@ impl TokEnvWithTrie {
 impl TokenizerEnv for TokEnvWithTrie {
     fn tok_trie(&self) -> &TokTrie {
         &self.tok_trie
-    }
-
-    fn stop(&self) -> ! {
-        self.base_env.stop()
     }
 
     fn tokenize_bytes(&self, s: &[u8]) -> Vec<TokenId> {

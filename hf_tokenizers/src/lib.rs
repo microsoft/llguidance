@@ -253,10 +253,6 @@ impl ByteTokenizerEnv {
 }
 
 impl TokenizerEnv for ByteTokenizerEnv {
-    fn stop(&self) -> ! {
-        panic!("stop called")
-    }
-
     fn tok_trie(&self) -> &TokTrie {
         &self.tok_trie
     }
