@@ -177,7 +177,7 @@ impl GrammarBuilder {
 
     pub fn add_node(&mut self, node: Node) -> NodeRef {
         // Generate a key for the node from its serialized form if it is not the placeholder
-        let key = (node != self.placeholder).then(|| serde_json::to_string(&node).unwrap());
+        let key = (node != self.placeholder).then(|| serde_json::to_string(&node).ok()).flatten();
 
         // Return the node reference if it already exists
         if let Some(ref key) = key {
