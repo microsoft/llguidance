@@ -98,7 +98,12 @@ impl Constraint {
     pub fn process_prompt(&mut self, prompt: Vec<TokenId>) -> Vec<TokenId> {
         assert!(!self.started);
         self.started = true;
-        let r = self.parser.process_prompt(prompt);
+        let r = if self.parser.token_env.tokenize_is_canonical() {
+            self.parser.process_prompt(prompt)
+        } else {
+            self.parser.start_without_prompt();
+            prompt
+        };
         self.save_temperature();
         r
     }
@@ -183,7 +188,7 @@ impl Constraint {
     ///
     /// commit_token() commits the sampled token (if any), and sees if this forces any more tokens
     /// on the output (if ff_tokens are enabled in InferenceCapabilities).
-    /// 
+    ///
     /// It only returns 'STOP' if previous compute_mask() already returned 'STOP'
     /// (in which case there's little point calling commit_token()).
     pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<CommitResult> {

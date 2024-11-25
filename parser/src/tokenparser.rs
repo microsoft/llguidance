@@ -48,6 +48,15 @@ impl TokenParser {
         limits: ParserLimits,
         extra_lexemes: Vec<String>,
     ) -> Result<Self> {
+        ensure!(
+            token_env.tokenize_is_canonical() || !inference_caps.ff_tokens,
+            "ff_tokens requires canonical tokenization"
+        );
+        ensure!(
+            !inference_caps.backtrack || inference_caps.ff_tokens,
+            "backtrack requires ff_tokens"
+        );
+
         let mid_process_start_time = instant::Instant::now();
         let test_trace = top_grammar.test_trace;
         let max_tokens = top_grammar.max_tokens.unwrap_or(usize::MAX);
@@ -147,6 +156,7 @@ impl TokenParser {
     pub fn process_prompt(&mut self, prompt: Vec<TokenId>) -> Vec<TokenId> {
         infoln!(self, "initial lexer cost: {}", self.parser.lexer_stats());
 
+        assert!(self.token_env.tokenize_is_canonical());
         assert!(self.is_fresh);
         self.is_fresh = false;
 
@@ -536,6 +546,10 @@ impl TokenParser {
     }
 
     fn compute_forced_bytes(&mut self) -> Vec<u8> {
+        if !self.token_env.tokenize_is_canonical() {
+            return Vec::new();
+        }
+
         let mut new_forced = self.parser.force_bytes().to_vec();
 
         // handle grm_prefix we might have injected
@@ -565,6 +579,7 @@ impl TokenParser {
         let do_force = backtrack_tokens > 0
             || forced_bytes.len() > 0 && !self.parser.grammar().lexer_spec().no_forcing;
         if do_force {
+            assert!(self.token_env.tokenize_is_canonical());
             let mut grm_tokens = self.token_env.tokenize_bytes_prefix(&forced_bytes);
             infoln!(
                 self,

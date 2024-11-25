@@ -64,6 +64,10 @@ impl TokenizerEnv for CTokenizerInner {
             self.raw_tokenize(s)
         }
     }
+
+    fn tokenize_is_canonical(&self) -> bool {
+        self.tokenize_fn.is_some()
+    }
 }
 
 pub struct LlgTokenizer {
