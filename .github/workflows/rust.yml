@@ -17,8 +17,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build core
-      run: cargo build --verbose
+      run: cargo build --verbose --locked
       working-directory: core
     - name: Build for hf-tokenizers
-      run: cargo build --verbose
+      run: cargo build --verbose --locked
       working-directory: hf_tokenizers
