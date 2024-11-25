@@ -52,10 +52,6 @@ impl CTokenizerInner {
 }
 
 impl TokenizerEnv for CTokenizerInner {
-    fn stop(&self) -> ! {
-        panic!("stop() called on CTokenizerInner")
-    }
-
     fn tok_trie(&self) -> &TokTrie {
         &self.trie
     }

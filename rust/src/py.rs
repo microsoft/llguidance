@@ -230,10 +230,6 @@ impl LLTokenizer {
 }
 
 impl TokenizerEnv for LLTokenizer {
-    fn stop(&self) -> ! {
-        panic!("STOP"); // TODO?
-    }
-
     fn tok_trie(&self) -> &toktrie::TokTrie {
         &self.tok_trie
     }

@@ -32,10 +32,6 @@ impl SingleByteTokenizer {
 }
 
 impl TokenizerEnv for SingleByteTokenizer {
-    fn stop(&self) -> ! {
-        panic!("stop called")
-    }
-
     fn tok_trie(&self) -> &TokTrie {
         &self.tok_trie
     }
