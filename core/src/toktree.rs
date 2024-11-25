@@ -161,6 +161,13 @@ pub trait TokenizerEnv: Send {
     fn eos_token(&self) -> TokenId {
         self.tok_trie().eos_token()
     }
+
+    /// If this returns true, this tokenizer may return non-canonical tokenizations
+    /// and should generally not be used for forcing tokens.
+    /// Typically, it will just use TokTrie::greedy_tokenize().
+    fn tokenize_is_approximate(&self) -> bool {
+        false
+    }
 }
 
 pub type TokEnv = Arc<dyn TokenizerEnv + Sync + 'static>;
