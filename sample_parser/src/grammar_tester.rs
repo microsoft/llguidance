@@ -24,8 +24,6 @@ fn check_grammar(
     output: &[&str],
     temp: f32,
 ) {
-    println!("\nChecking grammar");
-
     let parser = TokenParser::from_llguidance_json(
         tok_env.clone(),
         grammar,
@@ -84,13 +82,17 @@ fn check_grammar(
             bt = res.backtrack;
             toks = res.ff_tokens.clone();
             if toks.is_empty() || toks[0] != tok {
-                if output[idx + 1].starts_with("1↶") {
+                if idx + 1 < output.len() && output[idx + 1].starts_with("1↶") {
                     // fast-forward with fake backtrack
                     assert!(bt == 0 || res.ff_tokens.is_empty());
                     bt = 1;
                     // go to forced byte checking
                 } else {
-                    panic!("Expected token {} got {}", tok, toks[0]);
+                    if toks.is_empty() {
+                        panic!("Expected {}; got nothing", tok);
+                    } else {
+                        panic!("Expected token {} got {}", tok, toks[0]);
+                    }
                 }
             } else if toks.len() > 1 {
                 // we got fast-forwarded to the next entry,
@@ -180,6 +182,7 @@ lazy_static! {
 
 fn check_lark_grammar_prompt(lark: &str, prompt_str: &str, output: &[&str]) {
     let grm = TopLevelGrammar::from_lark(lark.to_string());
+    println!("\nChecking grammar:\n{}\nagainst: {:?}", lark, output);
     check_grammar(&TOK_ENV, prompt_str, grm, output, 0.0);
 }
 
@@ -205,6 +208,10 @@ fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) {
     let mut sub_grm = GrammarWithLexer::from_lark(sub_lark.to_string());
     sub_grm.name = Some("sub".to_string());
     top_grm.grammars.push(sub_grm);
+    println!(
+        "\nChecking nested grammars:\n{}\nNested:\n{}\nagainst: {:?}",
+        lark, sub_lark, output
+    );
     check_grammar(&TOK_ENV, "", top_grm, output, temp);
 }
 

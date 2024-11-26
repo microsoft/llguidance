@@ -171,7 +171,13 @@ impl Constraint {
     /// It only returns 'STOP' if previous compute_mask() already returned 'STOP'
     /// (in which case there's little point calling commit_token()).
     pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<CommitResult> {
-        loginfo!(self.parser.logger, "\ncommit_token({:?})", sampled_token);
+        loginfo!(
+            self.parser.logger,
+            "\ncommit_token({})",
+            sampled_token
+                .map(|t| self.parser.token_env.tok_trie().token_dbg(t))
+                .unwrap_or("None".to_string())
+        );
 
         // ensure!(
         //     self.step_arg.is_none(),
@@ -199,6 +205,7 @@ impl Constraint {
             let mut bt = self.parser.consume_token(t)?;
             let mut tokens = vec![t];
             if bt > 0 {
+                loginfo!(self.parser.logger, "backtrack sampled");
                 tokens.clear();
                 bt -= 1;
             }
@@ -207,6 +214,7 @@ impl Constraint {
             }
 
             if self.parser.check_stop()? {
+                loginfo!(self.parser.logger, "set pending stop");
                 self.pending_stop = true;
             }
 

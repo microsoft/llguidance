@@ -551,16 +551,21 @@ impl TokenParser {
             if self.parser.scan_eos() {
                 // it got scanned correctly, so we remove it
                 infoln!(self, "scanned eos_token");
-                if self.inference_caps.backtrack {
-                    return Ok(1);
-                } else {
-                    warn!(self, "can't backtrack over eos_token");
+                // if self.inference_caps.backtrack {
+                //     return Ok(1);
+                // } else {
+                //     warn!(self, "can't backtrack over eos_token");
+                //     return Ok(0);
+                // }
+                // don't backtrack it for now, fails tests
+                return Ok(0);
+            } else {
+                let accepting = self.is_accepting();
+                infoln!(self, "didn't scan eos_token; accept={}", accepting);
+                if accepting {
+                    self.llm_tokens.push(token);
                     return Ok(0);
                 }
-            } else {
-                infoln!(self, "didn't scan eos_token; saving");
-                // TODO this will probably fail to apply, which will cause
-                // the parser to stop, which is approx. correct but ugly
             }
         }
 

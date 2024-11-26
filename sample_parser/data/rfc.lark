@@ -2,9 +2,9 @@
 
 start: root
 nl: "\n"?
-text: ( /[^>"<&]/ | "&amp;"| "&lt;"| "&gt;"| "&quot;"| "&apos;"| "&#x" /[0-9a-fA-F]+/ ";" 
+TEXT: ( /[^>"<&]/ | "&amp;"| "&lt;"| "&gt;"| "&quot;"| "&apos;"| "&#x" /[0-9a-fA-F]+/ ";" 
     | "&#" /[0-9]+/ ";")*
-// text: TEXT
+text: TEXT
 root:  element1 
 element1: "<rfc" (  (" number=\""  text  "\"") | (" obsoletes=\""  text  "\"") | (" updates=\""  text  "\"") | (" category=\""  text  "\"") | (" mode=\""  text  "\"") | (" consensus=\""  "\"") | (" seriesNo=\""  text  "\"") | (" ipr=\""  text  "\"") | (" iprExtract=\""  text  "\"") | (" submissionType=\""  "\"") | (" docName=\""  text  "\"") | (" sortRefs=\""  "\"") | (" symRefs=\""  "\"") | (" tocInclude=\""  "\"") | (" tocDepth=\""  text  "\"") | (" prepTime=\""  text  "\"") | (" indexInclude=\""  "\"") | (" version=\""  text  "\"") | (" scripts=\""  text  "\"") | (" expiresDate=\""  text  "\""))*  ">" nl  (  (  (  (   (  ""  |  (  element2  )+  )  )   element3  )   element4  )   (  ""  |  element5  )  )  "</rfc>" nl
 element2: "<link" (  (" href=\""  text  "\"") | (" rel=\""  text  "\""))*  ">" nl  "</link>" nl
