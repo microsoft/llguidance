@@ -158,7 +158,7 @@ impl Constraint {
         ensure!(!self.last_res.is_stop(), "compute_bias() called after stop");
         ensure!(
             self.step_arg.is_some(),
-            "commit_token() not called before compute_bias()"
+            "compute_bias() called twice without intervening commit_token()"
         );
         let step_arg = self.step_arg.take().unwrap();
         let res = self.parser.mid_process(step_arg);
