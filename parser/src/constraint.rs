@@ -13,7 +13,6 @@ pub struct Constraint {
     pub log_json_progress: bool,
     pub temperature: f32,
     reporter: Reporter,
-    step_arg: Option<StepArg>,
     last_res: StepResult,
     delayed_stop: bool,
     started: bool,
@@ -54,9 +53,7 @@ impl Constraint {
     pub fn new(parser: TokenParser) -> Self {
         assert!(parser.is_fresh(), "Parser was already used");
         Self {
-            reporter: Reporter::new(&parser),
             parser,
-            step_arg: Some(StepArg::empty()),
             last_res: StepResult::noop(),
             delayed_stop: false,
             started: false,
@@ -91,6 +88,8 @@ impl Constraint {
         }
     }
 
+    pub fn start_mask_thread(&mut self) {}
+
     /// You can call this first with the prompt from the user, when not
     /// running in chat mode.
     /// This will return a new prompt, possibly with some tokens added as per
@@ -108,7 +107,7 @@ impl Constraint {
         r
     }
 
-    /// This can be called before the first get_mask() to walk forward the
+    /// This can be called before the first compute_mask() to walk forward the
     /// parser with tokens generated in some previous run.
     pub fn force_tokens(&mut self, tokens: &[TokenId]) -> Result<()> {
         ensure!(
@@ -160,13 +159,8 @@ impl Constraint {
             return Ok(&self.last_res);
         }
 
-        ensure!(!self.last_res.is_stop(), "compute_bias() called after stop");
-        ensure!(
-            self.step_arg.is_some(),
-            "commit_token() not called before compute_bias()"
-        );
-        let step_arg = self.step_arg.take().unwrap();
-        let res = self.parser.mid_process(step_arg);
+        ensure!(!self.last_res.is_stop(), "compute_mask() called after stop");
+        let res = self.parser.compute_mask();
         self.save_progress_and_result(res);
         Ok(&self.last_res)
     }
@@ -183,6 +177,14 @@ impl Constraint {
         Ok(CommitResult::from_step_result(&self.last_res))
     }
 
+    pub fn commit_token_raw(&mut self, token: TokenId) -> Result<()> {
+        self.parser.commit_token_raw(token)
+    }
+
+    pub fn validate_tokens_raw(&mut self, tokens: &[TokenId]) -> Result<usize> {
+        self.parser.validate_tokens_raw(tokens)
+    }
+
     /// commit_token() is a top-level method in this file and is called by
     /// the LLInterpreter::commit_token().
     ///
@@ -196,7 +198,7 @@ impl Constraint {
 
         ensure!(
             self.step_arg.is_none(),
-            "commit_token() called twice or without compute_bias()"
+            "commit_token() called twice or without compute_mask()"
         );
 
         // if last result was to stop or to unconditionally splice, we're done already
@@ -217,7 +219,7 @@ impl Constraint {
         // otherwise, append the sampled token and see if more tokens can be forced
         ensure!(
             self.last_res.sample_mask.is_some(),
-            "internal error: invalid mid_process() result"
+            "internal error: invalid compute_mask() result"
         );
         let mask = self.last_res.sample_mask.as_ref().unwrap();
 
@@ -242,7 +244,7 @@ impl Constraint {
         }
 
         // now, advance the parser with the sampled token - this should be very quick
-        let pres = self.parser.advance_parser(sampled_token)?;
+        let pres = self.parser.commit_token(sampled_token)?;
 
         // save any logs
         self.save_progress_and_result(pres);

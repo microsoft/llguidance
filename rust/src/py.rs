@@ -69,7 +69,7 @@ impl LLInterpreter {
     }
 
     fn is_accepting(&self) -> bool {
-        self.inner.parser.mid_process_was_accepting()
+        self.inner.parser.is_accepting()
     }
 
     fn stop_reason(&self) -> String {

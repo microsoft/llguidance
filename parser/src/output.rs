@@ -55,7 +55,7 @@ impl BytesOutput {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Reporter {
     reported_captures: usize,
     text_ptr: usize,
@@ -65,19 +65,9 @@ pub struct Reporter {
 }
 
 impl Reporter {
-    pub fn new(tok_parser: &TokenParser) -> Self {
-        Reporter {
-            reported_captures: 0,
-            text_ptr: 0,
-            token_ptr: tok_parser.num_tokens(),
-            prev_stats: tok_parser.parser_stats().clone(),
-            is_generated: false,
-        }
-    }
-
     pub fn get_progress(
         &mut self,
-        tok_parser: &mut TokenParser,
+        tok_parser: &TokenParser,
         mid_res: &StepResult,
     ) -> Vec<ParserOutput> {
         let mut res = self.get_progress_core(tok_parser);
@@ -90,7 +80,7 @@ impl Reporter {
         res
     }
 
-    pub fn final_text(&self, tok_parser: &mut TokenParser) -> ParserOutput {
+    pub fn final_text(&self, tok_parser: &TokenParser) -> ParserOutput {
         ParserOutput::FinalText {
             bytes: tok_parser.final_bytes().into(),
             stop_reason: tok_parser.stop_reason(),
@@ -101,7 +91,7 @@ impl Reporter {
         self.is_generated = is_generated;
     }
 
-    pub fn get_progress_core(&mut self, tok_parser: &mut TokenParser) -> Vec<ParserOutput> {
+    pub fn get_progress_core(&mut self, tok_parser: &TokenParser) -> Vec<ParserOutput> {
         let mut res = vec![];
 
         // start with captures
@@ -126,7 +116,7 @@ impl Reporter {
         // compute stats
         let delta = tok_parser.parser_stats().delta(&self.prev_stats);
         self.prev_stats = tok_parser.parser_stats().clone();
-        let runtime_us = tok_parser.mid_process_start_time.elapsed().as_micros() as u64;
+        let runtime_us = tok_parser.compute_mask_start_time.elapsed().as_micros() as u64;
         let stats = ParserStats {
             runtime_us,
             stats: delta,

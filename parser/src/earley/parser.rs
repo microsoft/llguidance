@@ -1831,8 +1831,8 @@ impl Parser {
         Ok(Parser { shared, state })
     }
 
-    /// This is a top-level method in this file.  It is called by mid_process_inner()
-    /// in TokenParser in tokenparser.rs.  It is used by the mid_process() method of
+    /// This is a top-level method in this file.  It is called by compute_mask_inner()
+    /// in TokenParser in tokenparser.rs.  It is used by the compute_mask() method of
     /// the LLInterpreter interface.
     pub fn compute_bias(&mut self, computer: &dyn BiasComputer, start: &[u8]) -> SimpleVob {
         let mut shared = self.shared.lock().unwrap();
@@ -1939,6 +1939,10 @@ impl Parser {
     pub fn is_accepting(&mut self) -> bool {
         let mut shared = self.shared.lock().unwrap();
         self.state.is_accepting(&mut shared)
+    }
+
+    pub fn currently_forced_bytes(&self) -> &[u8] {
+        &self.state.bytes[self.state.byte_to_token_idx.len()..]
     }
 
     pub fn has_pending_lexeme_bytes(&self) -> bool {
