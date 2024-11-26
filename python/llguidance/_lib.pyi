@@ -135,6 +135,7 @@ class JsonCompiler:
         cls,
         separators: Optional[Tuple[str, str]] = None,
         whitespace_flexible: bool = False,
+        coerce_one_of: bool = False,
     ) -> "JsonCompiler":
         """
         Create a new JSON compiler.
