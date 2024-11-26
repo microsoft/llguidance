@@ -545,12 +545,12 @@ impl TokenParser {
         Ok(0)
     }
 
-    fn compute_forced_bytes(&mut self) {
+    fn compute_forced_bytes(&mut self) -> Vec<u8> {
         if !self.token_env.tokenize_is_canonical() {
-            return;
+            return Vec::new();
         }
 
-        let new_forced = self.parser.force_bytes();
+        let mut new_forced = self.parser.force_bytes().to_vec();
 
         // handle grm_prefix we might have injected
         if self.llm_bytes.len() < self.grm_prefix.len() {
@@ -561,15 +561,21 @@ impl TokenParser {
                 String::from_utf8_lossy(&inject)
             );
             inject.extend_from_slice(&new_forced);
-            // new_forced = inject;
-            todo!();
+            new_forced = inject;
         }
+
+        new_forced
     }
 
-    fn maybe_force_tokens(&mut self, backtrack_tokens: usize) -> Result<(), StepResult> {
+    fn maybe_force_tokens(
+        &mut self,
+        backtrack_tokens: usize,
+        forced_bytes: Vec<u8>,
+    ) -> Result<Vec<u8>, StepResult> {
         let trie = self.token_env.tok_trie();
 
-        let forced_bytes = self.parser.currently_forced_bytes();
+        let mut token_prefix = Vec::new();
+
         let do_force = backtrack_tokens > 0
             || forced_bytes.len() > 0 && !self.parser.grammar().lexer_spec().no_forcing;
         if do_force {
@@ -586,6 +592,7 @@ impl TokenParser {
                 .parser
                 .with_recognizer(|r| trie.chop_tokens(r, &grm_tokens));
             infoln!(self, "chop: {} tokens, {} bytes", chop_tokens, chop_bytes);
+            token_prefix = forced_bytes[forced_bytes.len() - chop_bytes..].to_vec();
             // here we remove a suffix from grm_tokens that could be possibly tokenized differently
             grm_tokens.truncate(grm_tokens.len() - chop_tokens);
 
@@ -594,23 +601,24 @@ impl TokenParser {
                 return Err(StepResult::splice(backtrack_tokens as u32, grm_tokens));
             } else {
                 infoln!(self, "no fixed tokens");
-                // we must have chopped off all the bytes
-                let forced_bytes = self.parser.currently_forced_bytes();
-                assert!(forced_bytes.len() == chop_bytes);
             }
         } else if forced_bytes.len() > 0 {
+            token_prefix.extend_from_slice(&forced_bytes);
             infoln!(self, "no-forced bytes:{:?}", forced_bytes);
         }
 
-        Ok(())
+        Ok(token_prefix)
     }
 
-    fn maybe_accept(&mut self, pending_eos: bool) -> Result<bool, StepResult> {
+    fn maybe_accept(
+        &mut self,
+        pending_eos: bool,
+        empty_token_prefix: bool,
+    ) -> Result<bool, StepResult> {
         let (inner_done, inner_accepting) = {
             let lexer_bytes = self.parser.has_pending_lexeme_bytes();
             let is_accepting = self.parser.is_accepting();
             let can_advance = self.parser.can_advance();
-            let empty_token_prefix = self.parser.currently_forced_bytes().is_empty();
             let inner_done = empty_token_prefix && is_accepting && (!can_advance || pending_eos);
             infoln!(
                 self,
@@ -644,12 +652,9 @@ impl TokenParser {
         Ok(inner_accepting)
     }
 
-    fn compute_bias(&mut self) -> SimpleVob {
+    fn compute_bias(&mut self, token_prefix: &Vec<u8>) -> SimpleVob {
         let pre_stats = self.parser.stats().clone();
-        let token_prefix = self.parser.currently_forced_bytes().to_vec();
-        let set = self
-            .parser
-            .compute_bias(&*self.bias_computer, &token_prefix);
+        let set = self.parser.compute_bias(&*self.bias_computer, token_prefix);
         let p_stats = self.parser.stats().delta(&pre_stats);
         self.last_bias_time = Duration::from_micros(p_stats.compute_time_us);
         self.last_step_stats = p_stats.clone();
@@ -657,7 +662,7 @@ impl TokenParser {
         set
     }
 
-    fn log_final(&mut self, allowed_tokens: &mut SimpleVob) {
+    fn log_final(&mut self, token_prefix: &Vec<u8>, allowed_tokens: &mut SimpleVob) {
         infoln!(
             self,
             "step-stats: {}us; {} lex fuel; {} items; {}",
@@ -667,18 +672,17 @@ impl TokenParser {
             self.parser.lexer_stats(),
         );
 
-        let token_prefix = self.parser.currently_forced_bytes();
         infoln!(
             self,
             "bias: (pref: {:?}; accpt: {}; temp: {:.3}) {}",
-            String::from_utf8_lossy(token_prefix),
+            String::from_utf8_lossy(&token_prefix),
             self.mid_process_was_accepting,
             self.parser.temperature().unwrap_or(0.0),
             self.token_env.tok_trie().token_set_dbg(&allowed_tokens)
         );
     }
 
-    fn commit_tokens_inner(&mut self, tokens: &[TokenId]) -> Result<bool, StepResult> {
+    fn commit_tokens_inner(&mut self, tokens: &[TokenId]) -> Result<(Vec<u8>, bool), StepResult> {
         let (pending_eos, clear_tokens) = self.maybe_scan_eos(tokens);
         let tokens = if clear_tokens {
             &[] as &[TokenId]
@@ -694,11 +698,12 @@ impl TokenParser {
         self.parser.filter_max_tokens();
 
         // force after scanning tokens from LLM (this may walk the parser some more)
-        self.compute_forced_bytes();
-        self.maybe_force_tokens(backtrack_tokens)?;
+        let forced_bytes = self.compute_forced_bytes();
+        let token_prefix = self.maybe_force_tokens(backtrack_tokens, forced_bytes)?;
 
-        let inner_accepting = self.maybe_accept(pending_eos)?;
-        Ok(inner_accepting)
+        let inner_accepting = self.maybe_accept(pending_eos, token_prefix.is_empty())?;
+
+        Ok((token_prefix, inner_accepting))
     }
 
     // This never returns Ok(()); we use Result<> as return type to be able to use '?' operator
@@ -711,9 +716,9 @@ impl TokenParser {
             self.token_env.tok_trie().tokens_dbg(tokens)
         );
 
-        let inner_accepting = self.commit_tokens_inner(tokens)?;
+        let (token_prefix, inner_accepting) = self.commit_tokens_inner(tokens)?;
 
-        let mut allowed_tokens = self.compute_bias();
+        let mut allowed_tokens = self.compute_bias(&token_prefix);
 
         if let Some(err) = self.parser.get_error() {
             return Err(self.stop_for_parser_error("", err));
@@ -723,7 +728,7 @@ impl TokenParser {
             allowed_tokens.allow_token(self.eos_token);
         }
 
-        self.log_final(&mut allowed_tokens);
+        self.log_final(&token_prefix, &mut allowed_tokens);
 
         if allowed_tokens.num_set() == 0 {
             infoln!(self, "no tokens allowed, stopping");

@@ -1941,10 +1941,6 @@ impl Parser {
         self.state.is_accepting(&mut shared)
     }
 
-    pub fn currently_forced_bytes(&self) -> &[u8] {
-        &self.state.bytes[self.state.byte_to_token_idx.len()..]
-    }
-
     pub fn has_pending_lexeme_bytes(&self) -> bool {
         self.state.has_pending_lexeme_bytes()
     }
