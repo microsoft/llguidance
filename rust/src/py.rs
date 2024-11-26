@@ -245,13 +245,14 @@ struct JsonCompiler {
     item_separator: String,
     key_separator: String,
     whitespace_flexible: bool,
+    coerce_one_of: bool,
 }
 
 #[pymethods]
 impl JsonCompiler {
     #[new]
-    #[pyo3(signature = (separators = None, whitespace_flexible = false))]
-    fn py_new(separators: Option<(String, String)>, whitespace_flexible: bool) -> Self {
+    #[pyo3(signature = (separators = None, whitespace_flexible = false, coerce_one_of = false))]
+    fn py_new(separators: Option<(String, String)>, whitespace_flexible: bool, coerce_one_of: bool) -> Self {
         let (item_separator, key_separator) = separators.unwrap_or_else(|| {
             if whitespace_flexible {
                 (",".to_owned(), ":".to_owned())
@@ -263,6 +264,7 @@ impl JsonCompiler {
             item_separator: item_separator,
             key_separator: key_separator,
             whitespace_flexible,
+            coerce_one_of,
         }
     }
     fn compile(&self, schema: &str) -> PyResult<String> {
@@ -271,6 +273,7 @@ impl JsonCompiler {
             item_separator: self.item_separator.clone(),
             key_separator: self.key_separator.clone(),
             whitespace_flexible: self.whitespace_flexible,
+            coerce_one_of: self.coerce_one_of,
         };
         let grammar = compile_options.json_to_llg(schema).map_err(val_error)?;
         serde_json::to_string(&grammar).map_err(val_error)

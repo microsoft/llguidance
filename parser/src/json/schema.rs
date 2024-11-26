@@ -423,7 +423,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
             .iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
-        let merged = intersect(ctx, options.into_iter().chain(vec![siblings]).collect())?;
+        let merged = intersect(ctx, vec![siblings].into_iter().chain(options.into_iter()).collect())?;
         return Ok(merged);
     }
 
@@ -439,7 +439,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
         let options = any_of
             .into_iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
-            .map(|res| res.and_then(|schema| intersect_two(ctx, schema, siblings.clone())))
+            .map(|res| res.and_then(|schema| intersect_two(ctx, siblings.clone(), schema)))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::AnyOf { options });
     }
@@ -457,7 +457,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
         let options = one_of
             .into_iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
-            .map(|res| res.and_then(|schema| intersect_two(ctx, schema, siblings.clone())))
+            .map(|res| res.and_then(|schema| intersect_two(ctx, siblings.clone(), schema)))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::OneOf { options });
     }
@@ -474,7 +474,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
             define_ref(ctx, &uri)?;
             return Ok(Schema::Ref { uri });
         } else {
-            return intersect_ref(ctx, &uri, siblings);
+            return intersect_ref(ctx, &uri, siblings, false);
         }
     }
 
@@ -511,7 +511,7 @@ fn define_ref(ctx: &Context, ref_uri: &str) -> Result<()> {
     Ok(())
 }
 
-fn intersect_ref(ctx: &Context, ref_uri: &str, schema: Schema) -> Result<Schema> {
+fn intersect_ref(ctx: &Context, ref_uri: &str, schema: Schema, ref_first: bool) -> Result<Schema> {
     define_ref(ctx, ref_uri)?;
     let resolved_schema = ctx
         .get_ref_cloned(ref_uri)
@@ -525,7 +525,11 @@ fn intersect_ref(ctx: &Context, ref_uri: &str, schema: Schema) -> Result<Schema>
                 ref_uri
             )
         })?;
-    intersect_two(ctx, schema, resolved_schema)
+    if ref_first {
+        intersect_two(ctx, resolved_schema, schema)
+    } else {
+        intersect_two(ctx, schema, resolved_schema)
+    }
 }
 
 fn compile_const(instance: &Value) -> Result<Schema> {
@@ -833,8 +837,8 @@ fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Sche
         (schema0, Schema::Any) => schema0,
         (Schema::Unsatisfiable { reason }, _) => Schema::Unsatisfiable { reason },
         (_, Schema::Unsatisfiable { reason }) => Schema::Unsatisfiable { reason },
-        (Schema::Ref { uri }, schema1) => intersect_ref(ctx, &uri, schema1)?,
-        (schema0, Schema::Ref { uri }) => intersect_ref(ctx, &uri, schema0)?,
+        (Schema::Ref { uri }, schema1) => intersect_ref(ctx, &uri, schema1, true)?,
+        (schema0, Schema::Ref { uri }) => intersect_ref(ctx, &uri, schema0, false)?,
         (Schema::OneOf { options }, schema1) => Schema::OneOf {
             options: options
                 .into_iter()
@@ -953,8 +957,8 @@ fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Sche
             max_items: opt_min(max1, max2),
             prefix_items: {
                 let len = prefix1.len().max(prefix2.len());
-                prefix1.resize(len, items2.as_deref().cloned().unwrap_or(Schema::Any));
-                prefix2.resize(len, items1.as_deref().cloned().unwrap_or(Schema::Any));
+                prefix1.resize_with(len, || items1.as_deref().cloned().unwrap_or(Schema::Any));
+                prefix2.resize_with(len, || items2.as_deref().cloned().unwrap_or(Schema::Any));
                 prefix1
                     .into_iter()
                     .zip(prefix2.into_iter())
