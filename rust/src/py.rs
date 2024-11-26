@@ -68,7 +68,7 @@ impl LLInterpreter {
         self.clone()
     }
 
-    fn is_accepting(&self) -> bool {
+    fn is_accepting(&mut self) -> bool {
         self.inner.parser.is_accepting()
     }
 

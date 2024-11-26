@@ -5,8 +5,7 @@ use crate::{
     earley::{
         grammars_from_json, BiasComputer, DefaultBiasComputer, Parser, ParserError, ParserStats,
     },
-    infoln,
-    warn, Logger,
+    infoln, warn, Logger,
 };
 use anyhow::{ensure, Result};
 use serde_json::json;
@@ -623,6 +622,21 @@ impl TokenParser {
         ff_tokens
     }
 
+    /// Compute and then consume fast-forward tokens.
+    pub fn consume_ff_tokens(&mut self) -> Result<Vec<TokenId>> {
+        let ff_tokens = self.compute_ff_tokens();
+        for &t in &ff_tokens {
+            let num_backtrack = self.consume_token(t)?;
+            if num_backtrack > 0 {
+                return Err(self.stop(
+                    &format!("backtrack required after ff_token: {}", t),
+                    StopReason::InternalError,
+                ));
+            }
+        }
+        Ok(ff_tokens)
+    }
+
     /// This function documents typical use of this interface.
     /// The `tokens` array simulates tokens being sampled.
     #[allow(dead_code)]
@@ -673,10 +687,8 @@ impl TokenParser {
 
             // This is optional - call if you have the ability to append
             // several tokens at once.
-            let forced = self.compute_ff_tokens();
-            if forced.len() > 0 {
-                tokens.extend_from_slice(&forced);
-            }
+            let forced = self.consume_ff_tokens()?;
+            tokens.extend_from_slice(&forced);
         }
 
         Ok(())
