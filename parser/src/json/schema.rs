@@ -957,8 +957,8 @@ fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Sche
             max_items: opt_min(max1, max2),
             prefix_items: {
                 let len = prefix1.len().max(prefix2.len());
-                prefix1.resize(len, items2.as_deref().cloned().unwrap_or(Schema::Any));
-                prefix2.resize(len, items1.as_deref().cloned().unwrap_or(Schema::Any));
+                prefix1.resize_with(len, || items1.as_deref().cloned().unwrap_or(Schema::Any));
+                prefix2.resize_with(len, || items2.as_deref().cloned().unwrap_or(Schema::Any));
                 prefix1
                     .into_iter()
                     .zip(prefix2.into_iter())
