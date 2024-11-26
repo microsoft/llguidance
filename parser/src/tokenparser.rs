@@ -261,10 +261,15 @@ impl TokenParser {
     }
 
     // mid_process() is a top-level method in this file.
-    // mid_process() is called by Constraint::commit_token().
-    // It is also be called by TokenParser::commit_token()
-    // within this file, in which case it is accessible
-    // via the commit_token() method of the LLInterpreter interface.
+    // It commits the tokens in the 'arg' argument, then
+    // computes a mask.
+    //
+    /// mid_process() is a wrapper for mid_process_inner().
+    /// It is called by Constraint::commit_token().
+    /// It is also be called by TokenParser::commit_token()
+    /// within this file, in which case it is accessible
+    /// via the commit_token() method of the LLInterpreter interface.
+    ///
     pub fn mid_process(&mut self, arg: StepArg) -> StepResult {
         assert!(self.is_fresh == false, "process_prompt() not called");
 
@@ -629,7 +634,9 @@ impl TokenParser {
         Ok((token_prefix, inner_accepting))
     }
 
-    // This never returns Ok(()); we use Result<> as return type to be able to use '?' operator
+    // mid_process_inner() commits the tokens in the 'tokens' argument, then
+    // computes a mask.
+    // It never returns Ok(()); we use Result<> as return type to be able to use '?' operator
     fn mid_process_inner(&mut self, tokens: &[TokenId]) -> Result<(), StepResult> {
         self.mid_process_was_accepting = false;
 
