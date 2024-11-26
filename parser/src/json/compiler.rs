@@ -255,7 +255,7 @@ impl Compiler {
         if self.options.coerce_one_of {
             self.process_any_of(options)
         } else {
-            Err(anyhow!("oneOf constraints are not supported. Enable 'coerce_one_of' option to coerce oneOf to anyOf"))
+            Err(anyhow!("oneOf constraints are not supported. Enable 'coerce_one_of' option to approximate oneOf with anyOf"))
         }
     }
 
