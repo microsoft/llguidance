@@ -2,6 +2,7 @@ use anyhow::{bail, ensure, Result};
 use toktrie::{StepResult, TokenId};
 
 use crate::{
+    api::StopReason,
     loginfo,
     output::{ParserOutput, Reporter},
     TokenParser,
@@ -143,8 +144,12 @@ impl Constraint {
             self.pending_stop = true;
             self.save_progress_and_result(StepResult::stop());
         } else {
-            let mask = self.parser.compute_mask()?;
-            self.save_progress_and_result(StepResult::sample(mask, self.parser.temperature()));
+            let mask = self.parser.compute_mask();
+            if mask.is_err() && self.parser.stop_reason() == StopReason::NoExtensionBias {
+                self.save_progress_and_result(StepResult::stop());
+            } else {
+                self.save_progress_and_result(StepResult::sample(mask?, self.parser.temperature()));
+            }
         }
 
         Ok(&self.last_res)
