@@ -10,6 +10,7 @@ pub use tokenparser::TokenParser;
 pub mod api;
 pub mod output;
 pub use toktrie;
+pub mod panics;
 
 mod constraint;
 mod tokenizer_json;

@@ -1,4 +1,4 @@
-use std::{hint::black_box, sync::Arc, time::Duration};
+use std::{hint::black_box, panic::AssertUnwindSafe, sync::Arc, time::Duration};
 
 use crate::{
     api::{ParserLimits, StopReason, TopLevelGrammar},
@@ -41,6 +41,26 @@ pub struct TokenParser {
 
 impl TokenParser {
     pub fn from_llguidance_json(
+        token_env: TokEnv,
+        top_grammar: TopLevelGrammar,
+        logger: Logger,
+        inference_caps: InferenceCapabilities,
+        limits: ParserLimits,
+        extra_lexemes: Vec<String>,
+    ) -> Result<Self> {
+        crate::panics::catch_unwind(AssertUnwindSafe(|| {
+            Self::from_llguidance_json_inner(
+                token_env,
+                top_grammar,
+                logger,
+                inference_caps,
+                limits,
+                extra_lexemes,
+            )
+        }))
+    }
+
+    fn from_llguidance_json_inner(
         token_env: TokEnv,
         top_grammar: TopLevelGrammar,
         mut logger: Logger,
@@ -255,7 +275,7 @@ impl TokenParser {
     }
 
     pub fn validate_token(&mut self, token: TokenId) -> Result<bool> {
-        self.check_initialized("validate_tokens_raw")?;
+        self.check_initialized("validate_token")?;
         let bytes = self.tok_trie().decode_raw(&[token]);
         let n_valid = self.parser.validate_bytes(&bytes);
         assert!(n_valid <= bytes.len());

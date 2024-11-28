@@ -7,7 +7,24 @@ use llguidance_parser::{
     Constraint, JsonCompileOptions, TokenParser,
 };
 
+fn dump_tokenizer(name: &str) {
+    let btok = toktrie_hf_tokenizers::ByteTokenizer::from_name(name).unwrap();
+    let vecs = btok.token_bytes();
+    for (_i, v) in vecs.iter().enumerate() {
+        let v: String = v
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<Vec<_>>()
+            .join("");
+        println!("{}", v);
+    }
+}
+
 fn main() {
+    if false {
+        dump_tokenizer("microsoft/Phi-3.5-mini-instruct");
+    }
+
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
         eprintln!("Usage: {} <schema.ll.json> <sample.json>", args[0]);
