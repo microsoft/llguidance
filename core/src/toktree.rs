@@ -422,8 +422,16 @@ impl TokTrie {
             .join("‧")
     }
 
+    pub const MAX_DBG_TOKENS: usize = 200;
+
     pub fn tokens_dbg(&self, toks: &[u32]) -> String {
-        let joined = toks
+        let (limited, toks) = if toks.len() > Self::MAX_DBG_TOKENS {
+            (true, &toks[0..Self::MAX_DBG_TOKENS])
+        } else {
+            (false, toks)
+        };
+
+        let mut joined = toks
             .iter()
             .map(|t| {
                 let s = self.token_dbg(*t);
@@ -435,6 +443,10 @@ impl TokTrie {
             })
             .collect::<Vec<_>>()
             .join("‧");
+
+        if limited {
+            joined.push_str("…");
+        }
 
         format!("\"{}\"", joined)
     }
@@ -516,6 +528,9 @@ impl TokTrie {
             for c in self.node_children(n) {
                 if let Some(tok) = c.token_id() {
                     res.push(tok);
+                    if res.len() > Self::MAX_DBG_TOKENS + 1 {
+                        break;
+                    }
                 }
                 stack.push(c);
             }
@@ -756,7 +771,8 @@ impl TokTrie {
     }
 
     pub fn token_id_at_bytes(&self, bytes: &[u8]) -> Option<TokenId> {
-        self.child_at_bytes(self.root(), bytes).and_then(|n| n.token_id())
+        self.child_at_bytes(self.root(), bytes)
+            .and_then(|n| n.token_id())
     }
 
     pub fn compute_bias(&self, r: &mut impl Recognizer, logits: &mut SimpleVob) {
