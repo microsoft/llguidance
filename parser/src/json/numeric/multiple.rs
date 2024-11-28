@@ -77,7 +77,7 @@ mod tests {
     #[test]
     fn test_rx_int_multiple_of() {
         let mut builder = RegexBuilder::new();
-        for n in [1, 2, 3, 5, 6, 10, 15, 20, 30, 50, 100, 200, 300, 600] {
+        for n in [1, 2, 3, 5, 6, 10, 15, 20, 30, 50, 60, 100, 150, 200, 300, 500, 600] {
             let node = rx_int_multiple_of(n).unwrap();
             let expr = builder.mk(&node).unwrap();
             let rx = builder.to_regex(expr);
