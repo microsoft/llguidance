@@ -5,7 +5,7 @@ use crate::{
     earley::{
         grammars_from_json, BiasComputer, DefaultBiasComputer, Parser, ParserError, ParserStats,
     },
-    infoln, warn, Logger,
+    infoln, panic_utils, warn, Logger,
 };
 use anyhow::{ensure, Result};
 use serde_json::json;
@@ -48,7 +48,7 @@ impl TokenParser {
         limits: ParserLimits,
         extra_lexemes: Vec<String>,
     ) -> Result<Self> {
-        crate::panics::catch_unwind(AssertUnwindSafe(|| {
+        panic_utils::catch_unwind(AssertUnwindSafe(|| {
             Self::from_llguidance_json_inner(
                 token_env,
                 top_grammar,
