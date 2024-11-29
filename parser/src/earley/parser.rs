@@ -660,12 +660,18 @@ impl ParserState {
         }
     }
 
-    pub fn validate_bytes(&mut self, shared: &mut SharedState, tok_bytes: &[u8]) -> usize {
+    pub fn validate_bytes(
+        &mut self,
+        shared: &mut SharedState,
+        tok_bytes: &[u8],
+        check_eos: bool,
+    ) -> usize {
         self.assert_definitive();
         let applied_idx = self.byte_to_token_idx.len();
         let mut prefix_len = 0;
         let tok_bytes = if applied_idx < self.bytes.len() {
-            prefix_len = std::cmp::min(tok_bytes.len(), self.bytes.len() - applied_idx);
+            let bytes_left = self.bytes.len() - applied_idx;
+            prefix_len = std::cmp::min(tok_bytes.len(), bytes_left);
             if self.bytes[applied_idx..applied_idx + prefix_len] != tok_bytes[..prefix_len] {
                 // find common prefix
                 let mut i = 0;
@@ -674,11 +680,21 @@ impl ParserState {
                 }
                 return i;
             }
-            &tok_bytes[prefix_len..]
+            // there are still pending bytes after applying tok_bytes
+            // do not check for eos
+            if bytes_left > prefix_len {
+                return prefix_len;
+            } else {
+                // otherwise, process the remaining bytes (could be 0)
+                // as speculative
+                &tok_bytes[prefix_len..]
+            }
         } else {
             tok_bytes
         };
-        if tok_bytes.is_empty() {
+
+        // fast path
+        if tok_bytes.is_empty() && !check_eos {
             return prefix_len;
         }
 
@@ -689,6 +705,11 @@ impl ParserState {
                     return prefix_len;
                 }
                 prefix_len += 1;
+            }
+            if check_eos {
+                if s.is_accepting_inner(shared) {
+                    prefix_len += 1;
+                }
             }
             prefix_len
         })
@@ -957,8 +978,12 @@ impl ParserState {
         r
     }
 
+    fn is_accepting_inner(&mut self, shared: &mut SharedState) -> bool {
+        self.flush_lexer(shared) && self.row_is_accepting()
+    }
+
     pub fn is_accepting(&mut self, shared: &mut SharedState) -> bool {
-        self.run_speculative(|s| s.flush_lexer(shared) && s.row_is_accepting())
+        self.run_speculative(|s| s.is_accepting_inner(shared))
     }
 
     // try_push_byte_definitive() attempts to 'push' a byte (that is advance
@@ -1914,9 +1939,9 @@ impl Parser {
     }
 
     /// Returns how many bytes can be applied.
-    pub fn validate_bytes(&mut self, tok_bytes: &[u8]) -> usize {
+    pub fn validate_bytes(&mut self, tok_bytes: &[u8], check_eos: bool) -> usize {
         let mut shared = self.shared.lock().unwrap();
-        self.state.validate_bytes(&mut shared, tok_bytes)
+        self.state.validate_bytes(&mut shared, tok_bytes, check_eos)
     }
 
     pub fn filter_max_tokens(&mut self) {

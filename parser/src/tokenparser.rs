@@ -276,10 +276,14 @@ impl TokenParser {
 
     pub fn validate_token(&mut self, token: TokenId) -> Result<bool> {
         self.check_initialized("validate_token")?;
-        let bytes = self.tok_trie().decode_raw(&[token]);
-        let n_valid = self.parser.validate_bytes(&bytes);
-        assert!(n_valid <= bytes.len());
-        Ok(n_valid == bytes.len())
+        if token == self.eos_token {
+            Ok(self.parser.validate_bytes(&[], true) > 0)
+        } else {
+            let bytes = self.tok_trie().decode_raw(&[token]);
+            let n_valid = self.parser.validate_bytes(&bytes, false);
+            assert!(n_valid <= bytes.len());
+            Ok(n_valid == bytes.len())
+        }
     }
 
     /// Returns how many of the passed tokens can be accepted by the parser.
@@ -300,8 +304,21 @@ impl TokenParser {
             };
         }
 
+        let mut final_eos = false;
+        let tokens = if tokens.last() == Some(&self.eos_token) {
+            final_eos = true;
+            &tokens[..tokens.len() - 1]
+        } else {
+            tokens
+        };
+
         let bytes = self.tok_trie().decode_raw(tokens);
-        let n_valid = self.parser.validate_bytes(&bytes);
+        let n_valid = self.parser.validate_bytes(&bytes, final_eos);
+
+        if final_eos && n_valid == bytes.len() + 1 {
+            return Ok(tokens.len() + 1);
+        }
+
         assert!(n_valid <= bytes.len());
 
         // fast paths
