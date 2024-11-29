@@ -9,7 +9,7 @@ Following JSON schema features are supported.
 Core features:
 
 - `anyOf`
-- `oneOf` - not supported right now, use `anyOf` instead
+- `oneOf` - not supported right now, use `anyOf` instead, [issue](https://github.com/microsoft/llguidance/issues/77)
 - `allOf` - intersection of certain schemas is not supported right now
 - `$ref` - within the document only
 - `const`
@@ -33,7 +33,7 @@ String features:
 
 - `minLength`
 - `maxLength`
-- `pattern`
+- `pattern` (though we always anchor them, [issue](https://github.com/microsoft/llguidance/issues/66))
 - `format`, with the following formats: `date-time`, `time`, `date`, `duration`, `email`, `hostname`, `ipv4`, `ipv6`, `uuid`,
 
 Number features (for both integer and number):
