@@ -267,6 +267,7 @@ impl TrieNode {
 const LEN_BITS: u32 = 10;
 
 impl TokTrie {
+    // see https://github.com/microsoft/toktrie/blob/main/special_tokens.md
     pub const SPECIAL_TOKEN_PREFIX_BYTE: u8 = 0xff;
 
     pub fn from(info: &TokRxInfo, words: &Vec<Vec<u8>>) -> Self {
