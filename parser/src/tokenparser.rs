@@ -194,7 +194,7 @@ impl TokenParser {
         self.parser.force_bytes();
         let grm_bytes = self.parser.get_bytes().to_vec();
         prompt_bytes.extend_from_slice(&grm_bytes);
-        let tokens = self.token_env.tokenize_bytes_prefix(&prompt_bytes);
+        let tokens = self.token_env.tokenize_bytes_marker(&prompt_bytes);
         infoln!(self, "prompt+grm: {}", trie.tokens_dbg(&tokens));
         let (chop_tokens, chop_bytes) = self
             .parser
@@ -204,7 +204,7 @@ impl TokenParser {
         // if we moved a bunch of grammar to the prompt, update llm_tokens to reflect that
         if chop_bytes <= grm_bytes.len() {
             self.llm_bytes = grm_bytes[0..grm_bytes.len() - chop_bytes].to_vec();
-            self.llm_tokens = self.token_env.tokenize_bytes_prefix(&self.llm_bytes);
+            self.llm_tokens = self.token_env.tokenize_bytes_marker(&self.llm_bytes);
             self.parser.apply_forced(self.llm_bytes.len());
             let decoded = self.tok_trie().decode_raw(&self.llm_tokens);
             if self.llm_bytes.len() > 0
@@ -529,7 +529,7 @@ impl TokenParser {
 
         let do_force = forced_bytes.len() > 0 && self.token_env.tokenize_is_canonical();
         if do_force {
-            let mut grm_tokens = self.token_env.tokenize_bytes_prefix(&forced_bytes);
+            let mut grm_tokens = self.token_env.tokenize_bytes_marker(&forced_bytes);
             infoln!(
                 self,
                 "forced: {} bytes:{:?} tokens:{:?}",

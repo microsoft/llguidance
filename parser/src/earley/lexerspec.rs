@@ -256,7 +256,7 @@ impl LexerSpec {
 
     pub fn add_special_token(&mut self, name: String) -> Result<LexemeIdx> {
         let rx = RegexAst::Concat(vec![
-            RegexAst::Byte(TokTrie::SPECIAL_TOKEN_PREFIX_BYTE),
+            RegexAst::Byte(TokTrie::SPECIAL_TOKEN_MARKER),
             RegexAst::Literal(name.clone()),
         ]);
         self.add_lexeme_spec(LexemeSpec {

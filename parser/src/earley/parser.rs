@@ -471,10 +471,10 @@ impl ParserState {
 
         self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
 
-        // The SPECIAL_TOKEN_PREFIX_BYTE should never be allowed by itself
+        // The SPECIAL_TOKEN_MARKER should never be allowed by itself
         let toks = computer
             .trie()
-            .greedy_tokenize(&[TokTrie::SPECIAL_TOKEN_PREFIX_BYTE]);
+            .greedy_tokenize(&[TokTrie::SPECIAL_TOKEN_MARKER]);
         assert!(toks.len() == 1);
         set.disallow_token(toks[0]);
 

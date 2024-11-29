@@ -662,7 +662,7 @@ pub extern "C" fn llg_tokenize_bytes(
 /// Always returns the number of tokens that would be written to output_tokens
 /// if output_tokens_len was large enough.
 #[no_mangle]
-pub extern "C" fn llg_tokenize_bytes_prefix(
+pub extern "C" fn llg_tokenize_bytes_marker(
     tok: &LlgTokenizer,
     bytes: *const u8,
     bytes_len: usize,
@@ -671,7 +671,7 @@ pub extern "C" fn llg_tokenize_bytes_prefix(
 ) -> usize {
     let tokens = tok
         .token_env
-        .tokenize_bytes_prefix(unsafe { std::slice::from_raw_parts(bytes, bytes_len) });
+        .tokenize_bytes_marker(unsafe { std::slice::from_raw_parts(bytes, bytes_len) });
     let n_toks = tokens.len();
     let to_copy = std::cmp::min(n_toks, output_tokens_len);
     unsafe {

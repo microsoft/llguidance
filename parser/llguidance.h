@@ -321,7 +321,7 @@ size_t llg_tokenize_bytes(const struct LlgTokenizer *tok,
  * Always returns the number of tokens that would be written to output_tokens
  * if output_tokens_len was large enough.
  */
-size_t llg_tokenize_bytes_prefix(const struct LlgTokenizer *tok,
+size_t llg_tokenize_bytes_marker(const struct LlgTokenizer *tok,
                                  const uint8_t *bytes,
                                  size_t bytes_len,
                                  uint32_t *output_tokens,

@@ -84,7 +84,7 @@ pub fn token_bytes_from_tokenizer_json(tokenizer_json: &Value) -> Result<Vec<Vec
     for info in added_tokens.iter() {
         let mut bytes = info.content.as_bytes().to_vec();
         if info.special {
-            bytes.insert(0, TokTrie::SPECIAL_TOKEN_PREFIX_BYTE);
+            bytes.insert(0, TokTrie::SPECIAL_TOKEN_MARKER);
         }
         add_bytes(&mut token_bytes, info.id, bytes);
     }
