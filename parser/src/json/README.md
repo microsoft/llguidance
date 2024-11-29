@@ -2,6 +2,9 @@
 
 This sub-module converts JSON schema to llguidance grammar.
 
+It aims to either produce a grammar conformat to the JSON schema semantics, or give an error,
+but [see below](#departures-from-json-schema-semantics) for some known differences.
+
 ## Supported JSON schema features
 
 Following JSON schema features are supported.
@@ -15,6 +18,7 @@ Core features:
 - `const`
 - `enum`
 - `type` - both single type and array of types
+- sibling properties - when schema has keywords in addition to `anyOf`, `allOf`, `$ref`, the result is intersection
 
 Array features:
 
@@ -42,3 +46,7 @@ Number features (for both integer and number):
 - `maximum`
 - `exclusiveMinimum`
 - `exclusiveMaximum`
+
+## Departures from JSON schema semantics
+
+- order of properties in `properties` is fixed to the order in schema (`required` can be used to skip some of them)
