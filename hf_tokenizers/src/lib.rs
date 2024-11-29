@@ -153,7 +153,7 @@ impl ByteTokenizer {
             if let Some(tok_name) = res.hf_tokenizer.id_to_token(tok_id) {
                 let bytes = if added.contains_key(&tok_id) {
                     let mut bytes = tok_name.as_bytes().to_vec();
-                    bytes.insert(0, TokTrie::SPECIAL_TOKEN_PREFIX_BYTE);
+                    bytes.insert(0, TokTrie::SPECIAL_TOKEN_MARKER);
                     bytes
                 } else if is_byte_fallback {
                     if tok_name.len() == 6 && tok_name.starts_with("<0x") && tok_name.ends_with(">")
