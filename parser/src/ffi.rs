@@ -657,6 +657,29 @@ pub extern "C" fn llg_tokenize_bytes(
     n_toks
 }
 
+/// Tokenize the given bytes and return the tokens.
+/// Special tokens will be tokenized, if they follow 0xFF byte prefix.
+/// Always returns the number of tokens that would be written to output_tokens
+/// if output_tokens_len was large enough.
+#[no_mangle]
+pub extern "C" fn llg_tokenize_bytes_prefix(
+    tok: &LlgTokenizer,
+    bytes: *const u8,
+    bytes_len: usize,
+    output_tokens: *mut u32,
+    output_tokens_len: usize,
+) -> usize {
+    let tokens = tok
+        .token_env
+        .tokenize_bytes_prefix(unsafe { std::slice::from_raw_parts(bytes, bytes_len) });
+    let n_toks = tokens.len();
+    let to_copy = std::cmp::min(n_toks, output_tokens_len);
+    unsafe {
+        std::ptr::copy_nonoverlapping(tokens.as_ptr(), output_tokens, to_copy);
+    }
+    n_toks
+}
+
 /// Return a string representation of the tokens, useful for debugging.
 /// The output is null-terminated.
 /// Returns the number of bytes that would be written to output if output_len was large enough.

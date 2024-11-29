@@ -316,6 +316,18 @@ size_t llg_tokenize_bytes(const struct LlgTokenizer *tok,
                           size_t output_tokens_len);
 
 /**
+ * Tokenize the given bytes and return the tokens.
+ * Special tokens will be tokenized, if they follow 0xFF byte prefix.
+ * Always returns the number of tokens that would be written to output_tokens
+ * if output_tokens_len was large enough.
+ */
+size_t llg_tokenize_bytes_prefix(const struct LlgTokenizer *tok,
+                                 const uint8_t *bytes,
+                                 size_t bytes_len,
+                                 uint32_t *output_tokens,
+                                 size_t output_tokens_len);
+
+/**
  * Return a string representation of the tokens, useful for debugging.
  * The output is null-terminated.
  * Returns the number of bytes that would be written to output if output_len was large enough.
