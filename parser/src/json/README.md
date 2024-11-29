@@ -5,6 +5,9 @@ This sub-module converts JSON schema to llguidance grammar.
 It aims to either produce a grammar conformat to the JSON schema semantics, or give an error,
 but [see below](#departures-from-json-schema-semantics) for some known differences.
 
+There are various limits on the size of the input schema and the resulting grammar.
+However, we've successfully processed schemas up to 4 MB in size.
+
 ## Supported JSON schema features
 
 Following JSON schema features are supported.
