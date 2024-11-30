@@ -1759,10 +1759,10 @@ impl BiasComputer for DefaultBiasComputer {
 
 // Processing of the parser and the lexer is heavily interlocked.
 // The 'Recognizer' trait is used as the interface for this.
-// See the documentation for TokTrie in README.md and implementation.md:
-// https://github.com/microsoft/toktrie
+// See the documentation for TokTrie in README.md and toktrie.md:
+// https://github.com/microsoft/llguidance/blob/main/toktrie/README.md
 // and
-// https://github.com/microsoft/toktrie/blob/main/implementation.md .
+// https://github.com/microsoft/llguidance/blob/main/docs/toktrie.md .
 impl<'a> Recognizer for ParserRecognizer<'a> {
     #[inline(always)]
     fn pop_bytes(&mut self, num: usize) {

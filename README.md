@@ -38,7 +38,7 @@ The integration is ongoing in:
 
 Given a context-free grammar, a tokenizer, and a prefix of tokens, llguidance computes a token mask - a set of tokens from the tokenizer - that, when added to the current token prefix, can lead to a valid string in the language defined by the grammar. Mask computation takes approximately 1ms of single-core CPU time for a tokenizer with 100k tokens. While this timing depends on the exact grammar, it holds, for example, for grammars derived from JSON schemas. There is no significant startup cost.
 
-The library implements a context-free grammar parser using Earley’s algorithm on top of a lexer based on [derivatives of regular expressions](https://github.com/microsoft/derivre). Mask computation is achieved by traversing the prefix tree (trie) of all possible tokens, leveraging [highly optimized](https://github.com/microsoft/toktrie/blob/main/implementation.md) code.
+The library implements a context-free grammar parser using Earley’s algorithm on top of a lexer based on [derivatives of regular expressions](https://github.com/microsoft/derivre). Mask computation is achieved by traversing the prefix tree (trie) of all possible tokens, leveraging [highly optimized](./docs/toktrie.md) code.
 
 ### Comparison
 
