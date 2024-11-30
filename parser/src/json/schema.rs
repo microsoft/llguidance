@@ -256,7 +256,7 @@ impl<'a> Context<'a> {
             .into_string())
     }
 
-    fn lookup_resource(&'a self, reference: &str) -> Result<ResourceRef> {
+    fn lookup_resource(&'a self, reference: &str) -> Result<ResourceRef<'a>> {
         let resolved = self.resolver.lookup(reference)?;
         Ok(self.as_resource_ref(&resolved.contents()))
     }
