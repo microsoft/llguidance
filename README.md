@@ -52,7 +52,7 @@ In llguidance, online mask computation takes approximately 1ms of CPU time per s
 
 - [install rust](https://www.rust-lang.org/tools/install); 1.75 or later
 
-If you just need the C or Rust library (`llguidance_parser`), 
+If you just need the C or Rust library (`llguidance`), 
 check the [parser](./parser/README.md) directory.
 
 For Python bindings:

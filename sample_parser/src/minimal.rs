@@ -1,6 +1,6 @@
 use std::{env, fs::File, hint::black_box, io::Read, sync::Arc, vec};
 
-use llguidance_parser::{
+use llguidance::{
     api::{ParserLimits, TopLevelGrammar},
     toktrie::{InferenceCapabilities, TokEnv, TokRxInfo, TokTrie, TokenId, TokenizerEnv},
     Constraint, JsonCompileOptions, TokenParser,
@@ -74,7 +74,7 @@ fn main() {
     let parser = TokenParser::from_llguidance_json(
         tok_env.clone(),
         schema,
-        llguidance_parser::Logger::new(buffer_log_level, stderr_log_level),
+        llguidance::Logger::new(buffer_log_level, stderr_log_level),
         InferenceCapabilities {
             ff_tokens: true,  // can the engine append multiple tokens?
             backtrack: false, // can the engine remove generated tokens?

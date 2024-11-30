@@ -1,4 +1,4 @@
-# Low-level Guidance Parser (llguidance_parser)
+# Low-level Guidance Parser (llguidance)
 
 This crate implements a parser for llguidance grammars.
 

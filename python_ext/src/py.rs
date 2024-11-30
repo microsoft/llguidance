@@ -1,12 +1,12 @@
 use std::fmt::Display;
 use std::{borrow::Cow, sync::Arc};
 
-use llguidance_parser::api::{GrammarWithLexer, ParserLimits};
-use llguidance_parser::toktrie::{
+use llguidance::api::{GrammarWithLexer, ParserLimits};
+use llguidance::toktrie::{
     self, InferenceCapabilities, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
 };
-use llguidance_parser::{api::TopLevelGrammar, output::ParserOutput, TokenParser};
-use llguidance_parser::{
+use llguidance::{api::TopLevelGrammar, output::ParserOutput, TokenParser};
+use llguidance::{
     lark_to_llguidance, Constraint, GrammarBuilder, JsonCompileOptions, Logger,
 };
 use pyo3::{exceptions::PyValueError, prelude::*};

@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use llguidance_parser::lark_to_llguidance;
+use llguidance::lark_to_llguidance;
 
 fn process_file(filename: &str) -> Result<()> {
     let grammar_file = read_file_to_string(filename);

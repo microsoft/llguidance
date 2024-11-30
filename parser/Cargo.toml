@@ -1,5 +1,5 @@
 [package]
-name = "llguidance_parser"
+name = "llguidance"
 version = "0.4.1"
 edition = "2021"
 

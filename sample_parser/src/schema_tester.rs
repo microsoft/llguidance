@@ -1,6 +1,6 @@
 use std::{env, fs::File, io::Read, vec};
 
-use llguidance_parser::{
+use llguidance::{
     api::ParserLimits,
     toktrie::{InferenceCapabilities, TokEnv},
     Constraint, JsonCompileOptions, TokenParser,
@@ -30,7 +30,7 @@ fn test_file(tok_env: TokEnv, file: &str) {
     let parser = TokenParser::from_llguidance_json(
         tok_env,
         schema,
-        llguidance_parser::Logger::new(0, 1),
+        llguidance::Logger::new(0, 1),
         InferenceCapabilities {
             ff_tokens: true,
             backtrack: false,

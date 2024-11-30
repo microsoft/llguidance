@@ -1,4 +1,4 @@
-use llguidance_parser::{
+use llguidance::{
     api::{GrammarWithLexer, ParserLimits, TopLevelGrammar},
     toktrie::{InferenceCapabilities, TokEnv, TokenId},
     Constraint, TokenParser,
@@ -27,7 +27,7 @@ fn check_grammar(
     let parser = TokenParser::from_llguidance_json(
         tok_env.clone(),
         grammar,
-        llguidance_parser::Logger::new(0, 2),
+        llguidance::Logger::new(0, 2),
         InferenceCapabilities {
             ff_tokens: true, // can the engine append multiple tokens?
             backtrack: true, // can the engine remove generated tokens?

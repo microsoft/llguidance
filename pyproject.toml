@@ -25,4 +25,4 @@ module-name = "llguidance._lib"
 manifest-path = "python_ext/Cargo.toml"
 sdist-generator = "git"
 # strip = true
-# features = ["llguidance_parser/logging"]
+# features = ["llguidance/logging"]

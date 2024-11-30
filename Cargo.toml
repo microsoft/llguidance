@@ -18,5 +18,5 @@ resolver = "2"
 
 [workspace.dependencies]
 toktrie = { path = "toktrie" }
-llguidance_parser = { path = "parser" }
+llguidance = { path = "parser" }
 toktrie_hf_tokenizers = { path = "toktrie_hf_tokenizers" }
