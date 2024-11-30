@@ -69,7 +69,7 @@ if not toktrie_commit or not derivre_commit:
 cargo_toml_paths = [
     "parser/Cargo.toml",
     "sample_parser/Cargo.toml",
-    "rust/Cargo.toml",
+    "python_ext/Cargo.toml",
 ]
 
 # Update each Cargo.toml file
