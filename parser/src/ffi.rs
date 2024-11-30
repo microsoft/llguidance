@@ -70,8 +70,9 @@ impl TokenizerEnv for CTokenizerInner {
     }
 }
 
+#[derive(Clone)]
 pub struct LlgTokenizer {
-    token_env: TokEnv,
+    pub token_env: TokEnv,
 }
 
 impl LlgTokenizer {
@@ -192,6 +193,7 @@ pub struct LlgTokenizerInit {
     pub tokenize_user_data: *const c_void,
 }
 
+#[derive(Clone)]
 #[repr(C)]
 pub struct LlgConstraintInit {
     /// The tokenizer to use, created with llg_new_tokenizer()
