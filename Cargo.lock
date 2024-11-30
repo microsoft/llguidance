@@ -1799,7 +1799,6 @@ dependencies = [
 [[package]]
 name = "toktrie"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/toktrie?rev=cbdd3d717e2d1671a326d68f74d5054a5a79c0c9#cbdd3d717e2d1671a326d68f74d5054a5a79c0c9"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1812,7 +1811,6 @@ dependencies = [
 [[package]]
 name = "toktrie_hf_tokenizers"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/toktrie?rev=cbdd3d717e2d1671a326d68f74d5054a5a79c0c9#cbdd3d717e2d1671a326d68f74d5054a5a79c0c9"
 dependencies = [
  "anyhow",
  "log",

@@ -3,6 +3,8 @@ members = [
     "python_ext",
     "parser",
     "sample_parser",
+    "toktrie",
+    "toktrie_hf_tokenizers",
 ]
 resolver = "2"
 
@@ -13,3 +15,8 @@ resolver = "2"
 
 # [patch.'https://github.com/microsoft/derivre']
 # derivre = { path = "../derivre" }
+
+[workspace.dependencies]
+toktrie = { path = "toktrie" }
+llguidance_parser = { path = "parser" }
+toktrie_hf_tokenizers = { path = "toktrie_hf_tokenizers" }

@@ -5,8 +5,8 @@ edition = "2021"
 default-run = "sample_parser"
 
 [dependencies]
-llguidance_parser = { path = "../parser" }
-toktrie_hf_tokenizers = { git = "https://github.com/microsoft/toktrie", rev = "cbdd3d717e2d1671a326d68f74d5054a5a79c0c9" }
+llguidance_parser = { workspace = true }
+toktrie_hf_tokenizers = { workspace = true }
 serde_json = "1.0.128"
 anyhow = "1.0.87"
 lazy_static = "1.5.0"
