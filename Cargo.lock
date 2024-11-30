@@ -877,17 +877,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee93343901ab17bd981295f2cf0026d4ad018c7c31ba84549a4ddbb47a45104"
 
 [[package]]
-name = "llguidance"
-version = "0.4.1"
-dependencies = [
- "bytemuck",
- "llguidance_parser",
- "pyo3",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "llguidance_parser"
 version = "0.4.1"
 dependencies = [
@@ -907,6 +896,17 @@ dependencies = [
  "serde_json",
  "toktrie",
  "url",
+]
+
+[[package]]
+name = "llguidance_py"
+version = "0.4.1"
+dependencies = [
+ "bytemuck",
+ "llguidance_parser",
+ "pyo3",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
