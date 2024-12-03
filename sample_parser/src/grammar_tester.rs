@@ -252,7 +252,7 @@ fn test_ll_skip() {
     );
 }
 
-fn test_ll_max_tokens() {
+fn test_ll_new_max_tokens() {
     // TODO test this - should return an error from prompt processing
     // check_lark_grammar(
     //     r#"start: " x" aa " y"
@@ -441,9 +441,10 @@ fn test_ll_nullable_lexeme() {
 }
 
 fn main() {
-    test_ll_max_tokens();
+    test_ll_new_max_tokens();
 
-    if true { // PRTODO
+    // PRTODO
+    if true {
         test_llparser();
         test_ll_backtrack_stop();
         test_ll_nullable_lexeme();
