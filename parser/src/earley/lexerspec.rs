@@ -1,5 +1,5 @@
 use anyhow::Result;
-use derivre::{ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
+use derivre::{raw::ExprSet, ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use std::{fmt::Debug, hash::Hash};
 use toktrie::{bytes::limit_str, SimpleVob, TokTrie};
 
@@ -68,31 +68,29 @@ impl LexemeIdx {
 }
 
 impl LexemeSpec {
-    /// Check if the lexeme always matches bytes, and has at least one more byte to spare.
-    pub fn has_forced_bytes(&self, bytes: &[u8]) -> bool {
-        match &self.rx {
-            RegexAst::Literal(s) if s.len() >= bytes.len() => {
-                &s.as_bytes()[0..bytes.len()] == bytes
-            }
-            _ => false,
-        }
-    }
-
     pub fn class(&self) -> LexemeClass {
         self.class
+    }
+
+    pub fn to_string(&self, max_len: usize, exprset: Option<&ExprSet>) -> String {
+        use std::fmt::Write;
+        let mut f = String::new();
+        write!(f, "[{}] {} ", self.idx.0, self.name).unwrap();
+        self.rx.write_to_str(&mut f, max_len, exprset);
+        if self.lazy {
+            f.push_str(" lazy");
+        }
+        if self.contextual {
+            f.push_str(" contextual");
+        }
+        f
     }
 }
 
 impl Debug for LexemeSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] {} {:?}", self.idx.0, self.name, self.rx)?;
-        if self.lazy {
-            write!(f, " lazy")?;
-        }
-        if self.contextual {
-            write!(f, " contextual")?;
-        }
-        Ok(())
+        let s = self.to_string(512, None);
+        f.write_str(&s)
     }
 }
 
@@ -107,6 +105,13 @@ impl LexerSpec {
             skip_by_class: Vec::new(),
             current_class: LexemeClass(0),
         })
+    }
+
+    /// Check if the lexeme always matches bytes.
+    pub fn has_forced_bytes(&self, lex_spec: &LexemeSpec, bytes: &[u8]) -> bool {
+        self.regex_builder
+            .exprset()
+            .has_simply_forced_bytes(lex_spec.compiled_rx, bytes)
     }
 
     pub fn new_lexeme_class(&mut self, skip: RegexAst) -> Result<LexemeClass> {
@@ -350,7 +355,8 @@ impl Debug for LexerSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "LexerSpec {{ lexemes: [")?;
         for lex in &self.lexemes {
-            writeln!(f, "  {:?}", lex)?;
+            let slex = lex.to_string(512, Some(self.regex_builder.exprset()));
+            writeln!(f, "  {}", slex)?;
         }
         write!(f, "] }}")
     }
