@@ -1,10 +1,9 @@
+use lazy_static::lazy_static;
 use llguidance::{
     api::{GrammarWithLexer, ParserLimits, TopLevelGrammar},
     toktrie::{InferenceCapabilities, TokEnv, TokenId},
     Constraint, TokenParser,
 };
-
-use lazy_static::lazy_static;
 
 /// Check that the grammar generates the expected output.
 ///
@@ -78,7 +77,12 @@ fn check_grammar(
             }
 
             let tok = gen_tokens[0];
-            assert!(mask.is_allowed(tok), "Token {} not allowed", tok);
+            assert!(
+                mask.is_allowed(tok),
+                "Token {} {} not allowed",
+                tok,
+                tok_env.tok_trie().token_dbg(tok)
+            );
 
             let num_ok = constraint.validate_tokens_raw(&gen_tokens).unwrap();
             if num_ok < gen_tokens.len() {
@@ -373,7 +377,7 @@ fn test_llparser() {
 }
 
 fn test_ll_nullable_lexeme() {
-    // Emake sure 'a' is not forced
+    // make sure 'a' is not forced
     check_lark_grammar(
         r#"start: gen
            gen[stop=""]: /a*/"#,
@@ -422,10 +426,118 @@ fn test_ll_nullable_lexeme() {
     check_lark_grammar_nested(r#"start: @sub"#, &float_grammar, &["", "0‧.‧1‧≺EOS≻"]);
 }
 
+fn test_ll_pop_tokens() {
+    // check_grammar(grm, ["6‧ *‧ ‧7‧ =‧ ", "4‧2‧\n"])
+    // grm = "6 * 7 = " + subgrammar(body=lexeme("[0-9]{1,3}")) + "\n"
+    check_lark_grammar(
+        r#"start: "6 * 7 = " NUM "\n"
+           NUM: /[0-9]{1,3}/
+        "#,
+        &["6‧ *‧ ‧7‧ =‧ ", "4‧2‧\n"],
+    );
+}
+
+fn test_ll_nice_man() {
+    let grm = r#"start: ("a" | "ab" | "c")"#;
+    let grm_d = r#"start: ("a" | "ab" | "c") ("d")"#;
+    let grm_opt_d = r#"start: ("a" | "ab" | "c") ("d" | "")"#;
+
+    check_lark_grammar(grm, &["", "a‧b"]);
+    check_lark_grammar(grm, &["", "a‧≺EOS≻"]);
+    check_lark_grammar(grm_d, &["", "a‧d"]);
+    check_lark_grammar(grm_d, &["", "a‧b", "d"]);
+
+    check_lark_grammar(grm_opt_d, &["", "a‧b‧d"]);
+    check_lark_grammar(grm_opt_d, &["", "a‧b‧≺EOS≻"]);
+    check_lark_grammar(grm_opt_d, &["", "a‧≺EOS≻"]);
+
+    // TODO: this should also work for "abq" as a single lexeme
+    // https://github.com/guidance-ai/llguidance/issues/2
+    let abq = r#"start: ("a" | "a" "bq" | "c") ("bQ" | "")"#;
+    check_lark_grammar(abq, &["", "a‧b‧q‧≺EOS≻"]);
+    check_lark_grammar(abq, &["", "a‧b‧Q"]);
+}
+
+fn test_ll_stop_quote_comma() {
+    let grm = r#"
+        start: "{ \"items\": [\"" ap "\",\n   \"" bp "\"] }"
+        ap[stop="\""]: /a+/
+        bp[stop="\""]: /b+/
+    "#;
+
+    // make sure we allow ", as a single token; also "]
+    check_lark_grammar(
+        grm,
+        &["{‧ \"‧items‧\":‧ [\"", "a‧\",", "\n‧  ‧ \"", "b‧\"]", " }"],
+    );
+
+    // and as seprate tokens
+    check_lark_grammar(
+        grm,
+        &[
+            "{‧ \"‧items‧\":‧ [\"",
+            "a‧\"",
+            ",‧\n‧  ‧ \"",
+            "b‧\"",
+            "]‧ }",
+        ],
+    );
+}
+
+fn test_ll_nullable_bug() {
+    check_lark_grammar(
+        r#"start: (maybe_a maybe_a maybe_a maybe_a | "foo")
+           maybe_a: "a" | ""
+        "#,
+        &["", "a‧≺EOS≻"],
+    );
+}
+
+fn test_ll_max_tokens() {
+    check_lark_grammar(
+        r#"start: "Name: " name " Height: " height
+           name[max_tokens=3, stop=""]: /.*/
+           height[max_tokens=3, stop=""]: /.*/
+        "#,
+        &["Name‧:", " Em‧ily‧ Carter", " Height‧:", " ‧5‧'‧6"],
+    );
+
+    // here we have two gen() with the same regex (so they are the same lexeme)
+    // but different max_tokens limits
+    check_lark_grammar(
+        r#"start: "Name: " name " Height: " height
+           name[max_tokens=2, stop=""]: /.*/
+           height[max_tokens=3, stop=""]: /.*/
+        "#,
+        &["Name‧:", " Em‧ily", " Height‧:", " ‧5‧'‧6"],
+    );
+
+    // now this is a strange case, where gen() is allowed together with the following
+    // string, and gen() runs out of tokens, so the fixed string takes over
+    // note how Emily is not repeated
+    check_lark_grammar(
+        r#"start: "Name: " name "Emily Carter is great; Height: " height
+           name[max_tokens=2, stop=""]: /.*/
+           height[max_tokens=3, stop=""]: /.*/
+        "#,
+        &[
+            "Name‧:",
+            " Em‧ily",
+            " Carter‧ is‧ great‧;‧ Height‧:",
+            " ‧5‧'‧6",
+        ],
+    );
+}
+
 fn main() {
     test_llparser();
     test_ll_backtrack_stop();
     test_ll_nullable_lexeme();
     test_ll_skip();
     test_ll_temperature();
+    test_ll_pop_tokens();
+    test_ll_nice_man();
+    test_ll_nullable_bug();
+    test_ll_max_tokens();
+    test_ll_stop_quote_comma();
 }
