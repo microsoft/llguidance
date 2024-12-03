@@ -3,6 +3,8 @@
 set -e
 cd $(dirname $0)/..
 
+cargo test
+
 echo "Running sample_parser"
 (cd sample_parser && ./run.sh >/dev/null)
 
