@@ -2,7 +2,7 @@
 
 This sub-module converts JSON schema to llguidance grammar.
 
-It aims to either produce a grammar conformat to the JSON schema semantics, or give an error,
+It aims to either produce a grammar conformant to the JSON schema semantics (Draft 2020-12), or give an error,
 but [see below](#departures-from-json-schema-semantics) for some known differences.
 
 There are various limits on the size of the input schema and the resulting grammar.
@@ -17,11 +17,11 @@ Core features:
 - `anyOf`
 - `oneOf` - not supported right now, use `anyOf` instead, [issue](https://github.com/microsoft/llguidance/issues/77)
 - `allOf` - intersection of certain schemas is not supported right now
-- `$ref` - within the document only
+- `$ref` - external/remote refs unsupported
 - `const`
 - `enum`
 - `type` - both single type and array of types
-- sibling properties - when schema has keywords in addition to `anyOf`, `allOf`, `$ref`, the result is intersection
+- sibling keys - when schema has keywords in addition to `anyOf`, `allOf`, `$ref`, the result is intersection
 
 Array features:
 
@@ -52,4 +52,6 @@ Number features (for both integer and number):
 
 ## Departures from JSON schema semantics
 
-- order of properties in `properties` is fixed to the order in schema (`required` can be used to skip some of them)
+- order of object properties is fixed to the order provided in `properties` field of schema
+  - note: the order of properties in schemas resulting from intersections (e.g., via `allOf`) is *unstable* and should not be relied upon.
+- string `format` is enforced by default, with unrecognized or unimplemented formats returning errors
