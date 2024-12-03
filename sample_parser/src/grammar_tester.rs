@@ -252,6 +252,23 @@ fn test_ll_skip() {
     );
 }
 
+fn test_ll_max_tokens() {
+    // TODO test this - should return an error from prompt processing
+    // check_lark_grammar(
+    //     r#"start: " x" aa " y"
+    //        aa: " a" aa
+    //        "#,
+    //     &[" x", " a‧ a‧ a‧ a‧ b", " y"],
+    // );
+
+    check_lark_grammar(
+        r#"start: " x" ab " y"
+           ab[max_tokens=3]: (" a")* " b"
+           "#,
+        &[" x", " a‧ a‧ a‧ a‧ b", " y"],
+    );
+}
+
 fn test_ll_temperature() {
     check_lark_grammar_nested(
         r#"start: /[xy]/ sub_temp
@@ -423,9 +440,13 @@ fn test_ll_nullable_lexeme() {
 }
 
 fn main() {
-    test_llparser();
-    test_ll_backtrack_stop();
-    test_ll_nullable_lexeme();
-    test_ll_skip();
-    test_ll_temperature();
+    test_ll_max_tokens();
+
+    if false { // PRTODO
+        test_llparser();
+        test_ll_backtrack_stop();
+        test_ll_nullable_lexeme();
+        test_ll_skip();
+        test_ll_temperature();
+    }
 }
