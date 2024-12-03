@@ -921,7 +921,7 @@ impl ParserState {
     pub fn force_bytes(&mut self, shared: &mut SharedState) -> &[u8] {
         self.assert_definitive();
         trace!("force_bytes lexer_stack {}", self.lexer_stack.len());
-        self.with_items_limit(self.limits.step_max_items / 8, "ff_tokens", |s| {
+        self.with_items_limit(self.limits.step_max_items, "ff_tokens", |s| {
             while let Some(b) = s.forced_byte(shared) {
                 debug!("  forced: {:?} 0x{:x}", b as char, b);
                 let (ok, bt) = s.try_push_byte_definitive(shared, Some(b));
