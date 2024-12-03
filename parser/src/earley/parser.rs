@@ -441,6 +441,28 @@ impl ParserState {
         Ok((r, lexer))
     }
 
+    fn with_items_limit<T>(
+        &mut self,
+        limit: usize,
+        lbl: &str,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.max_all_items = self.stats.all_items + limit;
+
+        let r = f(self);
+
+        if self.stats.all_items > self.max_all_items && self.parser_error.is_none() {
+            self.parser_error = Some(format!(
+                "Too many items (limit {}; {}); try avoiding single-byte/short lexemes",
+                limit, lbl
+            ));
+        }
+
+        self.max_all_items = usize::MAX;
+
+        r
+    }
+
     fn compute_bias(
         &mut self,
         shared: &mut SharedState,
@@ -452,22 +474,10 @@ impl ParserState {
         dfa.set_fuel(self.limits.step_lexer_fuel);
         dfa.set_max_states(self.limits.max_lexer_states);
 
-        self.max_all_items = self.stats.all_items + self.limits.step_max_items as usize;
-
-        let mut r = ParserRecognizer {
-            shared,
-            state: self,
-        };
-        let mut set = computer.compute_bias(&mut r, start);
-
-        if self.stats.all_items > self.max_all_items && self.parser_error.is_none() {
-            self.parser_error = Some(format!(
-                "Too many items (limit {}); try avoiding single-byte/short lexemes",
-                self.limits.step_max_items
-            ));
-        }
-
-        self.max_all_items = usize::MAX;
+        let mut set = self.with_items_limit(self.limits.step_max_items, "mask", |state| {
+            let mut r = ParserRecognizer { shared, state };
+            computer.compute_bias(&mut r, start)
+        });
 
         self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
 
@@ -871,6 +881,7 @@ impl ParserState {
 
         let mut dst = self.rows[start_idx].first_item;
         for idx in start_idx..self.num_rows() {
+            // copy range before messing with first_item
             let range = self.rows[idx].item_indices();
             self.rows[idx].first_item = dst;
             let mut has_max_tokens = false;
@@ -910,16 +921,18 @@ impl ParserState {
     pub fn force_bytes(&mut self, shared: &mut SharedState) -> &[u8] {
         self.assert_definitive();
         trace!("force_bytes lexer_stack {}", self.lexer_stack.len());
-        while let Some(b) = self.forced_byte(shared) {
-            debug!("  forced: {:?} 0x{:x}", b as char, b);
-            let (ok, bt) = self.try_push_byte_definitive(shared, Some(b));
-            assert!(bt == 0);
-            if !ok {
-                // shouldn't happen?
-                debug!("  force_bytes reject {}", b as char);
-                break;
+        self.with_items_limit(self.limits.step_max_items / 8, "ff_tokens", |s| {
+            while let Some(b) = s.forced_byte(shared) {
+                debug!("  forced: {:?} 0x{:x}", b as char, b);
+                let (ok, bt) = s.try_push_byte_definitive(shared, Some(b));
+                assert!(bt == 0);
+                if !ok {
+                    // shouldn't happen?
+                    debug!("  force_bytes reject {}", b as char);
+                    break;
+                }
             }
-        }
+        });
         self.assert_definitive();
         let bytes = &self.bytes[self.byte_to_token_idx.len()..];
         trace!(
@@ -1821,11 +1834,7 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
 }
 
 fn item_to_string(g: &CGrammar, item: &Item) -> String {
-    format!(
-        "{} @{}",
-        g.rule_to_string(item.rhs_ptr()),
-        item.start_pos(),
-    )
+    format!("{} @{}", g.rule_to_string(item.rhs_ptr()), item.start_pos(),)
 }
 
 pub enum ParserError {
