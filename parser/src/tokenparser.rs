@@ -629,10 +629,7 @@ impl TokenParser {
         self.parser.log_row_infos("post-apply");
         match apply_res {
             Err(_) => Err(self.anyhow_error()),
-            Ok(n) => {
-                self.parser.filter_max_tokens();
-                Ok(n)
-            }
+            Ok(n) => Ok(n),
         }
     }
 

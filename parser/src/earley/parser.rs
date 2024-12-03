@@ -256,7 +256,6 @@ struct ParserState {
     // use u32 to save space
     byte_to_token_idx: Vec<u32>,
 
-    first_row_with_max_token_limit: usize,
     stats: ParserStats,
     limits: ParserLimits,
     max_all_items: usize,
@@ -393,7 +392,6 @@ impl ParserState {
             byte_to_token_idx: vec![],
             bytes: vec![],
             max_all_items: usize::MAX,
-            first_row_with_max_token_limit: 0,
             limits,
             backtrack_byte_count: 0,
             lexer_stack: vec![LexerState {
@@ -639,6 +637,7 @@ impl ParserState {
         self.grammar.sym_idx_lhs(item.rhs_ptr())
     }
 
+    #[allow(dead_code)]
     fn item_sym_data(&self, item: &Item) -> &CSymbol {
         self.grammar.sym_data(self.item_lhs(item))
     }
@@ -855,63 +854,6 @@ impl ParserState {
         // self.print_row(self.num_rows() - 1);
 
         return Ok(0);
-    }
-
-    pub fn filter_max_tokens(&mut self) {
-        self.assert_definitive();
-
-        let start_idx = self.first_row_with_max_token_limit;
-
-        if start_idx >= self.num_rows() {
-            return;
-        }
-
-        self.first_row_with_max_token_limit = self.num_rows();
-
-        let token_idx = self.token_idx;
-
-        self.row_infos.push(RowInfo {
-            lexeme: Lexeme::bogus(),
-            start_byte_idx: 0,
-            token_idx_start: token_idx,
-            token_idx_stop: token_idx,
-            max_tokens: Arc::new(HashMap::default()),
-        });
-
-        let mut dst = self.rows[start_idx].first_item as usize;
-        for idx in start_idx..self.num_rows() {
-            // copy range before messing with first_item
-            let range = self.rows[idx].item_indices();
-            self.rows[idx].first_item = dst as u32;
-            let mut has_max_tokens = false;
-            for i in range {
-                let item = self.scratch.items[i];
-                let sym_data = self.item_sym_data(&item);
-                let max_tokens = sym_data.props.max_tokens;
-                if max_tokens != usize::MAX {
-                    let start_token_idx = self.row_infos[item.start_pos() + 1].token_idx_start;
-                    if token_idx - start_token_idx >= max_tokens {
-                        debug!(
-                            "  remove: {}-{} {}",
-                            token_idx,
-                            start_token_idx,
-                            self.item_to_string(i)
-                        );
-                        continue;
-                    }
-                    has_max_tokens = true;
-                }
-                self.scratch.items[dst] = item;
-                dst += 1;
-            }
-            self.rows[idx].last_item = dst as u32;
-            if has_max_tokens {
-                self.first_row_with_max_token_limit =
-                    std::cmp::min(self.first_row_with_max_token_limit, idx);
-            }
-        }
-
-        self.row_infos.pop();
     }
 
     /// force_bytes() forces bytes into the parser, definitively.
@@ -1950,10 +1892,6 @@ impl Parser {
     pub fn validate_bytes(&mut self, tok_bytes: &[u8], check_eos: bool) -> usize {
         let mut shared = self.shared.lock().unwrap();
         self.state.validate_bytes(&mut shared, tok_bytes, check_eos)
-    }
-
-    pub fn filter_max_tokens(&mut self) {
-        self.state.filter_max_tokens();
     }
 
     pub fn log_row_infos(&self, label: &str) {
