@@ -6,6 +6,12 @@ members = [
     "toktrie",
     "toktrie_hf_tokenizers",
 ]
+default-members = [
+    "parser",
+    "sample_parser",
+    "toktrie",
+    "toktrie_hf_tokenizers",
+]
 resolver = "2"
 
 [profile.release]
