@@ -528,6 +528,7 @@ impl Debug for Grammar {
     }
 }
 
+/// A unique ID of a symbol in the compiled grammar
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CSymIdx(u16);
 
@@ -546,14 +547,14 @@ impl CSymIdx {
     }
 }
 
+/// This is a pointer into rules[] array, and represents a particular
+/// element in the rhs of a rule (and thus by implication also a unique lhs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RuleIdx(u32);
+pub struct RhsEltIdx(u32);
 
-impl RuleIdx {
-    // pub const NULL: RuleIdx = RuleIdx(0);
-
+impl RhsEltIdx {
     pub fn from_index(idx: u32) -> Self {
-        RuleIdx(idx)
+        RhsEltIdx(idx)
     }
 
     pub fn as_index(&self) -> usize {
@@ -569,7 +570,8 @@ pub struct CSymbol {
     pub is_nullable: bool,
     pub props: SymbolProps,
     pub gen_grammar: Option<GenGrammarOptions>,
-    pub rules: Vec<RuleIdx>,
+    // this points to the first element of rhs of each rule
+    pub rules: Vec<RhsEltIdx>,
     pub sym_flags: SymFlags,
     pub lexeme: Option<LexemeIdx>,
 }
@@ -644,10 +646,18 @@ impl SymFlags {
 pub struct CGrammar {
     start_symbol: CSymIdx,
     lexer_spec: LexerSpec,
+    // indexed by CSymIdx
     symbols: Vec<CSymbol>,
+    // This is rhs of rules, indexed by RhsEltIdx (CSymbol::rules)
+    // Each rhs ends with CSymIdx::NULL
+    // A pointer into this array represents an Earley item:
+    // the dot is before rules[rhs_elt_idx]; when it points at CSymIdx::NULL, the item is complete
     rules: Vec<CSymIdx>,
-    rule_idx_to_sym_idx: Vec<CSymIdx>,
-    rule_idx_to_sym_flags: Vec<SymFlags>,
+    // given a pointer into rules[] (shifted by RULE_SHIFT),
+    // this gives the index of the lhs symbol
+    rhs_elt_idx_to_sym_idx: Vec<CSymIdx>,
+    // this is cache, rhs_elt_idx_to_sym_flags[x] == symbols[rhs_elt_idx_to_sym_idx[x]].sym_flags
+    rhs_elt_idx_to_sym_flags: Vec<SymFlags>,
 }
 
 const RULE_SHIFT: usize = 2;
@@ -657,15 +667,15 @@ impl CGrammar {
         &self.lexer_spec
     }
 
-    pub fn sym_idx_lhs(&self, rule: RuleIdx) -> CSymIdx {
-        self.rule_idx_to_sym_idx[rule.as_index() >> RULE_SHIFT]
+    pub fn sym_idx_lhs(&self, rule: RhsEltIdx) -> CSymIdx {
+        self.rhs_elt_idx_to_sym_idx[rule.as_index() >> RULE_SHIFT]
     }
 
-    pub fn sym_flags_lhs(&self, rule: RuleIdx) -> SymFlags {
-        self.rule_idx_to_sym_flags[rule.as_index() >> RULE_SHIFT]
+    pub fn sym_flags_lhs(&self, rule: RhsEltIdx) -> SymFlags {
+        self.rhs_elt_idx_to_sym_flags[rule.as_index() >> RULE_SHIFT]
     }
 
-    pub fn rule_rhs(&self, rule: RuleIdx) -> (&[CSymIdx], usize) {
+    pub fn rule_rhs(&self, rule: RhsEltIdx) -> (&[CSymIdx], usize) {
         let idx = rule.as_index();
         let mut start = idx - 1;
         while self.rules[start] != CSymIdx::NULL {
@@ -687,12 +697,12 @@ impl CGrammar {
         &mut self.symbols[sym.0 as usize]
     }
 
-    pub fn sym_idx_dot(&self, idx: RuleIdx) -> CSymIdx {
+    pub fn sym_idx_dot(&self, idx: RhsEltIdx) -> CSymIdx {
         self.rules[idx.0 as usize]
     }
 
     #[inline(always)]
-    pub fn sym_data_dot(&self, idx: RuleIdx) -> &CSymbol {
+    pub fn sym_data_dot(&self, idx: RhsEltIdx) -> &CSymbol {
         self.sym_data(self.sym_idx_dot(idx))
     }
 
@@ -700,7 +710,7 @@ impl CGrammar {
         self.start_symbol
     }
 
-    pub fn rules_of(&self, sym: CSymIdx) -> &[RuleIdx] {
+    pub fn rules_of(&self, sym: CSymIdx) -> &[RhsEltIdx] {
         &self.sym_data(sym).rules
     }
 
@@ -716,9 +726,9 @@ impl CGrammar {
             start_symbol: CSymIdx::NULL, // replaced
             lexer_spec,
             symbols: vec![],
-            rules: vec![CSymIdx::NULL], // make sure RuleIdx::NULL is invalid
-            rule_idx_to_sym_idx: vec![],
-            rule_idx_to_sym_flags: vec![],
+            rules: vec![CSymIdx::NULL], // make sure RhsEltIdx::NULL is invalid
+            rhs_elt_idx_to_sym_idx: vec![],
+            rhs_elt_idx_to_sym_flags: vec![],
         };
         outp.add_symbol(CSymbol {
             idx: CSymIdx::NULL,
@@ -784,7 +794,7 @@ impl CGrammar {
                 if rule.rhs.is_empty() {
                     continue;
                 }
-                let curr = RuleIdx(outp.rules.len().try_into().unwrap());
+                let curr = RhsEltIdx(outp.rules.len().try_into().unwrap());
                 outp.sym_data_mut(idx).rules.push(curr);
                 // outp.rules.push(idx);
                 for r in &rule.rhs {
@@ -796,8 +806,8 @@ impl CGrammar {
                 outp.rules.push(CSymIdx::NULL);
             }
             let rlen = outp.rules.len() >> RULE_SHIFT;
-            while outp.rule_idx_to_sym_idx.len() < rlen {
-                outp.rule_idx_to_sym_idx.push(idx);
+            while outp.rhs_elt_idx_to_sym_idx.len() < rlen {
+                outp.rhs_elt_idx_to_sym_idx.push(idx);
             }
         }
 
@@ -805,8 +815,8 @@ impl CGrammar {
             sym.sym_flags = SymFlags::from_csymbol(sym);
         }
 
-        outp.rule_idx_to_sym_flags = outp
-            .rule_idx_to_sym_idx
+        outp.rhs_elt_idx_to_sym_flags = outp
+            .rhs_elt_idx_to_sym_idx
             .iter()
             .map(|s| outp.sym_data(*s).sym_flags)
             .collect();
@@ -843,7 +853,7 @@ impl CGrammar {
         &self.symbols[sym.0 as usize].name
     }
 
-    pub fn rule_to_string(&self, rule: RuleIdx) -> String {
+    pub fn rule_to_string(&self, rule: RhsEltIdx) -> String {
         let sym = self.sym_idx_lhs(rule);
         let symdata = self.sym_data(sym);
         let lhs = self.sym_name(sym);
