@@ -1469,7 +1469,8 @@ impl ParserState {
             if lex_spec.is_skip && matches!(lex_spec.rx, RegexAst::NoMatch) {
                 continue;
             }
-            if !lex_spec.has_forced_bytes(bytes) {
+
+            if !self.lexer_spec().has_forced_bytes(lex_spec, bytes) {
                 return false;
             }
             matched_something = true;

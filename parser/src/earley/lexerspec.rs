@@ -67,16 +67,6 @@ impl LexemeIdx {
 }
 
 impl LexemeSpec {
-    /// Check if the lexeme always matches bytes.
-    pub fn has_forced_bytes(&self, bytes: &[u8]) -> bool {
-        match &self.rx {
-            RegexAst::Literal(s) if s.len() >= bytes.len() => {
-                &s.as_bytes()[0..bytes.len()] == bytes
-            }
-            _ => false,
-        }
-    }
-
     pub fn class(&self) -> LexemeClass {
         self.class
     }
@@ -114,6 +104,13 @@ impl LexerSpec {
             skip_by_class: Vec::new(),
             current_class: LexemeClass(0),
         })
+    }
+
+    /// Check if the lexeme always matches bytes.
+    pub fn has_forced_bytes(&self, lex_spec: &LexemeSpec, bytes: &[u8]) -> bool {
+        self.regex_builder
+            .exprset()
+            .has_simply_forced_bytes(lex_spec.compiled_rx, bytes)
     }
 
     pub fn new_lexeme_class(&mut self, skip: RegexAst) -> Result<LexemeClass> {
