@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use anyhow::{bail, Result};
 use derivre::RegexAst;
 use indexmap::IndexMap;
@@ -53,7 +51,7 @@ fn rx_pos_int_multiple_of(n: u32) -> Result<RegexAst> {
     nodes.push(RegexAst::Regex("[1-9][0-9]*".to_string()));
 
     // Factorize the number if we can (must have multiplicity <= 1)
-    let mut used = HashSet::<u32>::new();
+    let mut used: Vec<u32> = vec![];
     if current != 1 {
         for (&factor, rx) in RX_MULTIPLE_OF.iter() {
             if current % factor == 0 {
@@ -65,7 +63,7 @@ fn rx_pos_int_multiple_of(n: u32) -> Result<RegexAst> {
                 }
                 current /= factor;
                 nodes.push(RegexAst::Regex(rx.clone()));
-                used.insert(factor.clone());
+                used.push(factor.clone());
             }
         }
         if current != 1 {
