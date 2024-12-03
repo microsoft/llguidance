@@ -204,6 +204,10 @@ impl Grammar {
         &mut self.sym_data_mut(sym).props
     }
 
+    pub fn sym_props(&mut self, sym: SymIdx) -> &SymbolProps {
+        &self.sym_data(sym).props
+    }
+
     pub fn sym_name(&self, sym: SymIdx) -> &str {
         &self.symbols[sym.0 as usize].name
     }

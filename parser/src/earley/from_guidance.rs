@@ -165,6 +165,7 @@ fn grammar_from_json(
     let mut size = input.nodes.len();
 
     for (n, sym) in input.nodes.iter().zip(node_map.iter()) {
+        let max_tokens = grm.sym_props(*sym).max_tokens;
         let lhs = *sym;
         match &n {
             Node::Select { among, .. } => {
@@ -198,6 +199,7 @@ fn grammar_from_json(
                     body_rx,
                     stop_rx,
                     lazy,
+                    max_tokens,
                 )?;
 
                 let symprops = grm.sym_props_mut(lhs);
@@ -245,6 +247,7 @@ fn grammar_from_json(
                     resolve_rx(&rx_nodes, rx)?,
                     contextual.unwrap_or(input.contextual.unwrap_or(DEFAULT_CONTEXTUAL)),
                     json_options,
+                    max_tokens,
                 )?;
                 if let Some(t) = temperature {
                     let symprops = grm.sym_props_mut(lhs);

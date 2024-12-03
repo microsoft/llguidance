@@ -261,6 +261,7 @@ fn test_ll_max_tokens() {
     //     &[" x", " a‧ a‧ a‧ a‧ b", " y"],
     // );
 
+    // PRTODO this should fail!
     check_lark_grammar(
         r#"start: " x" ab " y"
            ab[max_tokens=3]: (" a")* " b"
@@ -442,7 +443,7 @@ fn test_ll_nullable_lexeme() {
 fn main() {
     test_ll_max_tokens();
 
-    if false { // PRTODO
+    if true { // PRTODO
         test_llparser();
         test_ll_backtrack_stop();
         test_ll_nullable_lexeme();
