@@ -25,7 +25,7 @@ use crate::{
 };
 
 use super::{
-    grammar::{CGrammar, CSymIdx, CSymbol, RhsEltIdx},
+    grammar::{CGrammar, CSymIdx, CSymbol, RhsPtr},
     lexer::{LexerResult, PreLexeme},
     lexerspec::{Lexeme, LexemeIdx, LexerSpec},
 };
@@ -125,14 +125,14 @@ impl Item {
     #[allow(dead_code)]
     const NULL: Self = Item { data: 0 };
 
-    fn new(rule: RhsEltIdx, start: usize) -> Self {
+    fn new(rule: RhsPtr, start: usize) -> Self {
         Item {
             data: rule.as_index() as u64 | ((start as u64) << 32),
         }
     }
 
-    fn rhs_elt_idx(&self) -> RhsEltIdx {
-        RhsEltIdx::from_index(self.data as u32)
+    fn rhs_ptr(&self) -> RhsPtr {
+        RhsPtr::from_index(self.data as u32)
     }
 
     fn start_pos(&self) -> usize {
@@ -495,10 +495,10 @@ impl ParserState {
         set
     }
 
-    fn after_dots(&self) -> impl Iterator<Item = RhsEltIdx> + '_ {
+    fn after_dots(&self) -> impl Iterator<Item = RhsPtr> + '_ {
         self.curr_row()
             .item_indices()
-            .map(|i| self.scratch.items[i].rhs_elt_idx())
+            .map(|i| self.scratch.items[i].rhs_ptr())
     }
 
     fn after_dots_symdata(&self) -> impl Iterator<Item = &CSymbol> + '_ {
@@ -627,7 +627,7 @@ impl ParserState {
     }
 
     fn item_lhs(&self, item: &Item) -> CSymIdx {
-        self.grammar.sym_idx_lhs(item.rhs_elt_idx())
+        self.grammar.sym_idx_lhs(item.rhs_ptr())
     }
 
     fn item_sym_data(&self, item: &Item) -> &CSymbol {
@@ -1180,7 +1180,7 @@ impl ParserState {
         // each row
         while i < last {
             let item = self.scratch.items[i];
-            let sym = self.grammar.sym_data_dot(item.rhs_elt_idx());
+            let sym = self.grammar.sym_data_dot(item.rhs_ptr());
             if sym.lexeme == Some(lexeme.idx) {
                 self.scratch.just_add(item.advance_dot(), i, "scan");
             }
@@ -1218,7 +1218,7 @@ impl ParserState {
                 debug!("    agenda: {}", self.item_to_string(item_idx));
             }
 
-            let rule = item.rhs_elt_idx();
+            let rule = item.rhs_ptr();
             let after_dot = self.grammar.sym_idx_dot(rule);
 
             // If 'rule' is a complete Earley item ...
@@ -1271,7 +1271,7 @@ impl ParserState {
                     // The main completion inference rule (slide 21 in Kallmeyer 2018)
                     for i in self.rows[item.start_pos()].item_indices() {
                         let item = self.scratch.items[i];
-                        if self.grammar.sym_idx_dot(item.rhs_elt_idx()) == lhs {
+                        if self.grammar.sym_idx_dot(item.rhs_ptr()) == lhs {
                             self.scratch.add_unique(item.advance_dot(), i, "complete");
                         }
                     }
@@ -1823,7 +1823,7 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
 fn item_to_string(g: &CGrammar, item: &Item) -> String {
     format!(
         "{} @{}",
-        g.rule_to_string(item.rhs_elt_idx()),
+        g.rule_to_string(item.rhs_ptr()),
         item.start_pos(),
     )
 }
