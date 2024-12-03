@@ -1,0 +1,22 @@
+[workspace]
+members = [
+    "python_ext",
+    "parser",
+    "sample_parser",
+    "toktrie",
+    "toktrie_hf_tokenizers",
+]
+resolver = "2"
+
+[profile.release]
+# debug = 1
+# lto = "thin"
+# codegen-units = 1
+
+# [patch.'https://github.com/microsoft/derivre']
+# derivre = { path = "../derivre" }
+
+[workspace.dependencies]
+toktrie = { path = "toktrie" }
+llguidance = { path = "parser" }
+toktrie_hf_tokenizers = { path = "toktrie_hf_tokenizers" }

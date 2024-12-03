@@ -1,13 +1,30 @@
 use std::{env, fs::File, hint::black_box, io::Read, vec};
 
-use llguidance_parser::{
+use llguidance::{
     api::{ParserLimits, TopLevelGrammar},
     lark_to_llguidance,
     toktrie::{InferenceCapabilities, TokEnv},
     Constraint, JsonCompileOptions, TokenParser,
 };
 
+fn dump_tokenizer(name: &str) {
+    let btok = toktrie_hf_tokenizers::ByteTokenizer::from_name(name).unwrap();
+    let vecs = btok.token_bytes();
+    for (_i, v) in vecs.iter().enumerate() {
+        let v: String = v
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<Vec<_>>()
+            .join("");
+        println!("{}", v);
+    }
+}
+
 fn main() {
+    if false {
+        dump_tokenizer("microsoft/Phi-3.5-mini-instruct");
+    }
+
     let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
         eprintln!("Usage: {} <schema.ll.json> <sample.json>", args[0]);
@@ -47,7 +64,7 @@ fn main() {
     let parser = TokenParser::from_llguidance_json(
         tok_env.clone(),
         schema,
-        llguidance_parser::Logger::new(buffer_log_level, stderr_log_level),
+        llguidance::Logger::new(buffer_log_level, stderr_log_level),
         InferenceCapabilities {
             ff_tokens: true,  // can the engine append multiple tokens?
             backtrack: false, // can the engine remove generated tokens?

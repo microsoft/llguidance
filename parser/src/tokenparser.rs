@@ -1,11 +1,11 @@
-use std::{hint::black_box, sync::Arc, time::Duration};
+use std::{hint::black_box, panic::AssertUnwindSafe, sync::Arc, time::Duration};
 
 use crate::{
     api::{ParserLimits, StopReason, TopLevelGrammar},
     earley::{
         grammars_from_json, BiasComputer, DefaultBiasComputer, Parser, ParserError, ParserStats,
     },
-    infoln, warn, Logger,
+    infoln, panic_utils, warn, Logger,
 };
 use anyhow::{ensure, Result};
 use serde_json::json;
@@ -41,6 +41,26 @@ pub struct TokenParser {
 
 impl TokenParser {
     pub fn from_llguidance_json(
+        token_env: TokEnv,
+        top_grammar: TopLevelGrammar,
+        logger: Logger,
+        inference_caps: InferenceCapabilities,
+        limits: ParserLimits,
+        extra_lexemes: Vec<String>,
+    ) -> Result<Self> {
+        panic_utils::catch_unwind(AssertUnwindSafe(|| {
+            Self::from_llguidance_json_inner(
+                token_env,
+                top_grammar,
+                logger,
+                inference_caps,
+                limits,
+                extra_lexemes,
+            )
+        }))
+    }
+
+    fn from_llguidance_json_inner(
         token_env: TokEnv,
         top_grammar: TopLevelGrammar,
         mut logger: Logger,
@@ -174,7 +194,7 @@ impl TokenParser {
         self.parser.force_bytes();
         let grm_bytes = self.parser.get_bytes().to_vec();
         prompt_bytes.extend_from_slice(&grm_bytes);
-        let tokens = self.token_env.tokenize_bytes_prefix(&prompt_bytes);
+        let tokens = self.token_env.tokenize_bytes_marker(&prompt_bytes);
         infoln!(self, "prompt+grm: {}", trie.tokens_dbg(&tokens));
         let (chop_tokens, chop_bytes) = self
             .parser
@@ -184,7 +204,7 @@ impl TokenParser {
         // if we moved a bunch of grammar to the prompt, update llm_tokens to reflect that
         if chop_bytes <= grm_bytes.len() {
             self.llm_bytes = grm_bytes[0..grm_bytes.len() - chop_bytes].to_vec();
-            self.llm_tokens = self.token_env.tokenize_bytes_prefix(&self.llm_bytes);
+            self.llm_tokens = self.token_env.tokenize_bytes_marker(&self.llm_bytes);
             self.parser.apply_forced(self.llm_bytes.len());
             let decoded = self.tok_trie().decode_raw(&self.llm_tokens);
             if self.llm_bytes.len() > 0
@@ -254,14 +274,51 @@ impl TokenParser {
         Ok(())
     }
 
+    pub fn validate_token(&mut self, token: TokenId) -> Result<bool> {
+        self.check_initialized("validate_token")?;
+        if token == self.eos_token {
+            Ok(self.parser.validate_bytes(&[], true) > 0)
+        } else {
+            let bytes = self.tok_trie().decode_raw(&[token]);
+            let n_valid = self.parser.validate_bytes(&bytes, false);
+            assert!(n_valid <= bytes.len());
+            Ok(n_valid == bytes.len())
+        }
+    }
+
     /// Returns how many of the passed tokens can be accepted by the parser.
     /// It does not tokenize forced bytes, so will accept non-canonical tokenizations.
     /// If called with more than one token, it may ignore max_tokens constraints.
     pub fn validate_tokens_raw(&mut self, tokens: &[TokenId]) -> Result<usize> {
         self.check_initialized("validate_tokens_raw")?;
 
+        if tokens.is_empty() {
+            return Ok(0);
+        }
+
+        if tokens.len() == 1 {
+            return if self.validate_token(tokens[0])? {
+                Ok(1)
+            } else {
+                Ok(0)
+            };
+        }
+
+        let mut final_eos = false;
+        let tokens = if tokens.last() == Some(&self.eos_token) {
+            final_eos = true;
+            &tokens[..tokens.len() - 1]
+        } else {
+            tokens
+        };
+
         let bytes = self.tok_trie().decode_raw(tokens);
-        let n_valid = self.parser.validate_bytes(&bytes);
+        let n_valid = self.parser.validate_bytes(&bytes, final_eos);
+
+        if final_eos && n_valid == bytes.len() + 1 {
+            return Ok(tokens.len() + 1);
+        }
+
         assert!(n_valid <= bytes.len());
 
         // fast paths
@@ -472,7 +529,7 @@ impl TokenParser {
 
         let do_force = forced_bytes.len() > 0 && self.token_env.tokenize_is_canonical();
         if do_force {
-            let mut grm_tokens = self.token_env.tokenize_bytes_prefix(&forced_bytes);
+            let mut grm_tokens = self.token_env.tokenize_bytes_marker(&forced_bytes);
             infoln!(
                 self,
                 "forced: {} bytes:{:?} tokens:{:?}",

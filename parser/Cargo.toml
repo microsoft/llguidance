@@ -1,10 +1,10 @@
 [package]
-name = "llguidance_parser"
+name = "llguidance"
 version = "0.4.1"
 edition = "2021"
 
 [dependencies]
-toktrie = { git = "https://github.com/microsoft/toktrie", rev = "2a90302614b92fcb6fa7bd5bc9be8702742c770a" }
+toktrie = { workspace = true }
 derivre = { git = "https://github.com/microsoft/derivre", rev = "02ee497e6e404a0b402b4f68a9abf599d22ed2ed" }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = { version = "1.0.132", features = ["preserve_order"] }

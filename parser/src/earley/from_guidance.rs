@@ -312,6 +312,8 @@ pub fn grammars_from_json(
 
     // eprintln!("grammars_from_json: {}", serde_json::to_string(&input).unwrap());
 
+    ensure!(input.grammars.len() > 0, "empty grammars array");
+
     let mut lexer_spec = LexerSpec::new()?;
     let mut grammar = Grammar::new(None);
 

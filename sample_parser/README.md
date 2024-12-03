@@ -1,3 +1,3 @@
-# Sample for llguidance_parser
+# Sample for llguidance
 
-This is a sample parser for the [llguidance_parser](../parser/README.md) crate.
+This is a sample parser for the [llguidance](../parser/README.md) crate.

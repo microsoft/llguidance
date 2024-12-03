@@ -1,10 +1,10 @@
 [package]
-name = "llguidance"
+name = "llguidance_py"
 version = "0.4.1"
 edition = "2021"
 
 [dependencies]
-llguidance_parser = { path = "../parser" }
+llguidance = { workspace = true }
 bytemuck = "1.19.0"
 pyo3 = {version = "0.21.2", features = ["extension-module", "abi3-py39"]}
 serde = { version = "1.0.210", features = ["derive"] }

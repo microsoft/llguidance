@@ -70,8 +70,9 @@ impl TokenizerEnv for CTokenizerInner {
     }
 }
 
+#[derive(Clone)]
 pub struct LlgTokenizer {
-    token_env: TokEnv,
+    pub token_env: TokEnv,
 }
 
 impl LlgTokenizer {
@@ -192,6 +193,7 @@ pub struct LlgTokenizerInit {
     pub tokenize_user_data: *const c_void,
 }
 
+#[derive(Clone)]
 #[repr(C)]
 pub struct LlgConstraintInit {
     /// The tokenizer to use, created with llg_new_tokenizer()
@@ -649,6 +651,29 @@ pub extern "C" fn llg_tokenize_bytes(
     let tokens = tok
         .token_env
         .tokenize_bytes(unsafe { std::slice::from_raw_parts(bytes, bytes_len) });
+    let n_toks = tokens.len();
+    let to_copy = std::cmp::min(n_toks, output_tokens_len);
+    unsafe {
+        std::ptr::copy_nonoverlapping(tokens.as_ptr(), output_tokens, to_copy);
+    }
+    n_toks
+}
+
+/// Tokenize the given bytes and return the tokens.
+/// Special tokens will be tokenized, if they follow 0xFF byte prefix.
+/// Always returns the number of tokens that would be written to output_tokens
+/// if output_tokens_len was large enough.
+#[no_mangle]
+pub extern "C" fn llg_tokenize_bytes_marker(
+    tok: &LlgTokenizer,
+    bytes: *const u8,
+    bytes_len: usize,
+    output_tokens: *mut u32,
+    output_tokens_len: usize,
+) -> usize {
+    let tokens = tok
+        .token_env
+        .tokenize_bytes_marker(unsafe { std::slice::from_raw_parts(bytes, bytes_len) });
     let n_toks = tokens.len();
     let to_copy = std::cmp::min(n_toks, output_tokens_len);
     unsafe {

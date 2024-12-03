@@ -1,4 +1,4 @@
-use llguidance_parser::{
+use llguidance::{
     api::{GrammarWithLexer, ParserLimits, TopLevelGrammar},
     toktrie::{InferenceCapabilities, TokEnv, TokenId},
     Constraint, TokenParser,
@@ -27,7 +27,7 @@ fn check_grammar(
     let parser = TokenParser::from_llguidance_json(
         tok_env.clone(),
         grammar,
-        llguidance_parser::Logger::new(0, 2),
+        llguidance::Logger::new(0, 2),
         InferenceCapabilities {
             ff_tokens: true, // can the engine append multiple tokens?
             backtrack: true, // can the engine remove generated tokens?
@@ -76,8 +76,21 @@ fn check_grammar(
             if gen_tokens.is_empty() {
                 panic!("No more tokens to generate");
             }
-            let tok = gen_tokens.remove(0);
+
+            let tok = gen_tokens[0];
             assert!(mask.is_allowed(tok), "Token {} not allowed", tok);
+
+            let num_ok = constraint.validate_tokens_raw(&gen_tokens).unwrap();
+            if num_ok < gen_tokens.len() {
+                panic!(
+                    "Expected {} tokens to be allowed; got {}; {}",
+                    gen_tokens.len(),
+                    num_ok,
+                    tok_env.tok_trie().tokens_dbg(&gen_tokens)
+                );
+            }
+            gen_tokens.remove(0);
+
             let res = constraint.commit_token(Some(tok)).unwrap();
             bt = res.backtrack;
             toks = res.ff_tokens.clone();
