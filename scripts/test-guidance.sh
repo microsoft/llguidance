@@ -3,6 +3,7 @@
 set -e
 cd $(dirname $0)/..
 
+cargo build --locked
 cargo test
 
 echo "Running sample_parser"
