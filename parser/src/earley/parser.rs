@@ -10,7 +10,6 @@ use std::{
     hash::Hash,
     ops::Range,
     sync::{Arc, Mutex},
-    vec,
 };
 
 use anyhow::{bail, ensure, Result};
@@ -103,8 +102,8 @@ impl ParserStats {
 // in which the rows are Earley sets.
 #[derive(Clone)]
 struct Row {
-    first_item: usize,
-    last_item: usize,
+    first_item: u32,
+    last_item: u32,
 
     // The "allowed lexemes".  The allowed lexemes (aka acceptable
     // lexemes, aka relevant lexemes) are those which the recognizer
@@ -115,7 +114,7 @@ struct Row {
 
 impl Row {
     fn item_indices(&self) -> Range<usize> {
-        self.first_item..self.last_item
+        self.first_item as usize..self.last_item as usize
     }
 }
 
@@ -303,8 +302,8 @@ impl Scratch {
     // current, working, row.
     fn work_row(&self, allowed_lexemes: SimpleVob) -> Row {
         Row {
-            first_item: self.row_start,
-            last_item: self.row_end,
+            first_item: self.row_start as u32,
+            last_item: self.row_end as u32,
             allowed_lexemes,
         }
     }
@@ -879,11 +878,11 @@ impl ParserState {
             max_tokens: Arc::new(HashMap::default()),
         });
 
-        let mut dst = self.rows[start_idx].first_item;
+        let mut dst = self.rows[start_idx].first_item as usize;
         for idx in start_idx..self.num_rows() {
             // copy range before messing with first_item
             let range = self.rows[idx].item_indices();
-            self.rows[idx].first_item = dst;
+            self.rows[idx].first_item = dst as u32;
             let mut has_max_tokens = false;
             for i in range {
                 let item = self.scratch.items[i];
@@ -905,7 +904,7 @@ impl ParserState {
                 self.scratch.items[dst] = item;
                 dst += 1;
             }
-            self.rows[idx].last_item = dst;
+            self.rows[idx].last_item = dst as u32;
             if has_max_tokens {
                 self.first_row_with_max_token_limit =
                     std::cmp::min(self.first_row_with_max_token_limit, idx);
@@ -1171,8 +1170,8 @@ impl ParserState {
     // and debugging (lexeme.idx used always)
     fn scan(&mut self, lexeme: &Lexeme) -> bool {
         let row_idx = self.num_rows() - 1;
-        let last = self.rows[row_idx].last_item;
-        let mut i = self.rows[row_idx].first_item;
+        let last = self.rows[row_idx].last_item as usize;
+        let mut i = self.rows[row_idx].first_item as usize;
         let n = last - i;
         self.scratch.ensure_items(last + n + 100);
         self.scratch.new_row(last);
