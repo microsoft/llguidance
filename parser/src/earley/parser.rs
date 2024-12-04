@@ -47,7 +47,7 @@ macro_rules! debug {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct Item {
     data: u64,
 }
@@ -172,6 +172,13 @@ impl Item {
         Item {
             data: self.data + 1,
         }
+    }
+}
+
+impl Debug for Item {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let rule = self.rhs_ptr();
+        write!(f, "Item(rhs={} @{})", rule.as_index(), self.start_pos())
     }
 }
 
@@ -1470,8 +1477,11 @@ impl ParserState {
         }
 
         if grm_stack_top.as_usize() == 0 {
-            assert!(grammar_id == LexemeClass::ROOT, 
-                "grammar stack empty for non-root grammar: {:?}", grammar_id);
+            assert!(
+                grammar_id == LexemeClass::ROOT,
+                "grammar stack empty for non-root grammar: {:?}",
+                grammar_id
+            );
         }
 
         self.scratch.push_grm_top = grm_stack_top;
