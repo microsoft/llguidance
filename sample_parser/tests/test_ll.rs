@@ -35,13 +35,44 @@ fn test_ll_new_max_tokens() {
     //     &[" x", " a‧ a‧ a‧ a‧ b", " y"],
     // );
 
-    // PRTODO this should fail!
-    check_lark_grammar(
+    let c = check_lark_grammar_nested(
         r#"start: " x" ab " y"
-           ab[max_tokens=3]: (" a")* " b"
-           "#,
-        &[" x", " a‧ a‧ a‧ a‧ b", " y"],
+           ab[max_tokens=3]: @sub
+        "#,
+        r#"start: (" a")* " b""#,
+        &[" x", " a‧ a‧ b", " y"],
     );
+    check_capture(&c, "ab", " a a b");
+
+    let c = check_lark_grammar_nested(
+        r#"start: " x" ab " y"
+           ab[max_tokens=4]: @sub
+        "#,
+        r#"start: (" a")* " b""#,
+        &[" x", " a‧ a‧ b", " y"],
+    );
+    check_capture(&c, "ab", " a a b");
+
+    let c = check_lark_grammar_nested(
+        r#"start: " x" ab " y"
+           ab[max_tokens=3]: @sub
+        "#,
+        r#"start: (" a")* " b""#,
+        &[" x", " a‧ a‧ a", " y"],
+    );
+    check_capture(&c, "ab", " a a a");
+
+    let c = check_lark_grammar_nested(
+        r#"start: ab " y"
+           ab[max_tokens=3]: @sub
+        "#,
+        r#"start: (" a")* " b""#,
+        &["", " a‧ a‧ a", " y"],
+    );
+    check_capture(&c, "ab", " a a a");
+
+    // PRTODO also check if sub-grammar is the first thing
+    // start[max_tokens=...]: @sub
 }
 
 #[test]

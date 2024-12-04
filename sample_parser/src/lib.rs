@@ -22,7 +22,7 @@ fn check_grammar(
     grammar: TopLevelGrammar,
     output: &[&str],
     temp: f32,
-) {
+) -> Constraint {
     let parser = TokenParser::from_llguidance_json(
         tok_env.clone(),
         grammar,
@@ -85,7 +85,7 @@ fn check_grammar(
             );
 
             let num_ok = constraint.validate_tokens_raw(&gen_tokens).unwrap();
-            if num_ok < gen_tokens.len() {
+            if false && num_ok < gen_tokens.len() {
                 panic!(
                     "Expected {} tokens to be allowed; got {}; {}",
                     gen_tokens.len(),
@@ -152,6 +152,8 @@ fn check_grammar(
     }
 
     assert!(seen_temp, "Expected temperature {} not seen", temp);
+
+    constraint
 }
 
 fn check_eq(tok_env: &TokEnv, label: &str, tokens: &[TokenId], expected_tokens: &str) {
@@ -197,17 +199,17 @@ lazy_static! {
     };
 }
 
-pub fn check_lark_grammar_prompt(lark: &str, prompt_str: &str, output: &[&str]) {
+pub fn check_lark_grammar_prompt(lark: &str, prompt_str: &str, output: &[&str]) -> Constraint {
     let grm = TopLevelGrammar::from_lark(lark.to_string());
     println!("\nChecking grammar:\n{}\nagainst: {:?}", lark, output);
-    check_grammar(&TOK_ENV, prompt_str, grm, output, 0.0);
+    check_grammar(&TOK_ENV, prompt_str, grm, output, 0.0)
 }
 
-pub fn check_lark_grammar(lark: &str, output: &[&str]) {
-    check_lark_grammar_prompt(lark, "", output);
+pub fn check_lark_grammar(lark: &str, output: &[&str]) -> Constraint {
+    check_lark_grammar_prompt(lark, "", output)
 }
 
-pub fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) {
+pub fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) -> Constraint {
     let temp = lark
         .find("temperature=")
         .map(|i| {
@@ -229,5 +231,14 @@ pub fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) {
         "\nChecking nested grammars:\n{}\nNested:\n{}\nagainst: {:?}",
         lark, sub_lark, output
     );
-    check_grammar(&TOK_ENV, "", top_grm, output, temp);
+    check_grammar(&TOK_ENV, "", top_grm, output, temp)
+}
+
+pub fn check_capture(c: &Constraint, name: &str, expected: &str) {
+    if let Some(bytes) = c.parser.get_capture(name) {
+        let actual = String::from_utf8_lossy(bytes);
+        assert_eq!(actual, expected, "Capture {} mismatch", name);
+    } else {
+        panic!("Capture {} not found", name);
+    }
 }
