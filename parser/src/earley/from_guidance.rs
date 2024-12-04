@@ -351,7 +351,13 @@ pub fn grammars_from_json(
 
     let log_grammar = logger.level_enabled(3) || (logger.level_enabled(2) && grammar.is_small());
     if log_grammar {
-        writeln!(logger.info_logger(), "{:?}\n{:?}\n", lexer_spec, grammar).unwrap();
+        writeln!(
+            logger.info_logger(),
+            "{:?}\n{}\n",
+            lexer_spec,
+            grammar.to_string(Some(&lexer_spec))
+        )
+        .unwrap();
     } else if logger.level_enabled(2) {
         writeln!(
             logger.info_logger(),
@@ -365,7 +371,12 @@ pub fn grammars_from_json(
     grammar = grammar.optimize();
 
     if log_grammar {
-        write!(logger.info_logger(), "  == Optimize ==>\n{:?}", grammar).unwrap();
+        write!(
+            logger.info_logger(),
+            "  == Optimize ==>\n{}",
+            grammar.to_string(Some(&lexer_spec))
+        )
+        .unwrap();
     } else if logger.level_enabled(2) {
         writeln!(logger.info_logger(), "  ==> {}", grammar.stats()).unwrap();
     }

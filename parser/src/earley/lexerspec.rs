@@ -353,6 +353,10 @@ impl LexerSpec {
     pub fn skip_id(&self, class: LexemeClass) -> LexemeIdx {
         self.skip_by_class[class.as_usize()]
     }
+
+    pub fn lexeme_def_to_string(&self, idx: LexemeIdx) -> String {
+        self.lexemes[idx.0].to_string(512, Some(self.regex_builder.exprset()))
+    }
 }
 
 impl Debug for LexerSpec {

@@ -23,6 +23,13 @@ impl Symbol {
     fn is_lexeme_terminal(&self) -> bool {
         self.lexeme.is_some()
     }
+    fn short_name(&self) -> String {
+        if let Some(lex) = self.lexeme {
+            format!("[{}]", lex.as_usize())
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -230,7 +237,7 @@ impl Grammar {
             self.sym_name(rule.lhs()),
             rule.rhs
                 .iter()
-                .map(|s| self.sym_data(*s).name.as_str())
+                .map(|s| self.sym_data(*s).short_name())
                 .collect(),
             dot,
             &ldata.props,
@@ -499,10 +506,15 @@ impl Grammar {
             num_term, num_non_term, num_rules, size
         )
     }
-}
 
-impl Debug for Grammar {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    pub fn to_string(&self, lexer_spec: Option<&LexerSpec>) -> String {
+        let mut outp = String::new();
+        self.fmt_grammar(lexer_spec, &mut outp).unwrap();
+        outp
+    }
+
+    fn fmt_grammar(&self, lexer_spec: Option<&LexerSpec>, f: &mut String) -> std::fmt::Result {
+        use std::fmt::Write;
         writeln!(f, "Grammar:")?;
         for sym in &self.symbols {
             match sym.gen_grammar {
@@ -511,17 +523,21 @@ impl Debug for Grammar {
                 }
                 _ => {}
             }
-            match sym.lexeme {
-                Some(lx) => {
-                    writeln!(
-                        f,
-                        "{:15} ==> [{}] temp={:.2}",
-                        sym.name,
-                        lx.as_usize(),
-                        sym.props.temperature
-                    )?;
+            if false {
+                match sym.lexeme {
+                    Some(lx) => {
+                        write!(f, "{:15} ==>", sym.name)?;
+                        if sym.props.temperature != 0.0 {
+                            write!(f, " temp={:.2}", sym.props.temperature)?;
+                        }
+                        if let Some(lexer_spec) = lexer_spec {
+                            writeln!(f, " {}", lexer_spec.lexeme_def_to_string(lx))?;
+                        } else {
+                            writeln!(f, " [{:?}]", lx.as_usize())?;
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         for sym in &self.symbols {
@@ -543,6 +559,12 @@ impl Debug for Grammar {
         }
         writeln!(f, "stats: {}\n", self.stats())?;
         Ok(())
+    }
+}
+
+impl Debug for Grammar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string(None))
     }
 }
 
@@ -592,6 +614,16 @@ pub struct CSymbol {
     pub rules: Vec<RhsPtr>,
     pub sym_flags: SymFlags,
     pub lexeme: Option<LexemeIdx>,
+}
+
+impl CSymbol {
+    fn short_name(&self) -> String {
+        if let Some(lex) = self.lexeme {
+            format!("[{}]", lex.as_usize())
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -883,9 +915,7 @@ impl CGrammar {
         };
         rule_to_string(
             lhs,
-            rhs.iter()
-                .map(|s| self.sym_data(*s).name.as_str())
-                .collect(),
+            rhs.iter().map(|s| self.sym_data(*s).short_name()).collect(),
             Some(dot),
             &symdata.props,
             dot_prop,
@@ -895,18 +925,18 @@ impl CGrammar {
 
 fn rule_to_string(
     lhs: &str,
-    mut rhs: Vec<&str>,
+    mut rhs: Vec<String>,
     dot: Option<usize>,
     props: &SymbolProps,
     _dot_props: Option<&SymbolProps>,
 ) -> String {
     if rhs.is_empty() {
-        rhs.push("ϵ");
+        rhs.push("ϵ".to_string());
         if dot == Some(0) {
-            rhs.push("•");
+            rhs.push("•".to_string());
         }
     } else if let Some(dot) = dot {
-        rhs.insert(dot, "•");
+        rhs.insert(dot, "•".to_string());
     }
     format!("{:15} ⇦ {}  {}", lhs, rhs.join(" "), props.to_string())
 }
