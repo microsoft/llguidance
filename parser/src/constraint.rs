@@ -176,12 +176,14 @@ impl Constraint {
     /// It only returns 'STOP' if previous compute_mask() already returned 'STOP'
     /// (in which case there's little point calling commit_token()).
     pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<CommitResult> {
+        let n_tokens = self.parser.num_tokens();
         loginfo!(
             self.parser.logger,
-            "\ncommit_token({})",
+            "\ncommit_token({}) at #{}",
             sampled_token
                 .map(|t| self.parser.token_env.tok_trie().token_dbg(t))
-                .unwrap_or("None".to_string())
+                .unwrap_or("None".to_string()),
+            n_tokens
         );
 
         // ensure!(

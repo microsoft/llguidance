@@ -1392,9 +1392,12 @@ impl ParserState {
     }
 
     fn process_max_tokens(&mut self, ptr: GrammarStackPtr, lexeme: &Lexeme) {
+        if self.scratch.definitive {
+            debug!("  process_max_tokens");
+        }
         let curr_idx = self.num_rows();
-        self.scratch.push_grm_top = ptr;
         let top = &self.scratch.grammar_stack[ptr.as_usize()];
+        self.scratch.push_grm_top = top.back_ptr;
         let item = top.start_item.advance_dot();
         // remove everything from the current row
         self.scratch.row_end = self.scratch.row_start;
@@ -1456,22 +1459,26 @@ impl ParserState {
 
         while grm_stack_top.as_usize() > 0 {
             let grm_top = &self.scratch.grammar_stack[grm_stack_top.as_usize()];
+            if self.scratch.definitive {
+                debug!(
+                    "  pop grammar_stack: top={:?}, curr={:?}, #{}",
+                    grm_top.grammar_id, grammar_id, self.token_idx
+                );
+            }
             if grm_top.grammar_id == grammar_id {
-                if grm_top.token_horizon < self.token_idx as u32 {
+                // token_idx is one behind
+                if grm_top.token_horizon <= self.token_idx as u32 + 1 {
                     // mark that we need to do the max_token processing
                     // and where to pop the stack
                     // We only pop one grammar off the stack.
                     // If more grammars have the same token horizon, they will get popped
                     // in the next step - we might overrun a bit.
-                    max_token_ptr = Some(grm_top.back_ptr);
+                    if self.scratch.definitive {
+                        debug!("  hit token limit");
+                    }
+                    max_token_ptr = Some(grm_stack_top);
                 }
                 break;
-            }
-            if self.scratch.definitive {
-                debug!(
-                    "  pop grammar stack: {:?} != {:?}",
-                    grm_top.grammar_id, grammar_id
-                );
             }
             grm_stack_top = grm_top.back_ptr;
         }
