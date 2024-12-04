@@ -1470,7 +1470,8 @@ impl ParserState {
         }
 
         if grm_stack_top.as_usize() == 0 {
-            assert!(grammar_id == LexemeClass::ROOT);
+            assert!(grammar_id == LexemeClass::ROOT, 
+                "grammar stack empty for non-root grammar: {:?}", grammar_id);
         }
 
         self.scratch.push_grm_top = grm_stack_top;

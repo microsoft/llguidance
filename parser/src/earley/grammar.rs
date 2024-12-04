@@ -362,11 +362,15 @@ impl Grammar {
         let mut outp = Grammar::new(self.name.clone());
 
         let start_data = self.sym_data(self.start());
-        if start_data.is_terminal() || start_data.rules.iter().any(|r| r.rhs.is_empty()) {
+        if start_data.is_terminal()
+            || start_data.gen_grammar.is_some()
+            || start_data.rules.iter().any(|r| r.rhs.is_empty())
+        {
             let new_start = outp.fresh_symbol_ext(
                 "_start_repl",
                 SymbolProps {
                     grammar_id: start_data.props.grammar_id,
+                    is_start: true,
                     ..Default::default()
                 },
             );
