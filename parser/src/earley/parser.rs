@@ -5,7 +5,6 @@
 // (Retrieved 18 Sep 2024).
 
 use std::{
-    collections::HashMap,
     fmt::Debug,
     hash::Hash,
     ops::Range,
@@ -97,6 +96,35 @@ impl ParserStats {
     }
 }
 
+macro_rules! id32_type {
+    ($name:ident) => {
+        #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy, Debug)]
+        #[serde(transparent)]
+        pub struct $name(pub u32);
+
+        impl $name {
+            pub fn as_usize(&self) -> usize {
+                self.0 as usize
+            }
+
+            pub fn new(idx: usize) -> Self {
+                $name(idx as u32)
+            }
+        }
+    };
+}
+
+id32_type!(GrammarStackPtr);
+
+#[derive(Clone)]
+struct GrammarStackNode {
+    back_ptr: GrammarStackPtr,
+    token_horizon: u32,
+    grammar_id: LexemeClass,
+    start_item: Item,
+    start_item_idx: usize,
+}
+
 // In this, code a "Row" is what is usually called an Earley set in the literature.
 // The term "row" comes from Kallmeyer 2018, which uses a chart parsing algorithm
 // in which the rows are Earley sets.
@@ -104,6 +132,8 @@ impl ParserStats {
 struct Row {
     first_item: u32,
     last_item: u32,
+
+    grammar_stack_ptr: GrammarStackPtr,
 
     // The "allowed lexemes".  The allowed lexemes (aka acceptable
     // lexemes, aka relevant lexemes) are those which the recognizer
@@ -155,6 +185,10 @@ struct Scratch {
     row_end: usize,
 
     items: Vec<Item>,
+    grammar_stack: Vec<GrammarStackNode>,
+
+    push_allowed_lexemes: SimpleVob,
+    push_grm_top: GrammarStackPtr,
 
     // Is this Earley table in "definitive" mode?
     // 'definitive' is set when the new lexeme is being 'defined',
@@ -172,15 +206,6 @@ struct RowInfo {
     lexeme: Lexeme,
     token_idx_start: usize,
     token_idx_stop: usize,
-
-    // A hash whose key is a symbol index, and whose value is
-    // the maximum tokens allowed for that symbol.  Undefined hash
-    // keys allow an unlimited number of tokens.  That the number
-    // of tokens is unlimited can be indicated explicitly by setting
-    // the value of the hash entry to usize::MAX.
-
-    // TODO: we are only interested in this for the last (current) row; remove from here?
-    max_tokens: Arc<HashMap<LexemeIdx, usize>>,
 }
 
 impl RowInfo {
@@ -196,16 +221,11 @@ impl RowInfo {
 
     fn dbg(&self, lexspec: &LexerSpec) -> String {
         format!(
-            "token_idx: {}-{}; b:{}; {} {}",
+            "token_idx: {}-{}; b:{}; {}",
             self.token_idx_start,
             self.token_idx_stop,
             self.start_byte_idx,
             lexspec.dbg_lexeme(&self.lexeme),
-            if self.max_tokens.is_empty() {
-                "".to_string()
-            } else {
-                format!("max_tokens={:?}", self.max_tokens)
-            }
         )
     }
 }
@@ -240,6 +260,7 @@ struct ParserState {
     grammar: Arc<CGrammar>,
     scratch: Scratch,
     trie_lexer_stack: usize,
+    trie_grammar_stack: usize,
     captures: Vec<(String, Vec<u8>)>,
 
     // These are updated also in speculative mode.
@@ -277,10 +298,13 @@ pub struct Parser {
 impl Scratch {
     fn new(grammar: Arc<CGrammar>) -> Self {
         Scratch {
+            push_allowed_lexemes: grammar.lexer_spec().alloc_lexeme_set(),
+            push_grm_top: GrammarStackPtr::new(0),
             grammar,
             row_start: 0,
             row_end: 0,
             items: vec![],
+            grammar_stack: vec![],
             definitive: true,
         }
     }
@@ -299,11 +323,13 @@ impl Scratch {
 
     // Add a new row to the Earley table.  It will be the
     // current, working, row.
-    fn work_row(&self, allowed_lexemes: SimpleVob) -> Row {
+    fn work_row(&self) -> Row {
         Row {
             first_item: self.row_start as u32,
             last_item: self.row_end as u32,
-            allowed_lexemes,
+            // TODO convert this to lexer state
+            allowed_lexemes: self.push_allowed_lexemes.clone(),
+            grammar_stack_ptr: self.push_grm_top,
         }
     }
 
@@ -316,6 +342,12 @@ impl Scratch {
             self.items.reserve(missing);
             unsafe { self.items.set_len(n) }
         }
+    }
+
+    fn push_grammar_stack(&mut self, node: GrammarStackNode) {
+        let ptr = GrammarStackPtr::new(self.grammar_stack.len());
+        self.grammar_stack.push(node);
+        self.push_grm_top = ptr;
     }
 
     // Add a new Earley item with default values to the Earley table.  It is
@@ -399,8 +431,17 @@ impl ParserState {
                 lexer_state,
                 byte: None,
             }],
+            trie_grammar_stack: 0,
             parser_error: None,
         };
+
+        r.scratch.grammar_stack.push(GrammarStackNode {
+            back_ptr: GrammarStackPtr::new(0),
+            token_horizon: u32::MAX,
+            grammar_id: LexemeClass::ROOT,
+            start_item: Item::new(RhsPtr::from_index(0), 0),
+            start_item_idx: 0,
+        });
 
         // Initialize the Earley table with the predictions in
         // row 0.
@@ -408,7 +449,7 @@ impl ParserState {
             r.scratch.add_unique(Item::new(rule, 0), 0, "init");
         }
         debug!("initial push");
-        let _ = r.push_row(0, r.scratch.row_start, &Lexeme::bogus());
+        let _ = r.push_row(0, &Lexeme::bogus());
         ensure_internal!(
             r.num_rows() == 1 && r.rows.len() == 1,
             "initial push failed"
@@ -749,6 +790,7 @@ impl ParserState {
                 assert!(applied_idx == self.bytes.len());
 
                 let row_idx = self.num_rows() - 1;
+
                 self.row_infos[row_idx].apply_token_idx(self.token_idx);
 
                 let (ok, bt) = self.try_push_byte_definitive(shared, Some(b));
@@ -808,7 +850,8 @@ impl ParserState {
                 let possible_lexemes = shared.lexer.possible_lexemes(lex_state);
                 for idx in possible_lexemes.iter() {
                     let lex = LexemeIdx::new(idx as usize);
-                    let max_tokens = *info.max_tokens.get(&lex).unwrap_or(&usize::MAX);
+                    let max_tokens = self.lexer_spec().lexeme_spec(lex).max_tokens();
+                    // let max_tokens = *info.max_tokens.get(&lex).unwrap_or(&usize::MAX);
                     debug!(
                         "  max_tokens: {} max={} info={}",
                         self.lexer_spec().dbg_lexeme(&Lexeme::just_idx(lex)),
@@ -912,6 +955,7 @@ impl ParserState {
         // debug!("trie_started: rows={} lexer={}", self.num_rows(), self.lexer_stack.len());
         self.assert_definitive();
         self.trie_lexer_stack = self.lexer_stack.len();
+        self.trie_grammar_stack = self.scratch.grammar_stack.len();
         self.scratch.definitive = false;
     }
 
@@ -919,6 +963,11 @@ impl ParserState {
         // debug!("trie_finished: rows={} lexer={}", self.num_rows(), self.lexer_stack.len());
         assert!(self.scratch.definitive == false);
         assert!(self.row_infos.len() <= self.num_rows());
+
+        // cleanup excessive grammar items (perf)
+        assert!(self.scratch.grammar_stack.len() >= self.trie_grammar_stack);
+        self.scratch.grammar_stack.truncate(self.trie_grammar_stack);
+
         // clean up stack
         self.pop_lexer_states(self.lexer_stack.len() - self.trie_lexer_stack);
         self.scratch.definitive = true;
@@ -1073,7 +1122,6 @@ impl ParserState {
     // this just copies current row
     fn scan_skip_lexeme(&mut self, lexeme: &Lexeme) -> bool {
         let src = self.curr_row().item_indices();
-        let allowed_lexemes = self.curr_row().allowed_lexemes.clone();
         let n = src.len();
         if n == 0 {
             return false;
@@ -1081,23 +1129,29 @@ impl ParserState {
         self.scratch.ensure_items(src.end + n + 100);
         self.scratch.new_row(src.end);
 
+        // we'll not re-run process_agenda() for the newly added row, so save its allowed lexemes
+        // (this is unless we hit max_tokens case)
+        self.scratch
+            .push_allowed_lexemes
+            .set_from(&self.rows[self.num_rows() - 1].allowed_lexemes);
+
         for i in src {
             self.scratch
                 .just_add(self.scratch.items[i], i, "skip_lexeme");
         }
 
-        // note that we pass 'row_end' not 'row_start' as the agenda pointer
-        // this will skip processing any items, and only push the row
-        let push_res = self.push_row(self.num_rows(), self.scratch.row_end, lexeme);
-        assert!(push_res);
-        let added_row_idx = self.num_rows();
-        // the allowed_lexemes were not computed correctly due to us messing
-        // with agenda pointer above
-        self.rows[added_row_idx].allowed_lexemes = allowed_lexemes;
-        if self.scratch.definitive {
-            self.row_infos[added_row_idx].max_tokens =
-                self.row_infos[added_row_idx - 1].max_tokens.clone();
+        let (grammar_id, max_token_ptr) = self.maybe_pop_grammar_stack(lexeme.idx);
+
+        // no process_agenda() in the normal case
+
+        if let Some(ptr) = max_token_ptr {
+            // but we have to do it if we hit the max tokens case
+            self.process_max_tokens(ptr, lexeme);
         }
+
+        let push_res = self.just_push_row(grammar_id);
+        assert!(push_res);
+
         true
     }
 
@@ -1112,11 +1166,9 @@ impl ParserState {
     // and debugging (lexeme.idx used always)
     fn scan(&mut self, lexeme: &Lexeme) -> bool {
         let row_idx = self.num_rows() - 1;
-        let last = self.rows[row_idx].last_item as usize;
-        let mut i = self.rows[row_idx].first_item as usize;
-        let n = last - i;
-        self.scratch.ensure_items(last + n + 100);
-        self.scratch.new_row(last);
+        let items = self.rows[row_idx].item_indices();
+        self.scratch.ensure_items(items.end + items.len() + 100);
+        self.scratch.new_row(items.end);
 
         if self.scratch.definitive {
             debug!(
@@ -1132,30 +1184,23 @@ impl ParserState {
         // initialization inference rule, performed "just
         // in time" at the beginning of the creation of
         // each row
-        while i < last {
+        for i in items {
             let item = self.scratch.items[i];
             let sym = self.grammar.sym_data_dot(item.rhs_ptr());
             if sym.lexeme == Some(lexeme.idx) {
                 self.scratch.just_add(item.advance_dot(), i, "scan");
             }
-            i += 1;
         }
 
         // Perform the other inference rules on this Earley set.
-        self.push_row(self.num_rows(), self.scratch.row_start, lexeme)
+        self.push_row(self.num_rows(), lexeme)
     }
 
-    // push_row() does the agenda processing.  There is an agenda for
-    // each Earley set (aka row).
-
-    // Returns false if an empty Earley set is added (and therefore
-    // the parse is exhausted); and true otherwise.
-
-    // lexeme only used for captures (in definitive mode)
     #[inline(always)]
-    fn push_row(&mut self, curr_idx: usize, mut agenda_ptr: usize, lexeme: &Lexeme) -> bool {
-        let mut allowed_lexemes = self.lexer_spec().alloc_lexeme_set();
-        let mut max_tokens = vec![];
+    fn process_agenda(&mut self, curr_idx: usize, lexeme: &Lexeme) {
+        let mut agenda_ptr = self.scratch.row_start;
+
+        self.scratch.push_allowed_lexemes.set_all(false);
 
         // Agenda retrieval is a simplification of Kallmeyer 2018.
         // There is no separate data structure for the agenda --
@@ -1234,12 +1279,7 @@ impl ParserState {
                 // ... if 'rule' is an incompletion
                 let sym_data = self.grammar.sym_data(after_dot);
                 if let Some(lx) = sym_data.lexeme {
-                    allowed_lexemes.set(lx.as_usize(), true);
-                    if self.scratch.definitive {
-                        // In definitive mode, set 'max_tokens' for
-                        // the post-dot symbol.
-                        max_tokens.push((lx, sym_data.props.max_tokens));
-                    }
+                    self.scratch.push_allowed_lexemes.set(lx.as_usize(), true);
                 }
 
                 // The completion inference rule for nullable symbols
@@ -1255,15 +1295,26 @@ impl ParserState {
                     }
                 }
 
-                // The top-down, or prediction, inference rule.
-                // (slide 20 in Kallmeyer 2018)
-                for rule in &sym_data.rules {
-                    let new_item = Item::new(*rule, curr_idx);
-                    self.scratch.add_unique(new_item, item_idx, "predict");
+                if sym_data.gen_grammar.is_some() {
+                    let mut node = self.mk_grammar_stack_node(sym_data, curr_idx);
+                    self.scratch
+                        .add_unique(node.start_item, item_idx, "gen_grammar");
+                    node.start_item_idx = self.scratch.find_item(node.start_item).unwrap();
+                    self.scratch.push_grammar_stack(node);
+                } else {
+                    // The top-down, or prediction, inference rule.
+                    // (slide 20 in Kallmeyer 2018)
+                    for rule in &sym_data.rules {
+                        let new_item = Item::new(*rule, curr_idx);
+                        self.scratch.add_unique(new_item, item_idx, "predict");
+                    }
                 }
             }
         }
+    }
 
+    #[inline(always)]
+    fn just_push_row(&mut self, grammar_id: LexemeClass) -> bool {
         let row_len = self.scratch.row_len();
 
         self.stats.rows += 1;
@@ -1274,22 +1325,22 @@ impl ParserState {
             self.stats.all_items += row_len;
 
             // Always accept a SKIP lexeme
-            let lex_spec = self.lexer_spec();
-            let curr_class = lex_spec.lexeme_spec(lexeme.idx).class();
-            let skip = lex_spec.skip_id(curr_class);
-            allowed_lexemes.set(skip.as_usize(), true);
+            let skip = self.lexer_spec().skip_id(grammar_id);
+            self.scratch.push_allowed_lexemes.set(skip.as_usize(), true);
 
             if self.scratch.definitive {
                 debug!(
                     "  push row: {} {:?}",
-                    self.lexer_spec().dbg_lexeme_set(&allowed_lexemes),
-                    curr_class
+                    self.lexer_spec()
+                        .dbg_lexeme_set(&self.scratch.push_allowed_lexemes),
+                    grammar_id
                 );
             }
 
             // Add the working row to the parser state
             let idx = self.num_rows();
-            let row = self.scratch.work_row(allowed_lexemes);
+
+            let row = self.scratch.work_row();
             if self.rows.len() == 0 || self.rows.len() == idx {
                 // If the physical 'rows' Vec is full, we push a new row
                 // otherwise ...
@@ -1307,40 +1358,6 @@ impl ParserState {
                     self.row_infos.drain(idx..);
                 }
 
-                // We collect and prune the information in
-                // 'max_tokens' into a new hash, 'max_tokens_map',
-                // which will replace 'max_tokens'.
-                let mut max_tokens_map = HashMap::default();
-
-                // If a lexeme allowed twice, set its value in the
-                // 'max_tokens_map' to the maximum of the max_tokens
-                // values specified.
-                for (lx, mx) in max_tokens {
-                    if let Some(ex) = max_tokens_map.get(&lx) {
-                        if *ex < mx {
-                            max_tokens_map.insert(lx, mx);
-                        }
-                    } else {
-                        max_tokens_map.insert(lx, mx);
-                    }
-                }
-
-                // Some entries in 'max_tokens_map' will
-                // explicitly indicate that the number of tokens is
-                // unlimited with a value of usize::MAX.  Since this
-                // is the default for non-existent hash entries, we
-                // save space by removing entries whose value is
-                // usize::MAX.
-                let mut to_remove = vec![];
-                for (lx, mx) in max_tokens_map.iter() {
-                    if *mx == usize::MAX {
-                        to_remove.push(*lx);
-                    }
-                }
-                for lx in to_remove {
-                    max_tokens_map.remove(&lx);
-                }
-
                 // Typically, the current byte was not yet pushed,
                 // yet it's part of the previous lexeme.
                 // This is not true for the first row (which is checked here),
@@ -1356,13 +1373,100 @@ impl ParserState {
                     token_idx_start: self.token_idx,
                     token_idx_stop: self.token_idx,
                     start_byte_idx,
-                    max_tokens: Arc::new(max_tokens_map),
                 });
                 // debug!("  push: {idx} {} {}", self.rows.len(), self.row_infos.len());
             }
 
             true
         }
+    }
+
+    fn process_max_tokens(&mut self, ptr: GrammarStackPtr, lexeme: &Lexeme) {
+        let curr_idx = self.num_rows();
+        self.scratch.push_grm_top = ptr;
+        let top = &self.scratch.grammar_stack[ptr.as_usize()];
+        let item = top.start_item.advance_dot();
+        // remove everything from the current row
+        self.scratch.row_end = self.scratch.row_start;
+        self.scratch
+            .just_add(item, top.start_item_idx, "max_tokens");
+        self.process_agenda(curr_idx, lexeme);
+    }
+
+    // push_row() does the agenda processing.  There is an agenda for
+    // each Earley set (aka row).
+
+    // Returns false if an empty Earley set is added (and therefore
+    // the parse is exhausted); and true otherwise.
+
+    // lexeme value only used for captures (in definitive mode)
+    #[inline(always)]
+    fn push_row(&mut self, curr_idx: usize, lexeme: &Lexeme) -> bool {
+        let (grammar_id, max_token_ptr) = self.maybe_pop_grammar_stack(lexeme.idx);
+
+        self.process_agenda(curr_idx, lexeme);
+
+        if let Some(ptr) = max_token_ptr {
+            assert!(curr_idx == self.num_rows(), "max_tokens on first row");
+            self.process_max_tokens(ptr, lexeme);
+        }
+
+        self.just_push_row(grammar_id)
+    }
+
+    fn mk_grammar_stack_node(&self, sym_data: &CSymbol, curr_idx: usize) -> GrammarStackNode {
+        // TODO check if grammar is already on the stack - if so bail
+        // there should be only one rule
+        assert!(sym_data.rules.len() == 1);
+        let start_item = Item::new(sym_data.rules[0], curr_idx);
+        // with one symbol
+        assert!(self.grammar.sym_idx_dot(start_item.advance_dot().rhs_ptr()) == CSymIdx::NULL);
+        let nested_sym = self.grammar.sym_data_dot(start_item.rhs_ptr());
+        let token_horizon = sym_data.props.max_tokens.saturating_add(self.token_idx);
+        GrammarStackNode {
+            back_ptr: self.scratch.push_grm_top,
+            token_horizon: token_horizon as u32,
+            grammar_id: nested_sym.props.grammar_id,
+            start_item,
+            start_item_idx: usize::MAX,
+        }
+    }
+
+    // when this is called, the current row has only rules with lx at the dot
+    #[inline(always)]
+    fn maybe_pop_grammar_stack(&mut self, lx: LexemeIdx) -> (LexemeClass, Option<GrammarStackPtr>) {
+        let grammar_id = self.lexer_spec().lexeme_spec(lx).class();
+        let mut max_token_ptr = None;
+
+        let mut grm_stack_top = if self.rows.len() > 0 {
+            self.rows[self.num_rows() - 1].grammar_stack_ptr
+        } else {
+            GrammarStackPtr::new(0)
+        };
+
+        while grm_stack_top.as_usize() > 0 {
+            let grm_top = &self.scratch.grammar_stack[grm_stack_top.as_usize()];
+            if grm_top.grammar_id == grammar_id {
+                if grm_top.token_horizon < self.token_idx as u32 {
+                    // mark that we need to do the max_token processing
+                    // and where to pop the stack
+                    // We only pop one grammar off the stack.
+                    // If more grammars have the same token horizon, they will get popped
+                    // in the next step - we might overrun a bit.
+                    max_token_ptr = Some(grm_top.back_ptr);
+                }
+                break;
+            }
+            grm_stack_top = grm_top.back_ptr;
+        }
+
+        if grm_stack_top.as_usize() == 0 {
+            assert!(grammar_id == LexemeClass::ROOT);
+        }
+
+        self.scratch.push_grm_top = grm_stack_top;
+
+        (grammar_id, max_token_ptr)
     }
 
     // curr_row_bytes() looks in the lexer stack, and returns

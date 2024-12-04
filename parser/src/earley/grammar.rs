@@ -33,6 +33,7 @@ pub struct SymbolProps {
     pub stop_capture_name: Option<String>,
     pub hidden: bool,
     pub temperature: f32,
+    pub grammar_id: LexemeClass,
 }
 
 impl Default for SymbolProps {
@@ -44,6 +45,7 @@ impl Default for SymbolProps {
             capture_name: None,
             stop_capture_name: None,
             temperature: 0.0,
+            grammar_id: LexemeClass::ROOT,
         }
     }
 }
@@ -66,6 +68,7 @@ impl SymbolProps {
             capture_name: None,
             stop_capture_name: None,
             temperature: self.temperature,
+            grammar_id: self.grammar_id,
         }
     }
 
@@ -344,7 +347,13 @@ impl Grammar {
 
         let start_data = self.sym_data(self.start());
         if start_data.is_terminal() || start_data.rules.iter().any(|r| r.rhs.is_empty()) {
-            let new_start = outp.fresh_symbol("_start_repl");
+            let new_start = outp.fresh_symbol_ext(
+                "_start_repl",
+                SymbolProps {
+                    grammar_id: start_data.props.grammar_id,
+                    ..Default::default()
+                },
+            );
             outp.add_rule(new_start, vec![SymIdx(1)]).unwrap();
         }
 
@@ -435,10 +444,6 @@ impl Grammar {
             "hidden on non-commit_point"
         );
         sym.props = props;
-    }
-
-    pub fn fresh_symbol(&mut self, name0: &str) -> SymIdx {
-        self.fresh_symbol_ext(name0, SymbolProps::default())
     }
 
     pub fn fresh_symbol_ext(&mut self, name0: &str, symprops: SymbolProps) -> SymIdx {

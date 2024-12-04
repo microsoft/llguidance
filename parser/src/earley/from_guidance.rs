@@ -127,12 +127,12 @@ fn grammar_from_json(
         _ => RegexAst::NoMatch,
     };
 
-    let class = lexer_spec.new_lexeme_class(skip)?;
+    let grammar_id = lexer_spec.new_lexeme_class(skip)?;
 
     if input.no_forcing {
         lexer_spec.no_forcing = true;
     }
-    if input.allow_initial_skip && class == LexemeClass::ROOT {
+    if input.allow_initial_skip && grammar_id == LexemeClass::ROOT {
         // TODO: what about sub-grammars?
         lexer_spec.allow_initial_skip = true;
     }
@@ -157,6 +157,7 @@ fn grammar_from_json(
                 capture_name: props.capture_name.clone(),
                 temperature: 0.0,
                 stop_capture_name: None,
+                grammar_id,
             };
             grm.fresh_symbol_ext(&name, symprops)
         })
@@ -301,7 +302,7 @@ fn grammar_from_json(
     limits.initial_lexer_fuel = limits.initial_lexer_fuel.saturating_sub(lexer_spec.cost());
     limits.max_grammar_size = limits.max_grammar_size.saturating_sub(size);
 
-    Ok((node_map[0], class))
+    Ok((node_map[0], grammar_id))
 }
 
 pub fn grammars_from_json(

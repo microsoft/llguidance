@@ -72,6 +72,10 @@ impl LexemeSpec {
         self.class
     }
 
+    pub fn max_tokens(&self) -> usize {
+        self.max_tokens
+    }
+
     pub fn to_string(&self, max_len: usize, exprset: Option<&ExprSet>) -> String {
         use std::fmt::Write;
         let mut f = String::new();
