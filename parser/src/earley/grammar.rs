@@ -34,6 +34,7 @@ pub struct SymbolProps {
     pub hidden: bool,
     pub temperature: f32,
     pub grammar_id: LexemeClass,
+    pub is_start: bool,
 }
 
 impl Default for SymbolProps {
@@ -45,6 +46,7 @@ impl Default for SymbolProps {
             capture_name: None,
             stop_capture_name: None,
             temperature: 0.0,
+            is_start: false,
             grammar_id: LexemeClass::ROOT,
         }
     }
@@ -58,8 +60,10 @@ impl SymbolProps {
             || self.max_tokens < usize::MAX
             || self.capture_name.is_some()
             || self.stop_capture_name.is_some()
+            || self.is_start
     }
 
+    // this is used when a rule like 'self -> [self.for_wrapper()]` is added
     pub fn for_wrapper(&self) -> Self {
         SymbolProps {
             commit_point: false,
@@ -69,6 +73,7 @@ impl SymbolProps {
             stop_capture_name: None,
             temperature: self.temperature,
             grammar_id: self.grammar_id,
+            is_start: false,
         }
     }
 
@@ -262,11 +267,15 @@ impl Grammar {
         assert!(self.symbols.len() == self.symbol_by_name.len());
     }
 
+    fn is_special_symbol(&self, sym: &Symbol) -> bool {
+        sym.idx == self.start() || sym.gen_grammar.is_some() || sym.props.is_special()
+    }
+
     fn expand_shortcuts(&self) -> Self {
         let mut definition = vec![None; self.symbols.len()];
         for sym in &self.symbols {
             // don't inline special symbols (commit points, captures, ...) or start symbol
-            if sym.idx == self.start() || sym.props.is_special() {
+            if self.is_special_symbol(sym) {
                 continue;
             }
             if sym.rules.len() == 1 && sym.rules[0].rhs.len() == 1 {
@@ -292,7 +301,7 @@ impl Grammar {
         let mut repl = FxHashMap::default();
 
         for sym in &self.symbols {
-            if sym.idx == self.start() || sym.props.is_special() {
+            if self.is_special_symbol(sym) {
                 continue;
             }
             if sym.rules.len() == 1 && use_count[sym.idx.0 as usize] == 1 {

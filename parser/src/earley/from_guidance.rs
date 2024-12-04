@@ -158,6 +158,7 @@ fn grammar_from_json(
                 temperature: 0.0,
                 stop_capture_name: None,
                 grammar_id,
+                is_start: idx == 0,
             };
             grm.fresh_symbol_ext(&name, symprops)
         })

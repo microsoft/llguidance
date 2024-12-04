@@ -116,7 +116,7 @@ macro_rules! id32_type {
 
 id32_type!(GrammarStackPtr);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct GrammarStackNode {
     back_ptr: GrammarStackPtr,
     token_horizon: u32,
@@ -345,6 +345,9 @@ impl Scratch {
     }
 
     fn push_grammar_stack(&mut self, node: GrammarStackNode) {
+        if self.definitive {
+            debug!("push_grammar_stack: {:?}", node);
+        }
         let ptr = GrammarStackPtr::new(self.grammar_stack.len());
         self.grammar_stack.push(node);
         self.push_grm_top = ptr;
@@ -1456,6 +1459,12 @@ impl ParserState {
                     max_token_ptr = Some(grm_top.back_ptr);
                 }
                 break;
+            }
+            if self.scratch.definitive {
+                debug!(
+                    "  pop grammar stack: {:?} != {:?}",
+                    grm_top.grammar_id, grammar_id
+                );
             }
             grm_stack_top = grm_top.back_ptr;
         }
