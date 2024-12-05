@@ -817,6 +817,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "json_stats"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "lazy_static",
+ "llguidance",
+ "serde",
+ "serde_json",
+ "toktrie_hf_tokenizers",
+]
+
+[[package]]
 name = "jsonschema"
 version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
