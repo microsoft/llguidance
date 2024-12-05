@@ -26,7 +26,7 @@ fn test_ll_skip() {
 }
 
 #[test]
-fn test_ll_new_max_tokens() {
+fn test_ll_subgrammar_max_tokens() {
     // TODO test this - should return an error from prompt processing
     // check_lark_grammar(
     //     r#"start: " x" aa " y"
@@ -70,9 +70,6 @@ fn test_ll_new_max_tokens() {
         &["", " a‧ a‧ a", " y"],
     );
     check_capture(&c, "ab", " a a a");
-
-    // PRTODO also check if sub-grammar is the first thing
-    // start[max_tokens=...]: @sub
 }
 
 #[test]
