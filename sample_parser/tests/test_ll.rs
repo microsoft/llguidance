@@ -73,6 +73,22 @@ fn test_ll_subgrammar_max_tokens() {
 }
 
 #[test]
+fn test_ll_lexeme_subgrammar_max_tokens() {
+    check_lark_grammar_nested(
+        r#"start: " x" ab " y"
+           ab[max_tokens=3]: @sub
+        "#,
+        r#"start: TEXT
+           TEXT: (" a")* " b"
+        "#,
+        &[" x", " a‧ a‧ a", " y"],
+    );
+
+    // PRTODO check_tokens() should increment token_idx and we should somehow test it
+
+}
+
+#[test]
 fn test_ll_temperature() {
     check_lark_grammar_nested(
         r#"start: /[xy]/ sub_temp

@@ -5,6 +5,7 @@
 // (Retrieved 18 Sep 2024).
 
 use std::{
+    collections::HashSet,
     fmt::Debug,
     hash::Hash,
     ops::Range,
@@ -848,6 +849,19 @@ impl ParserState {
 
         if check_lexer_max_tokens {
             let row_idx = self.num_rows() - 1;
+
+            let mut pop_classes = HashSet::new();
+            let mut stack_ptr = self.rows[row_idx].grammar_stack_ptr;
+            while stack_ptr.as_usize() > 0 {
+                let grm_top = &self.scratch.grammar_stack[stack_ptr.as_usize()];
+                if grm_top.token_horizon <= self.token_idx as u32 + 1 {
+                    pop_classes.insert(grm_top.grammar_id);
+                    stack_ptr = grm_top.back_ptr;
+                } else {
+                    break;
+                }
+            }
+
             let info = &self.row_infos[row_idx];
             let info_tokens = std::cmp::max(
                 0,
@@ -860,15 +874,18 @@ impl ParserState {
                 let possible_lexemes = shared.lexer.possible_lexemes(lex_state);
                 for idx in possible_lexemes.iter() {
                     let lex = LexemeIdx::new(idx as usize);
-                    let max_tokens = self.lexer_spec().lexeme_spec(lex).max_tokens();
+                    let lex_spec = self.lexer_spec().lexeme_spec(lex);
+                    let max_tokens = lex_spec.max_tokens();
+                    let class_ok = !pop_classes.contains(&lex_spec.class());
                     // let max_tokens = *info.max_tokens.get(&lex).unwrap_or(&usize::MAX);
                     debug!(
-                        "  max_tokens: {} max={} info={}",
+                        "  max_tokens: {} max={} info={} class_ok={}",
                         self.lexer_spec().dbg_lexeme(&Lexeme::just_idx(lex)),
                         max_tokens,
-                        info_tokens
+                        info_tokens,
+                        class_ok
                     );
-                    if info_tokens < max_tokens {
+                    if info_tokens < max_tokens && class_ok {
                         limit.allow_token(idx);
                     } else {
                         num_limit += 1;

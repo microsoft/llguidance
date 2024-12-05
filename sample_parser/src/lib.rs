@@ -85,7 +85,7 @@ fn check_grammar(
             );
 
             let num_ok = constraint.validate_tokens_raw(&gen_tokens).unwrap();
-            if false && num_ok < gen_tokens.len() {
+            if num_ok < gen_tokens.len() {
                 panic!(
                     "Expected {} tokens to be allowed; got {}; {}",
                     gen_tokens.len(),
