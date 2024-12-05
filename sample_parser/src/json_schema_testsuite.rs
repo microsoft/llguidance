@@ -154,7 +154,13 @@ impl JsonTestSequence {
         )?;
         let constraint = Constraint::new(parser);
 
-        let obj_str = serde_json::to_string_pretty(&round_float_to_int(&self.data)).unwrap();
+        let coerce_float_to_int = false;
+        let obj_str = if coerce_float_to_int {
+            serde_json::to_string_pretty(&round_float_to_int(&self.data)).unwrap()
+        } else {
+            serde_json::to_string_pretty(&self.data).unwrap()
+        };
+
         match self.run_for(stats, &obj_str, tok_env, constraint) {
             Ok(_) => Ok(()),
             Err(e) => {
