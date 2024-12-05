@@ -234,6 +234,19 @@ pub fn check_lark_grammar_nested(lark: &str, sub_lark: &str, output: &[&str]) ->
     check_grammar(&TOK_ENV, "", top_grm, output, temp)
 }
 
+pub fn check_lark_json(lark: &str, json_schema: serde_json::Value, output: &[&str]) -> Constraint {
+    let schema_str = serde_json::to_string_pretty(&json_schema).unwrap();
+    let mut top_grm = TopLevelGrammar::from_lark(lark.to_string());
+    let mut sub_grm = GrammarWithLexer::from_json_schema(json_schema);
+    sub_grm.name = Some("sub".to_string());
+    top_grm.grammars.push(sub_grm);
+    println!(
+        "\nChecking lark+json:\n{}\nNested:\n{}\nagainst: {:?}",
+        lark, schema_str, output
+    );
+    check_grammar(&TOK_ENV, "", top_grm, output, 0.0)
+}
+
 pub fn check_capture(c: &Constraint, name: &str, expected: &str) {
     if let Some(bytes) = c.parser.get_capture(name) {
         let actual = String::from_utf8_lossy(bytes);
@@ -241,4 +254,10 @@ pub fn check_capture(c: &Constraint, name: &str, expected: &str) {
     } else {
         panic!("Capture {} not found", name);
     }
+}
+
+pub fn print_tokenized(s: &str) {
+    let trie = TOK_ENV.tok_trie();
+    let tokens = TOK_ENV.tokenize(s);
+    println!("{:?}", trie.test_trace_tokens(&tokens));
 }

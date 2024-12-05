@@ -1199,9 +1199,10 @@ impl ParserState {
 
         if self.scratch.definitive {
             debug!(
-                "  scan: {} at {} (spec: {:?})",
+                "  scan: {} at row={} token={} (spec: {:?})",
                 self.lexer_spec().dbg_lexeme(&lexeme),
                 row_idx,
+                self.token_idx,
                 self.lexer_spec().lexeme_spec(lexeme.idx),
             );
         }
@@ -1484,14 +1485,17 @@ impl ParserState {
             }
             if grm_top.grammar_id == grammar_id {
                 // token_idx is one behind
-                if grm_top.token_horizon <= self.token_idx as u32 + 1 {
+                if grm_top.token_horizon <= self.token_idx as u32 {
                     // mark that we need to do the max_token processing
                     // and where to pop the stack
                     // We only pop one grammar off the stack.
                     // If more grammars have the same token horizon, they will get popped
                     // in the next step - we might overrun a bit.
                     if self.scratch.definitive {
-                        debug!("  hit token limit");
+                        debug!(
+                            "  hit token limit horizon={} token_idx={}",
+                            grm_top.token_horizon, self.token_idx
+                        );
                     }
                     max_token_ptr = Some(grm_stack_top);
                 }

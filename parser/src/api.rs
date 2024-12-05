@@ -423,7 +423,14 @@ impl GrammarWithLexer {
         GrammarWithLexer {
             name: Some("lark_grammar".to_string()),
             lark_grammar: Some(lark_grammar),
-            greedy_lexer: true,
+            ..GrammarWithLexer::default()
+        }
+    }
+
+    pub fn from_json_schema(json_schema: Value) -> Self {
+        GrammarWithLexer {
+            name: Some("json_schema".to_string()),
+            json_schema: Some(json_schema),
             ..GrammarWithLexer::default()
         }
     }
@@ -440,7 +447,6 @@ impl GrammarWithLexer {
                 json_allowed_escapes: None,
                 json_raw: None,
             }],
-            greedy_lexer: true,
             rx_nodes: vec![rx],
             ..Default::default()
         }
