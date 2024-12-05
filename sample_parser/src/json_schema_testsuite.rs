@@ -7,7 +7,7 @@ use llguidance::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{env, fs::File, io::Read, vec};
+use std::{env, fs::File, io::Read, time::Duration, vec};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonTest {
@@ -24,7 +24,13 @@ struct JsonTestSequence {
 }
 
 impl JsonTestSequence {
-    fn run_for(&self, obj_str: &str, tok_env: &TokEnv, mut constraint: Constraint) -> Result<()> {
+    fn run_for(
+        &self,
+        stats: &mut Stats,
+        obj_str: &str,
+        tok_env: &TokEnv,
+        mut constraint: Constraint,
+    ) -> Result<()> {
         let tokens = tok_env.tokenize(obj_str);
         let trie = tok_env.tok_trie();
 
@@ -33,6 +39,7 @@ impl JsonTestSequence {
             // println!("idx: {} {}", idx, trie.token_dbg(tokens[idx]));
 
             let res = constraint.compute_mask()?;
+            stats.num_masks += 1;
 
             if res.is_stop() {
                 if self.valid {
@@ -103,7 +110,7 @@ impl JsonTestSequence {
         }
     }
 
-    fn run(&self, grm: &TopLevelGrammar, tok_env: &TokEnv) -> Result<()> {
+    fn run(&self, stats: &mut Stats, grm: &TopLevelGrammar, tok_env: &TokEnv) -> Result<()> {
         let stderr_log_level = 1;
         let buffer_log_level = 0;
         let parser = TokenParser::from_llguidance_json(
@@ -123,7 +130,7 @@ impl JsonTestSequence {
         let constraint = Constraint::new(parser);
 
         let obj_str = serde_json::to_string_pretty(&self.data).unwrap();
-        match self.run_for(&obj_str, tok_env, constraint) {
+        match self.run_for(stats, &obj_str, tok_env, constraint) {
             Ok(_) => Ok(()),
             Err(e) => {
                 bail!("{}\n{:?}", e, obj_str)
@@ -133,18 +140,27 @@ impl JsonTestSequence {
 }
 
 impl JsonTest {
-    fn run(&self, tok_env: &TokEnv) -> Result<()> {
+    fn run(&self, stats: &mut Stats, tok_env: &TokEnv) -> Result<()> {
         let opts = JsonCompileOptions::default();
         let grm = opts.json_to_llg(self.schema.clone())?;
         let mut first_err = Ok(());
         for t in &self.tests {
-            let r = t.run(&grm, tok_env);
+            let r = t.run(stats, &grm, tok_env);
             if first_err.is_ok() && r.is_err() {
                 first_err = r;
             }
         }
         first_err
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Stats {
+    num_tests: usize,
+    num_ok: usize,
+    num_masks: usize,
+    total_time: Duration,
+    tokenizer_size: usize,
 }
 
 fn main() {
@@ -160,21 +176,33 @@ fn main() {
             .to_env();
 
     let t0 = std::time::Instant::now();
+    let mut stats = Stats {
+        num_tests: 0,
+        num_ok: 0,
+        num_masks: 0,
+        total_time: Duration::new(0, 0),
+        tokenizer_size: tok_env.tok_trie().vocab_size(),
+    };
+
     for arg in &args[1..] {
         let schema_file = read_file_to_string(arg);
         let val: Vec<JsonTest> =
             serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
         for (idx, t) in val.iter().enumerate() {
+            stats.num_tests += 1;
             print!("Running test: {} ({}) #{} ", arg, t.description, idx);
-            match t.run(&tok_env) {
-                Ok(_) => println!("OK"),
+            match t.run(&mut stats, &tok_env) {
+                Ok(_) => {
+                    stats.num_ok += 1;
+                    println!("OK")
+                }
                 Err(e) => println!("ERROR: {}", e),
             }
         }
     }
 
-    let elapsed = t0.elapsed();
-    println!("Total time: {} ms", elapsed.as_millis());
+    stats.total_time = t0.elapsed();
+    println!("{:?}", stats);
 }
 
 fn read_file_to_string(filename: &str) -> String {
