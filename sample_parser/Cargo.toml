@@ -7,13 +7,18 @@ default-run = "sample_parser"
 [dependencies]
 llguidance = { workspace = true }
 toktrie_hf_tokenizers = { workspace = true }
-serde_json = "1.0.128"
 anyhow = "1.0.87"
 lazy_static = "1.5.0"
+serde_json = { version = "1.0.132", features = ["preserve_order"] }
+serde = { version = "1.0.210", features = ["derive"] }
 
 [[bin]]
 name = "sample_parser"
 path = "src/sample_parser.rs"
+
+[[bin]]
+name = "json_schema_testsuite"
+path = "src/json_schema_testsuite.rs"
 
 [[bin]]
 name = "schema_tester"
