@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use core::str;
 use llguidance::{
     api::{ParserLimits, TopLevelGrammar},
-    toktrie::{InferenceCapabilities, TokEnv},
+    toktrie::{bytes::limit_str, InferenceCapabilities, TokEnv},
     Constraint, JsonCompileOptions, TokenParser,
 };
 use serde::{Deserialize, Serialize};
@@ -133,7 +133,7 @@ impl JsonTestSequence {
         match self.run_for(stats, &obj_str, tok_env, constraint) {
             Ok(_) => Ok(()),
             Err(e) => {
-                bail!("{}\n{:?}", e, obj_str)
+                bail!("{}\nERR_DATA {:?}", e, limit_str(&obj_str, 300));
             }
         }
     }
@@ -142,7 +142,10 @@ impl JsonTestSequence {
 impl JsonTest {
     fn run(&self, stats: &mut Stats, tok_env: &TokEnv) -> Result<()> {
         let opts = JsonCompileOptions::default();
-        let grm = opts.json_to_llg(self.schema.clone())?;
+        let grm = opts.json_to_llg(self.schema.clone()).map_err(|e| {
+            stats.num_compile_errors += 1;
+            e
+        })?;
         let mut first_err = Ok(());
         for t in &self.tests {
             let r = t.run(stats, &grm, tok_env);
@@ -150,14 +153,19 @@ impl JsonTest {
                 first_err = r;
             }
         }
+        if first_err.is_err() {
+            stats.num_semantic_errors += 1;
+        }
         first_err
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct Stats {
     num_tests: usize,
     num_ok: usize,
+    num_compile_errors: usize,
+    num_semantic_errors: usize,
     num_masks: usize,
     total_time: Duration,
     tokenizer_size: usize,
@@ -177,11 +185,8 @@ fn main() {
 
     let t0 = std::time::Instant::now();
     let mut stats = Stats {
-        num_tests: 0,
-        num_ok: 0,
-        num_masks: 0,
-        total_time: Duration::new(0, 0),
         tokenizer_size: tok_env.tok_trie().vocab_size(),
+        ..Default::default()
     };
 
     for arg in &args[1..] {
