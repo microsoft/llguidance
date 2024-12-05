@@ -139,6 +139,10 @@ impl LexerSpec {
         SimpleVob::alloc(self.lexemes.len())
     }
 
+    pub fn alloc_grammar_set(&self) -> SimpleVob {
+        SimpleVob::alloc(self.skip_by_class.len())
+    }
+
     pub fn all_lexemes(&self) -> SimpleVob {
         let mut v = self.alloc_lexeme_set();
         self.lexemes[0..self.lexemes.len() - self.num_extra_lexemes]
@@ -334,9 +338,9 @@ impl LexerSpec {
 
     pub fn dbg_lexeme_set(&self, vob: &SimpleVob) -> String {
         format!(
-            "Lexemes: [{}]",
+            "Lexemes( {} )",
             vob.iter()
-                .map(|idx| self.lexemes[idx as usize].name.as_str())
+                .map(|idx| format!("[{}]", idx))
                 .collect::<Vec<_>>()
                 .join(", ")
         )

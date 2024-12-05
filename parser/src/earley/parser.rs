@@ -195,6 +195,7 @@ struct Scratch {
     items: Vec<Item>,
     grammar_stack: Vec<GrammarStackNode>,
 
+    push_allowed_grammar_ids: SimpleVob,
     push_allowed_lexemes: SimpleVob,
     push_grm_top: GrammarStackPtr,
 
@@ -307,6 +308,7 @@ impl Scratch {
     fn new(grammar: Arc<CGrammar>) -> Self {
         Scratch {
             push_allowed_lexemes: grammar.lexer_spec().alloc_lexeme_set(),
+            push_allowed_grammar_ids: grammar.lexer_spec().alloc_grammar_set(),
             push_grm_top: GrammarStackPtr::new(0),
             grammar,
             row_start: 0,
@@ -1229,6 +1231,7 @@ impl ParserState {
         let mut agenda_ptr = self.scratch.row_start;
 
         self.scratch.push_allowed_lexemes.set_all(false);
+        self.scratch.push_allowed_grammar_ids.set_all(false);
 
         // Agenda retrieval is a simplification of Kallmeyer 2018.
         // There is no separate data structure for the agenda --
@@ -1307,6 +1310,9 @@ impl ParserState {
                 // ... if 'rule' is an incompletion
                 let sym_data = self.grammar.sym_data(after_dot);
                 if let Some(lx) = sym_data.lexeme {
+                    self.scratch
+                        .push_allowed_grammar_ids
+                        .set(sym_data.props.grammar_id.as_usize(), true);
                     self.scratch.push_allowed_lexemes.set(lx.as_usize(), true);
                 }
 
@@ -1352,9 +1358,15 @@ impl ParserState {
         } else {
             self.stats.all_items += row_len;
 
-            // Always accept a SKIP lexeme
-            let skip = self.lexer_spec().skip_id(grammar_id);
-            self.scratch.push_allowed_lexemes.set(skip.as_usize(), true);
+            // accept a SKIP lexeme, if the grammar didn't finish
+            if self
+                .scratch
+                .push_allowed_grammar_ids
+                .get(grammar_id.as_usize())
+            {
+                let skip = self.lexer_spec().skip_id(grammar_id);
+                self.scratch.push_allowed_lexemes.set(skip.as_usize(), true);
+            }
 
             if self.scratch.definitive {
                 debug!(

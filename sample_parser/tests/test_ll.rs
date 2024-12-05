@@ -65,19 +65,31 @@ fn test_ll_json() {
         json!({
             "type": "array"
         }),
-        &["JSON", "[‧1‧,‧2‧,‧3‧,‧4‧,‧5‧,‧6‧,‧7‧,‧8‧]‧END"],
+        &["JSON", "[‧1‧,‧2‧,‧3‧,‧4‧,‧5‧,‧6‧,‧7‧,‧8‧]", "END"],
     );
 
-    // PRTODO
-    // check_lark_json(
-    //     r#"start: "JSON" j "END"
-    //        j[max_tokens=3]: @sub
-    //     "#,
-    //     json!({
-    //         "type": "array"
-    //     }),
-    //     &["JSON", "[‧1‧,‧2", "END"],
-    // );
+    // again, off by one
+    let c = check_lark_json(
+        r#"start: "JSON" j "END"
+               j[max_tokens=3]: @sub
+            "#,
+        json!({
+            "type": "array"
+        }),
+        &["JSON", "[‧1‧,‧2", "END"],
+    );
+    check_capture(&c, "j", "[1,2");
+
+    let c = check_lark_json(
+        r#"start: "JSON" j
+               j[max_tokens=3]: @sub
+            "#,
+        json!({
+            "type": "array"
+        }),
+        &["JSON", "[‧1‧,‧2"],
+    );
+    check_capture(&c, "j", "[1,2");
 }
 
 #[test]
@@ -136,7 +148,6 @@ fn test_ll_subgrammar_max_tokens() {
         &[" x‧ x‧ x", " q‧ q‧ q‧ q‧ a‧ a‧ a", " y"],
     );
     check_capture(&c, "ab", " a a a");
-
 
     // TODO we're off by one here
     let c = check_lark_grammar_nested(
