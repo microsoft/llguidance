@@ -66,10 +66,10 @@ def gen_example(schema, instance, info):
         + json.dumps(schema, indent=4)
         + "\n\nHere is the valid instance:\n"
         + json.dumps(instance, indent=4)
-        + "\n\nPlease modify the instance to make it invalid according to the schema. Focus on corner cases."
+        + "\n\nPlease modify the instance to make it invalid according to the schema. Focus on corner cases.\n"
         + info
     )
-    if len(prompt) > 100_000:
+    if len(prompt) > 200_000:
         return {"error": f"Prompt too long, {len(prompt)}"}
     req = {
         "model": "model",
@@ -90,7 +90,7 @@ def gen_example(schema, instance, info):
                 "schema": {},
             },
         },
-        "max_tokens": 1000,
+        "max_tokens": 8000,
         "temperature": 0.2,
     }
 
