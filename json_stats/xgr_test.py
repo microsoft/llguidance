@@ -61,8 +61,9 @@ def process_file(file: str):
     if os.path.exists(output_name):
         return
 
+    print("PROCESSING: " + file, file=sys.stderr)
     status = do_process(file)
-    print(status, file=sys.stderr)
+    print("RESULT: " + json.dumps(status), file=sys.stderr)
     with open(output_name, "w") as f:
         f.write(json.dumps(status, indent=4))
 
