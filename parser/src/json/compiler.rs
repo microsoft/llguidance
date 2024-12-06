@@ -563,9 +563,21 @@ impl Compiler {
             if min_length > 0 || max_length.is_some() {
                 bail!("If a pattern is specified, minLength and maxLength must be unspecified.");
             }
-            // the regex has implicit ^...$ anyways
-            let regex = regex.trim_start_matches('^').trim_end_matches('$');
-            let node = self.builder.lexeme(mk_regex(regex), true);
+            let regex = {
+                let left_anchored = regex.starts_with('^');
+                let right_anchored = regex.ends_with('$');
+                let trimmed = regex.trim_start_matches('^').trim_end_matches('$');
+                let mut result = String::new();
+                if !left_anchored {
+                    result.push_str(".*");
+                }
+                result.push_str(trimmed);
+                if !right_anchored {
+                    result.push_str(".*");
+                }
+                result
+            };
+            let node = self.builder.lexeme(mk_regex(&regex), true);
             Ok(node)
         } else {
             Ok(self.lexeme(&format!(

@@ -554,7 +554,7 @@ fn compile_const(instance: &Value) -> Result<Schema> {
         Value::String(s) => Ok(Schema::String {
             min_length: 0,
             max_length: None,
-            pattern: Some(escape(s)),
+            pattern: Some(format!("^{}$", escape(s))),
             format: None,
         }),
         Value::Array(items) => {
