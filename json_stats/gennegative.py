@@ -62,12 +62,11 @@ def gen_example(schema, instance, info):
         ""
         + f"You will be given a JSON schema an example instance of it. "
         + f"You will then modify the instance a little bit to violate the schema.\n"
-        + info
         + "\n\nHere is the schema:\n"
         + json.dumps(schema, indent=4)
         + "\n\nHere is the valid instance:\n"
         + json.dumps(instance, indent=4)
-        + "\n\nPlease modify the instance to make it invalid according to the schema."
+        + "\n\nPlease modify the instance to make it invalid according to the schema. Focus on corner cases."
         + info
     )
     if len(prompt) > 100_000:
