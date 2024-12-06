@@ -17,8 +17,11 @@ use serde_json::{json, Value};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SchemaStats {
     features: HashMap<String, usize>,
+    #[serde(skip)]
     skipped_kw: HashMap<String, usize>,
+    #[serde(skip)]
     skipped_kw_filtered: HashMap<String, usize>,
+    #[serde(skip)]
     skipped_data: Vec<(String, Value)>,
     full_size: usize,
     stripped_size: usize,
@@ -336,11 +339,15 @@ fn main() {
     let mut skipped_data = vec![];
     let mut skipped_kw_size: HashMap<String, usize> = HashMap::new();
     let mut files_with_feature = HashMap::new();
+    let mut all_stats = HashMap::new();
     for (idx, file) in files.iter().enumerate() {
         if idx % 1000 == 0 {
             eprintln!("{} / {}", idx, files.len());
         }
         let s = test_file(tok_env.clone(), &file);
+
+        all_stats.insert(file.clone(), s.clone());
+        
         total.num_files += 1;
         total.full_size += s.full_size;
         total.stripped_size += s.stripped_size;
@@ -375,6 +382,7 @@ fn main() {
     save_sorted_json_to_file("tmp/skipped_size.json", &skipped_kw_size);
     save_json_to_file("tmp/total.json", &total);
     save_json_to_file("tmp/skipped_data.json", &skipped_data);
+    save_json_to_file("tmp/all_stats.json", &all_stats);
 }
 
 fn save_sorted_json_to_file(filename: &str, data: &HashMap<String, usize>) {
