@@ -39,7 +39,7 @@ def update_version_in_file(file_path, new_version):
 def check_in_and_tag(version):
     subprocess.run(["git", "add", pyproject_path] +
                    [p + "/Cargo.toml" for p in cargo_paths] +
-                   [p + "/Cargo.lock" for p in cargo_paths],
+                   ["Cargo.lock"],
                    check=True)
     subprocess.run(["git", "commit", "-m", f"Bump version to {version}"],
                    check=True)
