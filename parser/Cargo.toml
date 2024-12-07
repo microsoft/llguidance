@@ -1,6 +1,6 @@
 [package]
 name = "llguidance"
-version = "0.4.2-rc1"
+version = "0.4.2-rc2"
 edition = "2021"
 
 [dependencies]
