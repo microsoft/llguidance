@@ -222,8 +222,11 @@ fn main() {
 
     for arg in &args[1..] {
         let schema_file = read_file_to_string(arg);
-        let val: Vec<JsonTest> =
-            serde_json::from_str(&schema_file).expect("Invalid JSON in schema");
+        let val: Vec<JsonTest> = if schema_file.starts_with("{") {
+            vec![serde_json::from_str(&schema_file).expect("Invalid JSON in single schema")]
+        } else {
+            serde_json::from_str(&schema_file).expect("Invalid JSON in array schema")
+        };
         for (idx, t) in val.iter().enumerate() {
             stats.num_tests += 1;
             print!("Running test: {} ({}) #{} ", arg, t.description, idx);
