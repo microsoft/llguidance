@@ -878,7 +878,7 @@ checksum = "4ee93343901ab17bd981295f2cf0026d4ad018c7c31ba84549a4ddbb47a45104"
 
 [[package]]
 name = "llguidance"
-version = "0.4.2-rc0"
+version = "0.4.2-rc1"
 dependencies = [
  "anyhow",
  "cbindgen",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "llguidance_py"
-version = "0.4.2-rc0"
+version = "0.4.2-rc1"
 dependencies = [
  "bytemuck",
  "llguidance",
