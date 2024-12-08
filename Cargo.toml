@@ -3,12 +3,15 @@ members = [
     "python_ext",
     "parser",
     "sample_parser",
+    "json_stats",
     "toktrie",
     "toktrie_hf_tokenizers",
 ]
+# just exclude python_ext since it doesn't build without maturin
 default-members = [
     "parser",
     "sample_parser",
+    "json_stats",
     "toktrie",
     "toktrie_hf_tokenizers",
 ]
