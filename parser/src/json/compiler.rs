@@ -286,14 +286,13 @@ impl Compiler {
     }
 
     fn lexeme(&mut self, rx: &str, json_quoted: bool) -> NodeRef {
-        let rx = rx.to_string();
-        let key = (rx, json_quoted);
-        if self.lexeme_cache.contains_key(&key) {
-            return self.lexeme_cache[&key];
-        }
-        let r = self.builder.lexeme(mk_regex(&key.0), json_quoted);
-        self.lexeme_cache.insert(key, r);
-        r
+        let key = (rx.to_string(), json_quoted);
+        self.lexeme_cache
+            .entry(key)
+            .or_insert_with(||
+                self.builder.lexeme(mk_regex(rx), json_quoted)
+            )
+            .clone()
     }
 
     fn json_int(
