@@ -81,7 +81,7 @@ struct Compiler {
     pending_definitions: Vec<(String, NodeRef)>,
 
     any_cache: Option<NodeRef>,
-    lexeme_cache: HashMap<String, NodeRef>,
+    lexeme_cache: HashMap<(String, bool), NodeRef>,
 }
 
 macro_rules! cache {
@@ -286,11 +286,13 @@ impl Compiler {
     }
 
     fn lexeme(&mut self, rx: &str, json_quoted: bool) -> NodeRef {
-        if self.lexeme_cache.contains_key(rx) {
-            return self.lexeme_cache[rx];
+        let rx = rx.to_string();
+        let key = (rx, json_quoted);
+        if self.lexeme_cache.contains_key(&key) {
+            return self.lexeme_cache[&key];
         }
-        let r = self.builder.lexeme(mk_regex(rx), json_quoted);
-        self.lexeme_cache.insert(rx.to_string(), r);
+        let r = self.builder.lexeme(mk_regex(&key.0), json_quoted);
+        self.lexeme_cache.insert(key, r);
         r
     }
 
