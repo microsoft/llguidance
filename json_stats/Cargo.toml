@@ -1,0 +1,17 @@
+[package]
+name = "json_stats"
+version = "0.1.0"
+edition = "2021"
+default-run = "json_stats"
+
+[dependencies]
+llguidance = { workspace = true }
+toktrie_hf_tokenizers = { workspace = true }
+anyhow = "1.0.87"
+lazy_static = "1.5.0"
+serde_json = { version = "1.0.132", features = ["preserve_order"] }
+serde = { version = "1.0.210", features = ["derive"] }
+
+[[bin]]
+name = "json_stats"
+path = "src/json_stats.rs"
