@@ -173,7 +173,7 @@ impl Compiler {
                 message: reason.to_string(),
             })),
             Schema::Null => Ok(self.builder.string("null")),
-            Schema::Boolean => Ok(self.lexeme(r"true|false")),
+            Schema::Boolean => Ok(self.lexeme(r"true|false", false)),
             Schema::Number {
                 minimum,
                 maximum,
@@ -285,11 +285,11 @@ impl Compiler {
         }
     }
 
-    fn lexeme(&mut self, rx: &str) -> NodeRef {
+    fn lexeme(&mut self, rx: &str, json_quoted: bool) -> NodeRef {
         if self.lexeme_cache.contains_key(rx) {
             return self.lexeme_cache[rx];
         }
-        let r = self.builder.lexeme(mk_regex(rx), false);
+        let r = self.builder.lexeme(mk_regex(rx), json_quoted);
         self.lexeme_cache.insert(rx.to_string(), r);
         r
     }
@@ -333,7 +333,7 @@ impl Compiler {
                 minimum, maximum
             )
         })?;
-        Ok(self.lexeme(&rx))
+        Ok(self.lexeme(&rx, false))
     }
 
     fn json_number(
@@ -352,11 +352,11 @@ impl Compiler {
                     minimum, maximum
                 )
             })?;
-        Ok(self.lexeme(&rx))
+        Ok(self.lexeme(&rx, false))
     }
 
     fn json_simple_string(&mut self) -> NodeRef {
-        self.lexeme(&format!("\"{}*\"", CHAR_REGEX))
+        self.lexeme("(?s:.*)", true)
     }
 
     fn get_definition(&mut self, reference: &str) -> Result<NodeRef> {
@@ -568,12 +568,14 @@ impl Compiler {
             let node = self.builder.lexeme(mk_regex(regex), true);
             Ok(node)
         } else {
-            Ok(self.lexeme(&format!(
-                "\"{}{{{},{}}}\"",
-                CHAR_REGEX,
-                min_length,
-                max_length.map_or("".to_string(), |v| v.to_string())
-            )))
+            Ok(self.lexeme(
+                &format!(
+                    "(?s:.{{{},{}}})",
+                    min_length,
+                    max_length.map_or("".to_string(), |v| v.to_string())
+                ),
+                true,
+            ))
         }
     }
 
