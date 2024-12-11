@@ -10,6 +10,8 @@ use referencing::{Draft, Registry, Resolver, ResourceRef};
 use regex_syntax::escape;
 use serde_json::Value;
 
+use crate::api::RegexNode;
+
 const DEFAULT_ROOT_URI: &str = "json-schema:///";
 const DEFAULT_DRAFT: Draft = Draft::Draft202012;
 const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
@@ -95,6 +97,7 @@ pub enum Schema {
         max_length: Option<u64>,
         pattern: Option<String>,
         format: Option<String>,
+        const_string: Option<String>,
     },
     Array {
         min_items: u64,
@@ -126,6 +129,40 @@ impl Schema {
         Schema::Unsatisfiable {
             reason: "schema is false".to_string(),
         }
+    }
+
+    pub fn const_compile(&self) -> Option<RegexNode> {
+        let str = match self {
+            Schema::Null => "null",
+            Schema::Boolean => return Some(RegexNode::Regex("true|false".to_string())),
+            Schema::Number {
+                minimum: Some(x),
+                maximum: Some(y),
+                ..
+            } if x == y => return Some(RegexNode::Literal(x.to_string())),
+            Schema::String {
+                const_string: Some(s),
+                ..
+            } => s,
+            Schema::LiteralBool { value } => {
+                if *value {
+                    "true"
+                } else {
+                    "false"
+                }
+            }
+
+            Schema::Any
+            | Schema::Number { .. }
+            | Schema::String { .. }
+            | Schema::Unsatisfiable { .. }
+            | Schema::Array { .. }
+            | Schema::Object { .. }
+            | Schema::AnyOf { .. }
+            | Schema::OneOf { .. }
+            | Schema::Ref { .. } => return None,
+        };
+        Some(RegexNode::Literal(str.to_string()))
     }
 
     /// Shallowly normalize the schema, removing any unnecessary nesting or empty options.
@@ -423,7 +460,13 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
             .iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
-        let merged = intersect(ctx, vec![siblings].into_iter().chain(options.into_iter()).collect())?;
+        let merged = intersect(
+            ctx,
+            vec![siblings]
+                .into_iter()
+                .chain(options.into_iter())
+                .collect(),
+        )?;
         return Ok(merged);
     }
 
@@ -556,6 +599,7 @@ fn compile_const(instance: &Value) -> Result<Schema> {
             max_length: None,
             pattern: Some(format!("^{}$", escape(s))),
             format: None,
+            const_string: Some(s.clone()),
         }),
         Value::Array(items) => {
             let prefix_items = items
@@ -717,6 +761,7 @@ fn compile_string(
         max_length,
         pattern,
         format,
+        const_string: None,
     })
 }
 
@@ -904,12 +949,14 @@ fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Sche
                 max_length: max1,
                 pattern: pattern1,
                 format: format1,
+                const_string: const1,
             },
             Schema::String {
                 min_length: min2,
                 max_length: max2,
                 pattern: pattern2,
                 format: format2,
+                const_string: const2,
             },
         ) => Schema::String {
             min_length: min1.max(min2),
@@ -937,6 +984,10 @@ fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Sche
                         bail!("intersection of formats not implemented")
                     }
                 }
+            },
+            const_string: match (const1, const2) {
+                (Some(s1), Some(s2)) if s1 == s2 => Some(s1),
+                _ => None,
             },
         },
         (

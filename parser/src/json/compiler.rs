@@ -216,6 +216,7 @@ impl Compiler {
                 max_length,
                 pattern,
                 format,
+                const_string: _,
             } => self.gen_json_string(
                 *min_length,
                 *max_length,
@@ -260,6 +261,18 @@ impl Compiler {
     }
 
     fn process_any_of(&mut self, options: Vec<Schema>) -> Result<NodeRef> {
+        let consts = options
+            .iter()
+            .filter_map(|schema| schema.const_compile())
+            .collect::<Vec<_>>();
+        if consts.len() == options.len() {
+            let consts = consts
+                .into_iter()
+                .map(|c| self.builder.regex.add_node(c))
+                .collect::<Vec<_>>();
+            let rx = self.builder.regex.or(consts);
+            return Ok(self.builder.lexeme(RegexSpec::RegexId(rx), false));
+        }
         let mut nodes = vec![];
         let mut errors = vec![];
         for option in options.into_iter() {
@@ -447,10 +460,7 @@ impl Compiler {
                         .collect::<Vec<_>>();
                     let taken = self.builder.regex.select(taken_name_ids);
                     let not_taken = self.builder.regex.not(taken);
-                    let valid = self
-                        .builder
-                        .regex
-                        .regex(format!("\"({})*\"", CHAR_REGEX));
+                    let valid = self.builder.regex.regex(format!("\"({})*\"", CHAR_REGEX));
                     let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
                     let rx = RegexSpec::RegexId(valid_and_not_taken);
                     self.builder.lexeme(rx, false)
