@@ -611,14 +611,8 @@ fn compile_type(ctx: &Context, tp: &str, schema: &HashMap<&str, &Value>) -> Resu
             get("minItems"),
             get("maxItems"),
             get("prefixItems"),
-            match (get("items"), get("additionalItems")) {
-                (Some(items), None) => Some(items),
-                (None, Some(additional_items)) => Some(additional_items),
-                (Some(_), Some(_)) => {
-                    bail!("Cannot specify both 'items' and 'additionalItems'")
-                }
-                _ => None,
-            },
+            get("items"),
+            get("additionalItems"),
         ),
         "object" => compile_object(
             ctx,
@@ -734,7 +728,22 @@ fn compile_array(
     max_items: Option<&Value>,
     prefix_items: Option<&Value>,
     items: Option<&Value>,
+    additional_items: Option<&Value>,
 ) -> Result<Schema> {
+    let (prefix_items, items) = {
+        // Note that draft detection falls back to Draft202012 if the draft is unknown, so let's relax the draft constraint a bit
+        // and assume we're in an old draft if additionalItems is present or items is an array
+        if ctx.draft <= Draft::Draft201909 || additional_items.is_some() || matches!(items, Some(Value::Array(..))) {
+            match (items, additional_items) {
+                // Treat array items as prefixItems and additionalItems as items in draft 2019-09 and earlier
+                (Some(Value::Array(..)), _) => (items, additional_items),
+                // items is treated as items, and additionalItems is ignored if items is not an array (or is missing)
+                _ => (None, items),
+            }
+        } else {
+            (prefix_items, items)
+        }
+    };
     let min_items = match min_items {
         None => 0,
         Some(val) => val
