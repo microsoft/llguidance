@@ -15,7 +15,7 @@ const DEFAULT_DRAFT: Draft = Draft::Draft202012;
 const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
 
 // Keywords that are implemented in this module
-const IMPLEMENTED: [&str; 22] = [
+const IMPLEMENTED: [&str; 23] = [
     // Core
     "anyOf",
     "oneOf",
@@ -26,6 +26,7 @@ const IMPLEMENTED: [&str; 22] = [
     "type",
     // Array
     "items",
+    "additionalItems",
     "prefixItems",
     "minItems",
     "maxItems",
@@ -610,7 +611,14 @@ fn compile_type(ctx: &Context, tp: &str, schema: &HashMap<&str, &Value>) -> Resu
             get("minItems"),
             get("maxItems"),
             get("prefixItems"),
-            get("items"),
+            match (get("items"), get("additionalItems")) {
+                (Some(items), None) => Some(items),
+                (None, Some(additional_items)) => Some(additional_items),
+                (Some(_), Some(_)) => {
+                    bail!("Cannot specify both 'items' and 'additionalItems'")
+                }
+                _ => None,
+            },
         ),
         "object" => compile_object(
             ctx,
