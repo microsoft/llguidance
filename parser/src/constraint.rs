@@ -107,6 +107,13 @@ impl Constraint {
         r
     }
 
+    pub fn start_without_prompt(&mut self) {
+        assert!(!self.started);
+        self.started = true;
+        self.parser.start_without_prompt();
+        self.save_temperature();
+    }
+
     /// This can be called before the first compute_mask() to walk forward the
     /// parser with tokens generated in some previous run.
     pub fn force_tokens(&mut self, tokens: &[TokenId]) -> Result<()> {
@@ -164,6 +171,12 @@ impl Constraint {
     }
 
     pub fn validate_tokens_raw(&mut self, tokens: &[TokenId]) -> Result<usize> {
+        if self.last_res.unconditional_splice().is_some() {
+            self.save_progress_and_result(StepResult::sample(
+                self.tok_trie().alloc_token_set(),
+                self.parser.temperature(),
+            ));
+        }
         self.parser.validate_tokens_raw(tokens)
     }
 

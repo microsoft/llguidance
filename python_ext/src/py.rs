@@ -2,13 +2,9 @@ use std::fmt::Display;
 use std::{borrow::Cow, sync::Arc};
 
 use llguidance::api::{GrammarWithLexer, ParserLimits};
-use llguidance::toktrie::{
-    self, InferenceCapabilities, TokRxInfo, TokTrie, TokenId, TokenizerEnv,
-};
+use llguidance::toktrie::{self, InferenceCapabilities, TokRxInfo, TokTrie, TokenId, TokenizerEnv};
 use llguidance::{api::TopLevelGrammar, output::ParserOutput, TokenParser};
-use llguidance::{
-    lark_to_llguidance, Constraint, GrammarBuilder, JsonCompileOptions, Logger,
-};
+use llguidance::{lark_to_llguidance, Constraint, GrammarBuilder, JsonCompileOptions, Logger};
 use pyo3::{exceptions::PyValueError, prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -80,6 +76,14 @@ impl LLInterpreter {
         self.inner.process_prompt(prompt)
     }
 
+    fn start_without_prompt(&mut self) {
+        self.inner.start_without_prompt()
+    }
+
+    fn validate_tokens_raw(&mut self, tokens: Vec<TokenId>) -> PyResult<usize> {
+        self.inner.validate_tokens_raw(&tokens).map_err(val_error)
+    }
+
     fn compute_mask(&mut self, py: Python<'_>) -> PyResult<(Option<Cow<[u8]>>, String)> {
         let r = py
             .allow_threads(|| self.inner.compute_mask())
@@ -110,10 +114,7 @@ impl LLInterpreter {
         }
     }
 
-    fn commit_token(
-        &mut self,
-        sampled_token: Option<TokenId>,
-    ) -> PyResult<(u32, Vec<TokenId>)> {
+    fn commit_token(&mut self, sampled_token: Option<TokenId>) -> PyResult<(u32, Vec<TokenId>)> {
         let pres = self.inner.commit_token(sampled_token).map_err(val_error)?;
 
         if pres.stop {
@@ -252,7 +253,11 @@ struct JsonCompiler {
 impl JsonCompiler {
     #[new]
     #[pyo3(signature = (separators = None, whitespace_flexible = false, coerce_one_of = false))]
-    fn py_new(separators: Option<(String, String)>, whitespace_flexible: bool, coerce_one_of: bool) -> Self {
+    fn py_new(
+        separators: Option<(String, String)>,
+        whitespace_flexible: bool,
+        coerce_one_of: bool,
+    ) -> Self {
         let (item_separator, key_separator) = separators.unwrap_or_else(|| {
             if whitespace_flexible {
                 (",".to_owned(), ":".to_owned())
