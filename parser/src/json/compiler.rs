@@ -571,7 +571,10 @@ impl Compiler {
                 if !left_anchored {
                     result.push_str(".*");
                 }
+                // without parens, for a|b we would get .*a|b.* which is (.*a)|(b.*)
+                result.push_str("(");
                 result.push_str(trimmed);
+                result.push_str(")");
                 if !right_anchored {
                     result.push_str(".*");
                 }
