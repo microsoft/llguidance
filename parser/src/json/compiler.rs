@@ -216,6 +216,7 @@ impl Compiler {
                 max_length,
                 pattern,
                 format,
+                const_string: _,
             } => self.gen_json_string(
                 *min_length,
                 *max_length,
@@ -259,7 +260,17 @@ impl Compiler {
         }
     }
 
-    fn process_any_of(&mut self, options: Vec<Schema>) -> Result<NodeRef> {
+    fn process_any_of(&mut self, mut options: Vec<Schema>) -> Result<NodeRef> {
+        let mut consts = vec![];
+        options.retain(|schema| match schema.const_compile() {
+            Some(c) => {
+                let id = self.builder.regex.add_node(c);
+                consts.push(id);
+                false
+            }
+            None => true,
+        });
+
         let mut nodes = vec![];
         let mut errors = vec![];
         for option in options.into_iter() {
@@ -271,6 +282,13 @@ impl Compiler {
                 },
             }
         }
+
+        if !consts.is_empty() {
+            let rx = self.builder.regex.or(consts);
+            let lex = self.builder.lexeme(RegexSpec::RegexId(rx), false);
+            nodes.push(lex);
+        }
+
         if !nodes.is_empty() {
             Ok(self.builder.select(&nodes))
         } else if let Some(e) = errors.pop() {
@@ -447,10 +465,7 @@ impl Compiler {
                         .collect::<Vec<_>>();
                     let taken = self.builder.regex.select(taken_name_ids);
                     let not_taken = self.builder.regex.not(taken);
-                    let valid = self
-                        .builder
-                        .regex
-                        .regex(format!("\"({})*\"", CHAR_REGEX));
+                    let valid = self.builder.regex.regex(format!("\"({})*\"", CHAR_REGEX));
                     let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
                     let rx = RegexSpec::RegexId(valid_and_not_taken);
                     self.builder.lexeme(rx, false)
