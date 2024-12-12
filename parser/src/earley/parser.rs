@@ -5,7 +5,7 @@
 // (Retrieved 18 Sep 2024).
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fmt::Debug,
     hash::Hash,
     ops::Range,
@@ -109,10 +109,6 @@ impl Default for XorShift {
 pub struct ParserMetrics {
     pub rand: XorShift,
     pub message: String,
-    pub state_cache: HashMap<u32, usize>,
-    pub num_fail: usize,
-    pub num_hits: usize,
-    pub num_misses: usize,
 }
 
 impl ParserStats {

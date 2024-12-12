@@ -1,5 +1,4 @@
 use anyhow::Result;
-use derivre::RegexAst;
 use std::fmt::Debug;
 use toktrie::SimpleVob;
 
@@ -99,23 +98,6 @@ impl Lexer {
         let mut l = self.spec.eos_ending_lexemes();
         l.and(&self.state_info(state).accepting);
         !l.is_zero()
-    }
-
-    pub fn core_state(&self, state: StateID) -> Option<u32> {
-        let mut r = None;
-        for lx in self.state_info(state).possible.iter() {
-            let sp = self.spec.lexeme_spec(LexemeIdx::new(lx as usize));
-            match sp.rx {
-                RegexAst::Literal(_) => {}
-                _ => {
-                    if r.is_some() {
-                        return None;
-                    }
-                    r = Some(lx);
-                }
-            }
-        }
-        r
     }
 
     pub fn limit_state_to(&mut self, state: StateID, allowed_lexemes: &SimpleVob) -> StateID {
