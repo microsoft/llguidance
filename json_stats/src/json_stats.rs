@@ -151,7 +151,7 @@ impl TestEnv {
             return Ok(());
         }
 
-        let mut parser = parser.clone();
+        let mut parser = parser.deep_clone();
         parser.start_without_prompt();
 
         let dstr = serde_json::to_string(&t.data).unwrap();
@@ -539,12 +539,15 @@ fn main() {
     total.llg.mask_us = total.llg.mask_us_total / total.llg.num_tokens;
     total.llg.num_threads = num_threads;
 
-    let mut histogram_csv = "max_us,us,count\n".to_string();
+    let mut histogram_csv = "max_us,sum_us,us,count\n".to_string();
+    let mut hist_sum = 0;
     for i in 0..MASK_STEPS {
         histogram.perc[i] = histogram.us[i] * 1000 / total.llg.mask_us_total;
+        hist_sum += histogram.us[i];
         histogram_csv.push_str(&format!(
-            "{},{},{}\n",
+            "{},{},{},{}\n",
             1 << i,
+            hist_sum,
             histogram.us[i],
             histogram.count[i]
         ));
