@@ -39,6 +39,9 @@ pub struct CliOptions {
     #[arg(long, short = 'm')]
     llg_masks: bool,
 
+    #[arg(long, short = 's')]
+    llg_slicer: bool,
+
     #[arg(long)]
     remove_broken_tests: bool,
 
@@ -399,6 +402,11 @@ fn main() {
             .unwrap()
             .to_env();
 
+    let mut slices = vec![r#"[^"\\\x00-\x1F\x7F]+"#.to_string()];
+    if !options.llg_slicer {
+        slices.clear();
+    }
+
     let mut factory = ParserFactory::new(
         &tok_env,
         InferenceCapabilities {
@@ -407,7 +415,7 @@ fn main() {
             conditional_ff_tokens: false,
             fork: false,
         },
-        &vec![],
+        &slices,
     );
     factory.quiet();
     let factory = Arc::new(factory);
