@@ -411,10 +411,13 @@ fn main() {
         files.retain(|f| !f.contains("Handwritten") && !f.contains("Synthesized"));
     }
 
-    let tok_env: TokEnv =
-        toktrie_hf_tokenizers::ByteTokenizerEnv::from_name("microsoft/Phi-3.5-mini-instruct", None)
-            .unwrap()
-            .to_env();
+    // "microsoft/Phi-3.5-mini-instruct"
+    let tok_env: TokEnv = toktrie_hf_tokenizers::ByteTokenizerEnv::from_name(
+        "meta-llama/Llama-3.1-8B-Instruct",
+        None,
+    )
+    .unwrap()
+    .to_env();
 
     let mut slices = vec![r#"[^"\\\x00-\x1F\x7F]+"#.to_string()];
     if !options.llg_slicer {
@@ -539,13 +542,13 @@ fn main() {
     total.llg.mask_us = total.llg.mask_us_total / total.llg.num_tokens;
     total.llg.num_threads = num_threads;
 
-    let mut histogram_csv = "max_us,sum_us,us,count\n".to_string();
+    let mut histogram_csv = format!("{:>10} {:>10} {:>10} {:>10}\n", "up_to", "sum", "us", "count");
     let mut hist_sum = 0;
     for i in 0..MASK_STEPS {
         histogram.perc[i] = histogram.us[i] * 1000 / total.llg.mask_us_total;
         hist_sum += histogram.us[i];
         histogram_csv.push_str(&format!(
-            "{},{},{},{}\n",
+            "{:10} {:10} {:10} {:10}\n",
             1 << i,
             hist_sum,
             histogram.us[i],
