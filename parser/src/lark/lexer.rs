@@ -130,6 +130,7 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
                 RegexAst::Regex(regexp.to_string()),
                 false,
                 None,
+                usize::MAX,
             )
             .unwrap();
         lexeme_idx_to_token.insert(l, *token);

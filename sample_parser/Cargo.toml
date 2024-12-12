@@ -31,7 +31,3 @@ path = "src/minimal.rs"
 [[bin]]
 name = "lark_test"
 path = "src/lark_test.rs"
-
-[[bin]]
-name = "grammar_tester"
-path = "src/grammar_tester.rs"

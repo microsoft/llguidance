@@ -107,6 +107,13 @@ impl Constraint {
         r
     }
 
+    pub fn start_without_prompt(&mut self) {
+        assert!(!self.started);
+        self.started = true;
+        self.parser.start_without_prompt();
+        self.save_temperature();
+    }
+
     /// This can be called before the first compute_mask() to walk forward the
     /// parser with tokens generated in some previous run.
     pub fn force_tokens(&mut self, tokens: &[TokenId]) -> Result<()> {
@@ -164,6 +171,12 @@ impl Constraint {
     }
 
     pub fn validate_tokens_raw(&mut self, tokens: &[TokenId]) -> Result<usize> {
+        if self.last_res.unconditional_splice().is_some() {
+            self.save_progress_and_result(StepResult::sample(
+                self.tok_trie().alloc_token_set(),
+                self.parser.temperature(),
+            ));
+        }
         self.parser.validate_tokens_raw(tokens)
     }
 
@@ -176,12 +189,14 @@ impl Constraint {
     /// It only returns 'STOP' if previous compute_mask() already returned 'STOP'
     /// (in which case there's little point calling commit_token()).
     pub fn commit_token(&mut self, sampled_token: Option<TokenId>) -> Result<CommitResult> {
+        let n_tokens = self.parser.num_tokens();
         loginfo!(
             self.parser.logger,
-            "\ncommit_token({})",
+            "\ncommit_token({}) at #{}",
             sampled_token
                 .map(|t| self.parser.token_env.tok_trie().token_dbg(t))
-                .unwrap_or("None".to_string())
+                .unwrap_or("None".to_string()),
+            n_tokens
         );
 
         // ensure!(

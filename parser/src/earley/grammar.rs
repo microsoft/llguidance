@@ -23,6 +23,13 @@ impl Symbol {
     fn is_lexeme_terminal(&self) -> bool {
         self.lexeme.is_some()
     }
+    fn short_name(&self) -> String {
+        if let Some(lex) = self.lexeme {
+            format!("[{}]", lex.as_usize())
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +40,8 @@ pub struct SymbolProps {
     pub stop_capture_name: Option<String>,
     pub hidden: bool,
     pub temperature: f32,
+    pub grammar_id: LexemeClass,
+    pub is_start: bool,
 }
 
 impl Default for SymbolProps {
@@ -44,6 +53,8 @@ impl Default for SymbolProps {
             capture_name: None,
             stop_capture_name: None,
             temperature: 0.0,
+            is_start: false,
+            grammar_id: LexemeClass::ROOT,
         }
     }
 }
@@ -56,8 +67,10 @@ impl SymbolProps {
             || self.max_tokens < usize::MAX
             || self.capture_name.is_some()
             || self.stop_capture_name.is_some()
+            || self.is_start
     }
 
+    // this is used when a rule like 'self -> [self.for_wrapper()]` is added
     pub fn for_wrapper(&self) -> Self {
         SymbolProps {
             commit_point: false,
@@ -66,6 +79,8 @@ impl SymbolProps {
             capture_name: None,
             stop_capture_name: None,
             temperature: self.temperature,
+            grammar_id: self.grammar_id,
+            is_start: false,
         }
     }
 
@@ -204,6 +219,10 @@ impl Grammar {
         &mut self.sym_data_mut(sym).props
     }
 
+    pub fn sym_props(&mut self, sym: SymIdx) -> &SymbolProps {
+        &self.sym_data(sym).props
+    }
+
     pub fn sym_name(&self, sym: SymIdx) -> &str {
         &self.symbols[sym.0 as usize].name
     }
@@ -218,7 +237,7 @@ impl Grammar {
             self.sym_name(rule.lhs()),
             rule.rhs
                 .iter()
-                .map(|s| self.sym_data(*s).name.as_str())
+                .map(|s| self.sym_data(*s).short_name())
                 .collect(),
             dot,
             &ldata.props,
@@ -255,11 +274,15 @@ impl Grammar {
         assert!(self.symbols.len() == self.symbol_by_name.len());
     }
 
+    fn is_special_symbol(&self, sym: &Symbol) -> bool {
+        sym.idx == self.start() || sym.gen_grammar.is_some() || sym.props.is_special()
+    }
+
     fn expand_shortcuts(&self) -> Self {
         let mut definition = vec![None; self.symbols.len()];
         for sym in &self.symbols {
             // don't inline special symbols (commit points, captures, ...) or start symbol
-            if sym.idx == self.start() || sym.props.is_special() {
+            if self.is_special_symbol(sym) {
                 continue;
             }
             if sym.rules.len() == 1 && sym.rules[0].rhs.len() == 1 {
@@ -285,7 +308,7 @@ impl Grammar {
         let mut repl = FxHashMap::default();
 
         for sym in &self.symbols {
-            if sym.idx == self.start() || sym.props.is_special() {
+            if self.is_special_symbol(sym) {
                 continue;
             }
             if sym.rules.len() == 1 && use_count[sym.idx.0 as usize] == 1 {
@@ -339,8 +362,18 @@ impl Grammar {
         let mut outp = Grammar::new(self.name.clone());
 
         let start_data = self.sym_data(self.start());
-        if start_data.is_terminal() || start_data.rules.iter().any(|r| r.rhs.is_empty()) {
-            let new_start = outp.fresh_symbol("_start_repl");
+        if start_data.is_terminal()
+            || start_data.gen_grammar.is_some()
+            || start_data.rules.iter().any(|r| r.rhs.is_empty())
+        {
+            let new_start = outp.fresh_symbol_ext(
+                "_start_repl",
+                SymbolProps {
+                    grammar_id: start_data.props.grammar_id,
+                    is_start: true,
+                    ..Default::default()
+                },
+            );
             outp.add_rule(new_start, vec![SymIdx(1)]).unwrap();
         }
 
@@ -433,10 +466,6 @@ impl Grammar {
         sym.props = props;
     }
 
-    pub fn fresh_symbol(&mut self, name0: &str) -> SymIdx {
-        self.fresh_symbol_ext(name0, SymbolProps::default())
-    }
-
     pub fn fresh_symbol_ext(&mut self, name0: &str, symprops: SymbolProps) -> SymIdx {
         let mut name = name0.to_string();
         let mut idx = 2;
@@ -481,10 +510,15 @@ impl Grammar {
             num_term, num_non_term, num_rules, size
         )
     }
-}
 
-impl Debug for Grammar {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    pub fn to_string(&self, lexer_spec: Option<&LexerSpec>) -> String {
+        let mut outp = String::new();
+        self.fmt_grammar(lexer_spec, &mut outp).unwrap();
+        outp
+    }
+
+    fn fmt_grammar(&self, lexer_spec: Option<&LexerSpec>, f: &mut String) -> std::fmt::Result {
+        use std::fmt::Write;
         writeln!(f, "Grammar:")?;
         for sym in &self.symbols {
             match sym.gen_grammar {
@@ -493,17 +527,21 @@ impl Debug for Grammar {
                 }
                 _ => {}
             }
-            match sym.lexeme {
-                Some(lx) => {
-                    writeln!(
-                        f,
-                        "{:15} ==> [{}] temp={:.2}",
-                        sym.name,
-                        lx.as_usize(),
-                        sym.props.temperature
-                    )?;
+            if false {
+                match sym.lexeme {
+                    Some(lx) => {
+                        write!(f, "{:15} ==>", sym.name)?;
+                        if sym.props.temperature != 0.0 {
+                            write!(f, " temp={:.2}", sym.props.temperature)?;
+                        }
+                        if let Some(lexer_spec) = lexer_spec {
+                            writeln!(f, " {}", lexer_spec.lexeme_def_to_string(lx))?;
+                        } else {
+                            writeln!(f, " [{:?}]", lx.as_usize())?;
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         for sym in &self.symbols {
@@ -525,6 +563,12 @@ impl Debug for Grammar {
         }
         writeln!(f, "stats: {}\n", self.stats())?;
         Ok(())
+    }
+}
+
+impl Debug for Grammar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string(None))
     }
 }
 
@@ -574,6 +618,16 @@ pub struct CSymbol {
     pub rules: Vec<RhsPtr>,
     pub sym_flags: SymFlags,
     pub lexeme: Option<LexemeIdx>,
+}
+
+impl CSymbol {
+    fn short_name(&self) -> String {
+        if let Some(lex) = self.lexeme {
+            format!("[{}]", lex.as_usize())
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -865,9 +919,7 @@ impl CGrammar {
         };
         rule_to_string(
             lhs,
-            rhs.iter()
-                .map(|s| self.sym_data(*s).name.as_str())
-                .collect(),
+            rhs.iter().map(|s| self.sym_data(*s).short_name()).collect(),
             Some(dot),
             &symdata.props,
             dot_prop,
@@ -877,18 +929,18 @@ impl CGrammar {
 
 fn rule_to_string(
     lhs: &str,
-    mut rhs: Vec<&str>,
+    mut rhs: Vec<String>,
     dot: Option<usize>,
     props: &SymbolProps,
     _dot_props: Option<&SymbolProps>,
 ) -> String {
     if rhs.is_empty() {
-        rhs.push("ϵ");
+        rhs.push("ϵ".to_string());
         if dot == Some(0) {
-            rhs.push("•");
+            rhs.push("•".to_string());
         }
     } else if let Some(dot) = dot {
-        rhs.insert(dot, "•");
+        rhs.insert(dot, "•".to_string());
     }
     format!("{:15} ⇦ {}  {}", lhs, rhs.join(" "), props.to_string())
 }

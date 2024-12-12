@@ -331,7 +331,7 @@ impl Compiler {
                 props,
             )
         } else {
-            if rule.temperature.is_some() {
+            if rule.temperature.is_some() || rule.max_tokens.is_some() {
                 match rule.expansions.single_atom() {
                     Some(Atom::Value(Value::GrammarRef(g))) => {
                         return Ok(self.builder.gen_grammar(
@@ -344,7 +344,13 @@ impl Compiler {
                     }
                     _ => {
                         // try as terminal
-                        let rx_id = self.do_token_expansions(&rule.expansions)?;
+                        let rx_id = self.do_token_expansions(&rule.expansions).map_err(|e| {
+                            anyhow::anyhow!(
+                                "{}; temperature= and max_tokens= only \
+                                supported on TERMINALS and @subgrammars",
+                                e
+                            )
+                        })?;
                         return Ok(self.builder.add_node(Node::Lexeme {
                             rx: RegexSpec::RegexId(rx_id),
                             contextual: None,
@@ -360,6 +366,7 @@ impl Compiler {
 
             let inner = self.do_expansions(&rule.expansions)?;
             if let Some(max_tokens) = rule.max_tokens {
+                assert!(false, "max_tokens handled above for now");
                 self.builder.join_props(
                     &[inner],
                     NodeProps {

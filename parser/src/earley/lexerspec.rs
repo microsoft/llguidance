@@ -42,6 +42,7 @@ pub struct LexemeSpec {
     ends_at_eos: bool,
     lazy: bool,
     contextual: bool,
+    max_tokens: usize,
     pub(crate) is_skip: bool,
     json_options: Option<JsonQuoteOptions>,
 }
@@ -69,6 +70,10 @@ impl LexemeIdx {
 impl LexemeSpec {
     pub fn class(&self) -> LexemeClass {
         self.class
+    }
+
+    pub fn max_tokens(&self) -> usize {
+        self.max_tokens
     }
 
     pub fn to_string(&self, max_len: usize, exprset: Option<&ExprSet>) -> String {
@@ -134,6 +139,10 @@ impl LexerSpec {
         SimpleVob::alloc(self.lexemes.len())
     }
 
+    pub fn alloc_grammar_set(&self) -> SimpleVob {
+        SimpleVob::alloc(self.skip_by_class.len())
+    }
+
     pub fn all_lexemes(&self) -> SimpleVob {
         let mut v = self.alloc_lexeme_set();
         self.lexemes[0..self.lexemes.len() - self.num_extra_lexemes]
@@ -191,11 +200,11 @@ impl LexerSpec {
         } else {
             compiled
         };
-        if let Some(idx) = self
-            .lexemes
-            .iter()
-            .position(|lex| lex.compiled_rx == compiled && lex.class == spec.class)
-        {
+        if let Some(idx) = self.lexemes.iter().position(|lex| {
+            lex.compiled_rx == compiled
+                && lex.class == spec.class
+                && lex.max_tokens == spec.max_tokens
+        }) {
             return Ok(LexemeIdx(idx));
         }
         let idx = LexemeIdx(self.lexemes.len());
@@ -221,6 +230,7 @@ impl LexerSpec {
             is_skip: false,
             json_options: None,
             class: self.current_class,
+            max_tokens: usize::MAX,
         }
     }
 
@@ -230,6 +240,7 @@ impl LexerSpec {
         body_rx: RegexAst,
         stop_rx: RegexAst,
         lazy: bool,
+        max_tokens: usize,
     ) -> Result<LexemeIdx> {
         let rx = if !matches!(stop_rx, RegexAst::EmptyString) {
             RegexAst::Concat(vec![body_rx, RegexAst::LookAhead(Box::new(stop_rx))])
@@ -241,6 +252,7 @@ impl LexerSpec {
             rx,
             lazy,
             ends_at_eos: !lazy,
+            max_tokens,
             ..self.empty_spec()
         })
     }
@@ -277,12 +289,14 @@ impl LexerSpec {
         rx: RegexAst,
         contextual: bool,
         json_options: Option<JsonQuoteOptions>,
+        max_tokens: usize,
     ) -> Result<LexemeIdx> {
         self.add_lexeme_spec(LexemeSpec {
             name,
             rx,
             contextual,
             json_options,
+            max_tokens,
             ..self.empty_spec()
         })
     }
@@ -296,6 +310,7 @@ impl LexerSpec {
                 RegexAst::Regex(added.clone()),
                 false,
                 None,
+                usize::MAX,
             )
             .expect("adding lexeme");
         }
@@ -323,9 +338,9 @@ impl LexerSpec {
 
     pub fn dbg_lexeme_set(&self, vob: &SimpleVob) -> String {
         format!(
-            "Lexemes: [{}]",
+            "Lexemes( {} )",
             vob.iter()
-                .map(|idx| self.lexemes[idx as usize].name.as_str())
+                .map(|idx| format!("[{}]", idx))
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -341,6 +356,10 @@ impl LexerSpec {
 
     pub fn skip_id(&self, class: LexemeClass) -> LexemeIdx {
         self.skip_by_class[class.as_usize()]
+    }
+
+    pub fn lexeme_def_to_string(&self, idx: LexemeIdx) -> String {
+        self.lexemes[idx.0].to_string(512, Some(self.regex_builder.exprset()))
     }
 }
 

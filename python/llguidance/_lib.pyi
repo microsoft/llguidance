@@ -108,6 +108,18 @@ class LLInterpreter:
         Returns the adjusted prompt.
         """
 
+    def start_without_prompt(self) -> None:
+        """
+        Start the parser without prompt processing.
+        """
+
+    def validate_tokens_raw(self, tokens: List[TokenId]) -> int:
+        """
+        Check if tokens are valid in the current state.
+        Note that this doesn't currently check for max_tokens beyond the first token (hence 'raw').
+        Return: how many of the tokens in the list can be committed
+        """
+
     def compute_mask(self) -> Tuple[Optional[bytes], str]:
         """
         Perform next parsing step.

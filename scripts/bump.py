@@ -6,8 +6,8 @@ import sys
 import os
 
 pyproject_path = "pyproject.toml"
-cargo_paths = ["parser", "rust"]
-version_pattern = r'\nversion\s*=\s*"(\d+\.\d+\.\d+)"'
+cargo_paths = ["parser", "python_ext"]
+version_pattern = r'\nversion\s*=\s*"(\d+\.\d+\.\d+)([^"]*)"'
 
 
 def get_current_version(file_path):
@@ -39,7 +39,7 @@ def update_version_in_file(file_path, new_version):
 def check_in_and_tag(version):
     subprocess.run(["git", "add", pyproject_path] +
                    [p + "/Cargo.toml" for p in cargo_paths] +
-                   [p + "/Cargo.lock" for p in cargo_paths],
+                   ["Cargo.lock"],
                    check=True)
     subprocess.run(["git", "commit", "-m", f"Bump version to {version}"],
                    check=True)
@@ -72,23 +72,11 @@ def main():
     new_version = (input(f"Enter new version (default: {suggested_version}): ")
                    or suggested_version)
 
-    update_version_in_file(pyproject_path, new_version)
+    update_version_in_file(pyproject_path, new_version.replace("-", ""))
 
-    has_ws = False
-    # check if workspace file exists in upper folder
-    if os.path.exists("../Cargo.toml"):
-        has_ws = True
-        # rename workspace file
-        os.rename("../Cargo.toml", "../Cargo.toml.bak")
-
-    try:
-        for p in cargo_paths:
-            update_version_in_file(p + "/Cargo.toml", new_version)
-            subprocess.run(["cargo", "check"], check=True, cwd=p)
-    finally:
-        if has_ws:
-            # restore workspace file
-            os.rename("../Cargo.toml.bak", "../Cargo.toml")
+    for p in cargo_paths:
+        update_version_in_file(p + "/Cargo.toml", new_version)
+        subprocess.run(["cargo", "check"], check=True, cwd=p)
 
     check_in_and_tag(new_version)
 

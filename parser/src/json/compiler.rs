@@ -450,7 +450,7 @@ impl Compiler {
                     let valid = self
                         .builder
                         .regex
-                        .regex(r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#.to_string());
+                        .regex(format!("\"({})*\"", CHAR_REGEX));
                     let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
                     let rx = RegexSpec::RegexId(valid_and_not_taken);
                     self.builder.lexeme(rx, false)
@@ -563,9 +563,24 @@ impl Compiler {
             if min_length > 0 || max_length.is_some() {
                 bail!("If a pattern is specified, minLength and maxLength must be unspecified.");
             }
-            // the regex has implicit ^...$ anyways
-            let regex = regex.trim_start_matches('^').trim_end_matches('$');
-            let node = self.builder.lexeme(mk_regex(regex), true);
+            let regex = {
+                let left_anchored = regex.starts_with('^');
+                let right_anchored = regex.ends_with('$');
+                let trimmed = regex.trim_start_matches('^').trim_end_matches('$');
+                let mut result = String::new();
+                if !left_anchored {
+                    result.push_str(".*");
+                }
+                // without parens, for a|b we would get .*a|b.* which is (.*a)|(b.*)
+                result.push_str("(");
+                result.push_str(trimmed);
+                result.push_str(")");
+                if !right_anchored {
+                    result.push_str(".*");
+                }
+                result
+            };
+            let node = self.builder.lexeme(mk_regex(&regex), true);
             Ok(node)
         } else {
             Ok(self.lexeme(&format!(

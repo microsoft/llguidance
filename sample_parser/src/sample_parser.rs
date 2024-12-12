@@ -85,6 +85,9 @@ fn main() {
 
     eprintln!("Parsing tokens: {}", trie.tokens_dbg(&tokens));
 
+    // constraint.parser.start_without_prompt();
+    // constraint.parser.consume_token(tokens[0]).unwrap();
+
     let mut idx = 0;
     while idx < tokens.len() {
         let res = constraint.compute_mask().unwrap();

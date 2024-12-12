@@ -114,6 +114,14 @@ impl TokenParser {
         })
     }
 
+    pub fn get_capture(&self, name: &str) -> Option<&[u8]> {
+        self.parser
+            .captures()
+            .iter()
+            .find(|c| c.0 == name)
+            .map(|c| c.1.as_slice())
+    }
+
     // regular .clone() uses a shared lexer state
     pub fn deep_clone(&self) -> Self {
         let mut copy = self.clone();
@@ -629,10 +637,7 @@ impl TokenParser {
         self.parser.log_row_infos("post-apply");
         match apply_res {
             Err(_) => Err(self.anyhow_error()),
-            Ok(n) => {
-                self.parser.filter_max_tokens();
-                Ok(n)
-            }
+            Ok(n) => Ok(n),
         }
     }
 

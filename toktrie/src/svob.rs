@@ -283,6 +283,11 @@ impl SimpleVob {
         SimpleVobIter { vob: self, idx: 0 }
     }
 
+    pub fn set_from(&mut self, other: &SimpleVob) {
+        assert_eq!(self.size, other.size);
+        self.data.copy_from_slice(&other.data);
+    }
+
     pub fn or(&mut self, other: &SimpleVob) {
         assert_eq!(self.size, other.size);
         for (idx, v) in self.data.iter_mut().zip(other.data.iter()) {
