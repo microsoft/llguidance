@@ -115,7 +115,7 @@ impl BiasComputer for SlicedBiasComputer {
             for slice in self.slices.iter() {
                 // for JSON string lexer and /[a-zA-Z\u{0080}-\u{10FFFF}]+/ kind of slices
                 // we use about 200 of the budget and it takes around 20us
-                let budget = 5500;
+                let budget = 205500;
                 if slice.regex != ""
                     && rec
                         .lexer_mut()
@@ -127,7 +127,19 @@ impl BiasComputer for SlicedBiasComputer {
                 } else {
                     slice.trie.add_bias(rec, &mut set, start);
                     if slice.regex != "" && set.num_set() > 120_000 {
-                        if rec.metrics_mut().rand.one_in(500) {
+                        let core_state = rec.lexer().core_state(lexer_state);
+                        let m = rec.metrics_mut();
+                        if let Some(core_state) = core_state {
+                            if m.state_cache.contains_key(&core_state) {
+                                m.num_hits += 1;
+                            } else {
+                                m.num_misses += 1;
+                                m.state_cache.insert(core_state, 1);
+                            }
+                        } else {
+                            m.num_fail += 1;
+                        }
+                        if rec.metrics_mut().rand.one_in(50) {
                             let pos = rec.lexer().possible_lexemes(lexer_state);
                             let spec = rec.lexer().lexer_spec();
                             let msg = format!("{}", spec.dbg_lexeme_set_ext(&pos));
