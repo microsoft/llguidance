@@ -3,9 +3,8 @@ use clap::Parser;
 use json_stats::SchemaStats;
 use jsonschema::Validator;
 use llguidance::{
-    api::ParserLimits,
     toktrie::{InferenceCapabilities, TokEnv},
-    Constraint, JsonCompileOptions, TokenParser,
+    Constraint, JsonCompileOptions, ParserFactory, TokenParser,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -126,6 +125,7 @@ struct SchemaRes {
 struct TestEnv {
     cli: Arc<CliOptions>,
     tok_env: TokEnv,
+    factory: Arc<ParserFactory>,
     file_name: String,
 }
 
@@ -202,19 +202,7 @@ impl TestEnv {
             }
         };
 
-        let parser = TokenParser::from_llguidance_json(
-            self.tok_env.clone(),
-            schema,
-            llguidance::Logger::new(0, 0),
-            InferenceCapabilities {
-                ff_tokens: false,
-                backtrack: false,
-                conditional_ff_tokens: false,
-                fork: false,
-            },
-            ParserLimits::default(),
-            vec![],
-        );
+        let parser = self.factory.create_parser(schema);
 
         let parser = match parser {
             Ok(parser) => {
@@ -411,11 +399,25 @@ fn main() {
             .unwrap()
             .to_env();
 
+    let mut factory = ParserFactory::new(
+        &tok_env,
+        InferenceCapabilities {
+            ff_tokens: false,
+            backtrack: false,
+            conditional_ff_tokens: false,
+            fork: false,
+        },
+        &vec![],
+    );
+    factory.quiet();
+    let factory = Arc::new(factory);
+
     let t0 = std::time::Instant::now();
     let par = true; // options.llg_test == false;
     let do_file = |file: &String| {
         let env = TestEnv {
             tok_env: tok_env.clone(),
+            factory: factory.clone(),
             file_name: file.to_string(),
             cli: options.clone(),
         };

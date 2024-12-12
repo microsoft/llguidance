@@ -35,7 +35,11 @@ impl ParserFactory {
         }
     }
 
-    pub fn quiet(mut self) -> Self {
+    pub fn tok_env(&self) -> &TokEnv {
+        &self.tok_env
+    }
+
+    pub fn quiet(&mut self) -> &mut Self {
         self.stderr_log_level = 0;
         self.buffer_log_level = 0;
         self
