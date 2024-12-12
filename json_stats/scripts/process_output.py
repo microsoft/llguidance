@@ -8,7 +8,7 @@ import random
 from jsonschema import Draft202012Validator, validate
 
 
-output_base = os.environ.get("HOME") + "/src/json-data/output"
+output_base = os.environ.get("HOME") + "/src/json-data/output-missing"
 combined_base = os.environ.get("HOME") + "/src/json-data/combined"
 
 true = True
@@ -16,10 +16,12 @@ false = False
 
 
 class Stats:
+
     def __init__(self):
         self.total = 0
         self.server_error = 0
         self.json_error = 0
+        self.schema_error = 0
         self.validation_error = 0
         self.json_ok = 0
 
@@ -30,7 +32,8 @@ stats = Stats()
 def process_file(schema_file):
     file_base = schema_file.split("/")[-1]
     split = schema_file.split("/")[-2]
-    output_name = f"{output_base}/{file_base}"
+    output_name = f"{output_base}/{split}---{file_base}"
+
     if not os.path.exists(output_name):
         return
 
@@ -57,12 +60,19 @@ def process_file(schema_file):
 
     with open(schema_file) as f:
         schema = json.loads(f.read())
-    Draft202012Validator.check_schema(schema)
+
+    try:
+        Draft202012Validator.check_schema(schema)
+    except Exception as e:
+        stats.schema_error += 1
+        print("schema error", output_name, schema_file)
+        return
+
     try:
         validate(r, schema)
     except Exception as e:
         stats.validation_error += 1
-        print("validation error", output_name, schema_file)
+        # print("validation error", output_name, schema_file)
         return
 
     stats.json_ok += 1
@@ -77,7 +87,7 @@ def process_file(schema_file):
                 "valid": True,
                 "data": r,
             }
-        ]
+        ],
     }
     with open(f"{combined_base}/{split}---{file_base}", "w") as f:
         f.write(json.dumps(data, indent=4))
