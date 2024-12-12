@@ -65,14 +65,18 @@ struct LlgResult {
     masks_us: usize,
     max_mask_us: usize,
     num_tokens: usize,
-    num_valid: usize,
-    num_invalid: usize,
+    num_valid_tests: usize,
+    num_invalid_tests: usize,
 
     slow_mask_count: [usize; MASK_STEPS],
     slow_mask_us: [usize; MASK_STEPS],
 
     slow_mask_count_a: [usize; MASK_STEPS],
     slow_mask_us_a: [usize; MASK_STEPS],
+
+    num_slicer_fails: usize,
+    num_slicer_hits: usize,
+    num_slicer_misses: usize,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     compile_error: Option<String>,
@@ -142,24 +146,34 @@ struct TestEnv {
     file_name: String,
 }
 
+fn json_sum(curr: &mut Value, v: &Value) {
+    assert!(curr.is_object());
+    assert!(v.is_object());
+    let v = v.as_object().unwrap();
+    for (k, v) in v.iter() {
+        if let Some(v) = v.as_i64() {
+            let c = &curr[k];
+            let v2 = if c.is_null() {
+                v
+            } else {
+                c.as_i64().unwrap() + v
+            };
+            curr[k] = json!(v2);
+        }
+    }
+}
+
 impl TestEnv {
-    fn run_llg_test(
+    fn run_llg_test_inner(
         &self,
         stats: &mut LlgResult,
-        parser: &TokenParser,
+        parser: &mut TokenParser,
         t: &JsonTestSequence,
     ) -> Result<()> {
-        let masks = self.cli.llg_masks;
-        if masks && !t.valid {
-            return Ok(());
-        }
-
-        let mut parser = parser.deep_clone();
-        parser.start_without_prompt();
-
         let dstr = serde_json::to_string(&t.data).unwrap();
         let tokens = self.tok_env.tokenize(&dstr);
         let trie = self.tok_env.tok_trie();
+        let masks = self.cli.llg_masks;
 
         for (tidx, &token) in tokens.iter().enumerate() {
             stats.num_tokens += 1;
@@ -219,6 +233,29 @@ impl TestEnv {
         Ok(())
     }
 
+    fn run_llg_test(
+        &self,
+        stats: &mut LlgResult,
+        parser: &TokenParser,
+        t: &JsonTestSequence,
+    ) -> Result<()> {
+        if self.cli.llg_masks && !t.valid {
+            return Ok(());
+        }
+
+        let mut parser = parser.deep_clone();
+        parser.start_without_prompt();
+
+        let r = self.run_llg_test_inner(stats, &mut parser, t);
+
+        let m = parser.parser.metrics_mut();
+        stats.num_slicer_hits += m.num_hits;
+        stats.num_slicer_misses += m.num_misses;
+        stats.num_slicer_fails += m.num_fail;
+
+        r
+    }
+
     fn run_llg_compile(&self, test_file: &JsonTest) -> LlgResult {
         let opts = JsonCompileOptions::default();
         let mut res = LlgResult::default();
@@ -262,9 +299,9 @@ impl TestEnv {
                     limit_string(&mut res.validation_error);
                 } else {
                     if t.valid {
-                        res.num_valid += 1;
+                        res.num_valid_tests += 1;
                     } else {
-                        res.num_invalid += 1;
+                        res.num_invalid_tests += 1;
                     }
                 }
                 res.masks_us += t0.elapsed().as_micros() as usize;
@@ -436,7 +473,7 @@ fn main() {
     .unwrap()
     .to_env();
 
-    let mut slices = vec![r#"[^"\\\x00-\x1F\x7F]+"#.to_string()];
+    let mut slices = vec![r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string()];
     if !options.llg_slicer {
         slices.clear();
     }
@@ -479,6 +516,7 @@ fn main() {
     let mut llg_results = vec![];
     let mut histogram = MaskHistogram::default();
     let mut histogram_a = MaskHistogram::default();
+    let mut llg_totals = json!({});
 
     for (file, s) in files.iter().zip(results.into_iter()) {
         all_stats.insert(file.clone(), s.clone());
@@ -522,14 +560,13 @@ fn main() {
                     }
                 }
             } else {
-                if llg.num_valid > 0 {
+                if llg.num_valid_tests > 0 {
                     total.llg.num_correct_schemas += 1;
                 }
             }
 
-            total.llg.num_valid_tests += llg.num_valid;
-            total.llg.num_invalid_tests += llg.num_invalid;
             total.llg.num_tokens += llg.num_tokens;
+            json_sum(&mut llg_totals, &serde_json::to_value(&llg).unwrap());
 
             if llg.ttfm_us > 0 {
                 total.llg.num_parsers += 1;
@@ -589,6 +626,7 @@ fn main() {
     }
 
     println!("{}", serde_json::to_string_pretty(&total).unwrap());
+    println!("LLG: {}", serde_json::to_string_pretty(&llg_totals).unwrap());
 
     println!("Total time: {}ms", t0.elapsed().as_millis());
 
@@ -642,8 +680,6 @@ struct LlgTotalStats {
     num_invalidation_error: usize,
     num_parser_limits: usize,
     num_correct_schemas: usize,
-    num_valid_tests: usize,
-    num_invalid_tests: usize,
     num_tokens: usize,
     num_parsers: usize,
     num_threads: usize,
