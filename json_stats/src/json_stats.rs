@@ -56,14 +56,21 @@ pub struct CliOptions {
     files: Vec<String>,
 }
 
+const MASK_STEPS: usize = 16;
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct LlgResult {
     id: String,
     ttfm_us: usize,
     masks_us: usize,
+    max_mask_us: usize,
     num_tokens: usize,
     num_valid: usize,
     num_invalid: usize,
+
+    slow_mask_count: [usize; MASK_STEPS],
+    slow_mask_us: [usize; MASK_STEPS],
+
     #[serde(skip_serializing_if = "Option::is_none")]
     compile_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,7 +162,14 @@ impl TestEnv {
             stats.num_tokens += 1;
 
             let ok = if masks {
+                let t0 = std::time::Instant::now();
                 let m = parser.compute_mask()?;
+                let us = t0.elapsed().as_micros() as usize;
+                let step = us.next_power_of_two().trailing_zeros() as usize;
+                let step = std::cmp::min(step, MASK_STEPS - 1);
+                stats.slow_mask_count[step] += 1;
+                stats.slow_mask_us[step] += us;
+                stats.max_mask_us = std::cmp::max(stats.max_mask_us, us);
                 m.is_allowed(token)
             } else {
                 parser.validate_token(token)?
@@ -443,6 +457,7 @@ fn main() {
     let mut num_files_by_raw_feature: HashMap<String, usize> = HashMap::new();
     let mut all_file_info = vec![];
     let mut llg_results = vec![];
+    let mut histogram = MaskHistogram::default();
 
     for (file, s) in files.iter().zip(results.into_iter()) {
         all_stats.insert(file.clone(), s.clone());
@@ -500,7 +515,13 @@ fn main() {
             }
 
             total.llg.ttfm_us += llg.ttfm_us;
-            total.llg.mask_us += llg.masks_us;
+            total.llg.mask_us_total += llg.masks_us;
+            total.llg.max_mask_us = std::cmp::max(total.llg.max_mask_us, llg.max_mask_us);
+
+            for i in 0..MASK_STEPS {
+                histogram.count[i] += llg.slow_mask_count[i];
+                histogram.us[i] += llg.slow_mask_us[i];
+            }
 
             llg_results.push(llg);
         }
@@ -515,13 +536,25 @@ fn main() {
     }
 
     total.llg.ttfm_us /= total.llg.num_parsers;
-    total.llg.mask_us /= total.llg.num_tokens;
+    total.llg.mask_us = total.llg.mask_us_total / total.llg.num_tokens;
     total.llg.num_threads = num_threads;
+
+    let mut histogram_csv = "max_us,us,count\n".to_string();
+    for i in 0..MASK_STEPS {
+        histogram.perc[i] = histogram.us[i] * 1000 / total.llg.mask_us_total;
+        histogram_csv.push_str(&format!(
+            "{},{},{}\n",
+            1 << i,
+            histogram.us[i],
+            histogram.count[i]
+        ));
+    }
 
     println!("{}", serde_json::to_string_pretty(&total).unwrap());
 
     println!("Total time: {}ms", t0.elapsed().as_millis());
 
+    save_text_to_file("tmp/mask_histogram.csv", &histogram_csv);
     save_json_to_file("tmp/test_total.json", &total);
     save_json_to_file("tmp/test_all_stats.json", &all_stats);
     save_json_to_file(
@@ -548,6 +581,21 @@ fn save_json_to_file<T: Serialize>(filename: &str, data: &T) {
     // eprintln!("Saved to {}", filename);
 }
 
+fn save_text_to_file(filename: &str, data: &str) {
+    let mut file =
+        File::create(filename).expect(format!("Unable to create file {}", filename).as_str());
+    file.write_all(data.as_bytes())
+        .expect(format!("Unable to write file {}", filename).as_str());
+    // eprintln!("Saved to {}", filename);
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct MaskHistogram {
+    count: [usize; MASK_STEPS],
+    us: [usize; MASK_STEPS],
+    perc: [usize; MASK_STEPS],
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct LlgTotalStats {
     num_compile_error: usize,
@@ -562,7 +610,9 @@ struct LlgTotalStats {
     num_parsers: usize,
     num_threads: usize,
     ttfm_us: usize,
+    max_mask_us: usize,
     mask_us: usize,
+    mask_us_total: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
