@@ -74,10 +74,6 @@ struct LlgResult {
     slow_mask_count_a: [usize; MASK_STEPS],
     slow_mask_us_a: [usize; MASK_STEPS],
 
-    num_slicer_fails: usize,
-    num_slicer_hits: usize,
-    num_slicer_misses: usize,
-
     #[serde(skip_serializing_if = "Option::is_none")]
     compile_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -248,11 +244,8 @@ impl TestEnv {
 
         let r = self.run_llg_test_inner(stats, &mut parser, t);
 
-        let m = parser.parser.metrics_mut();
-        stats.num_slicer_hits += m.num_hits;
-        stats.num_slicer_misses += m.num_misses;
-        stats.num_slicer_fails += m.num_fail;
-
+        // let m = parser.parser.metrics_mut();
+   
         r
     }
 
