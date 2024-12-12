@@ -16,6 +16,10 @@ mod constraint;
 mod tokenizer_json;
 pub use constraint::{CommitResult, Constraint};
 
+mod factory;
+mod slicer;
+pub use factory::ParserFactory;
+
 mod logging;
 pub use logging::Logger;
 
