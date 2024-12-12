@@ -9,7 +9,7 @@ import random
 import concurrent.futures
 
 
-output_base = os.environ.get("HOME") + "/src/json-data/responses"
+output_base = os.environ.get("JSB_DATA") + "/work/responses"
 
 url = "http://localhost:3001/v1/chat/completions"
 

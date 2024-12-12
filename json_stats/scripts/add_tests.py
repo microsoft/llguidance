@@ -8,7 +8,7 @@ import random
 import re
 from jsonschema import Draft202012Validator, validate
 
-combined_base = "../../JSONSchemaBench-plain/unique_tests"
+combined_base = os.environ.get("JSB_DATA") + "/unique_tests"
 invalid_marker = "Please modify the instance to make it invalid according to the schema"
 
 

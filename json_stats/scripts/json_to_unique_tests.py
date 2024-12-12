@@ -8,7 +8,7 @@ import random
 import re
 from jsonschema import Draft202012Validator, validate
 
-combined_base = "../../JSONSchemaBench-plain/unique_tests"
+combined_base = os.environ.get("JSB_DATA") + "/unique_tests"
 
 
 class Stats:
@@ -50,7 +50,7 @@ def process_file(file_name):
             prev = json.dumps(combined["schema"])
             combined["schema"] = schema
             if json.dumps(combined["schema"]) == prev:
-                return # no change
+                return  # no change
 
     try:
         Draft202012Validator.check_schema(schema)
