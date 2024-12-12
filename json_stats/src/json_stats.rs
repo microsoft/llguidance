@@ -37,6 +37,9 @@ pub struct CliOptions {
     #[arg(long, short = 't')]
     llg_test: bool,
 
+    #[arg(long, short = 'm')]
+    llg_masks: bool,
+
     #[arg(long)]
     remove_broken_tests: bool,
 
@@ -55,6 +58,8 @@ pub struct CliOptions {
 struct LlgResult {
     id: String,
     ttfm_us: usize,
+    masks_us: usize,
+    num_tokens: usize,
     num_valid: usize,
     num_invalid: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,7 +114,6 @@ struct JsonTestSequence {
 struct SchemaRes {
     file_name: String,
     full_size: usize,
-    ttfm_us: usize,
     file_info: JsonFileInfo,
     llg_result: Option<LlgResult>,
 
@@ -126,7 +130,17 @@ struct TestEnv {
 }
 
 impl TestEnv {
-    fn run_llg_test(&self, parser: &TokenParser, t: &JsonTestSequence) -> Result<()> {
+    fn run_llg_test(
+        &self,
+        stats: &mut LlgResult,
+        parser: &TokenParser,
+        t: &JsonTestSequence,
+    ) -> Result<()> {
+        let masks = self.cli.llg_masks;
+        if masks && !t.valid {
+            return Ok(());
+        }
+
         let mut parser = parser.clone();
         parser.start_without_prompt();
 
@@ -135,7 +149,15 @@ impl TestEnv {
         let trie = self.tok_env.tok_trie();
 
         for (tidx, &token) in tokens.iter().enumerate() {
-            let ok = parser.validate_token(token)?;
+            stats.num_tokens += 1;
+
+            let ok = if masks {
+                let m = parser.compute_mask()?;
+                m.is_allowed(token)
+            } else {
+                parser.validate_token(token)?
+            };
+
             if !ok {
                 if t.valid {
                     bail!(
@@ -212,7 +234,8 @@ impl TestEnv {
 
         if self.cli.llg_test {
             for (idx, t) in test_file.tests.iter().enumerate() {
-                if let Err(e) = self.run_llg_test(&parser, t) {
+                let t0 = std::time::Instant::now();
+                if let Err(e) = self.run_llg_test(&mut res, &parser, t) {
                     res.validation_error = Some(format!("test #{idx}: {e}"));
                     limit_string(&mut res.validation_error);
                 } else {
@@ -222,6 +245,7 @@ impl TestEnv {
                         res.num_invalid += 1;
                     }
                 }
+                res.masks_us += t0.elapsed().as_micros() as usize;
             }
         }
 
@@ -343,7 +367,18 @@ impl TestEnv {
 fn main() {
     let jsb_data = std::env::var("JSB_DATA").expect("JSB_DATA environment variable not set");
 
+    // set max thread numbers
+    let num_cores = std::thread::available_parallelism().unwrap().get();
+    let num_threads = std::cmp::min(num_cores, 40);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global()
+        .unwrap();
+
     let mut options = CliOptions::parse();
+    if options.llg_masks {
+        options.llg_test = true;
+    }
     if options.llg_test {
         options.llg_compile = true;
     }
@@ -418,30 +453,44 @@ fn main() {
         total.full_size += s.full_size;
 
         if let Some(llg) = s.llg_result {
+            let log_err = !options.llg_masks;
+
             if llg.compile_error.is_some() {
-                total.num_llg_compile_error += 1;
+                total.llg.num_compile_error += 1;
             }
             if llg.parser_error.is_some() {
-                total.num_llg_parser_error += 1;
+                total.llg.num_parser_error += 1;
             }
             if let Some(msg) = llg.validation_error.as_ref() {
                 if msg.contains("consider making your grammar left-recursive") {
-                    total.num_llg_parser_limits += 1;
+                    total.llg.num_parser_limits += 1;
                 } else if msg.contains("incorrect accept") {
-                    total.num_llg_invalidation_error += 1;
-                    eprintln!("{} Error Invalidation: {}", s.file_name, msg);
+                    total.llg.num_invalidation_error += 1;
+                    if log_err {
+                        eprintln!("{} Error Invalidation: {}", s.file_name, msg);
+                    }
                 } else {
-                    total.num_llg_validation_error += 1;
-                    eprintln!("{} Error Validation: {}", s.file_name, msg);
+                    total.llg.num_validation_error += 1;
+                    if log_err {
+                        eprintln!("{} Error Validation: {}", s.file_name, msg);
+                    }
                 }
             } else {
                 if llg.num_valid > 0 {
-                    total.num_llg_correct_schemas += 1;
+                    total.llg.num_correct_schemas += 1;
                 }
             }
 
-            total.num_llg_valid_tests += llg.num_valid;
-            total.num_llg_invalid_tests += llg.num_invalid;
+            total.llg.num_valid_tests += llg.num_valid;
+            total.llg.num_invalid_tests += llg.num_invalid;
+            total.llg.num_tokens += llg.num_tokens;
+
+            if llg.ttfm_us > 0 {
+                total.llg.num_parsers += 1;
+            }
+
+            total.llg.ttfm_us += llg.ttfm_us;
+            total.llg.mask_us += llg.masks_us;
 
             llg_results.push(llg);
         }
@@ -453,9 +502,12 @@ fn main() {
         } else if s.test_invalid_error.is_some() {
             total.num_invalid_error += 1;
         }
-        total.ttfm_us += s.ttfm_us;
-        total.max_ttfm_us = total.max_ttfm_us.max(s.ttfm_us);
     }
+
+    total.llg.ttfm_us /= total.llg.num_parsers;
+    total.llg.mask_us /= total.llg.num_tokens;
+    total.llg.num_threads = num_threads;
+
     println!("{}", serde_json::to_string_pretty(&total).unwrap());
 
     println!("Total time: {}ms", t0.elapsed().as_millis());
@@ -487,30 +539,34 @@ fn save_json_to_file<T: Serialize>(filename: &str, data: &T) {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct TotalStats {
-    num_files: usize,
-
-    num_llg_compile_error: usize,
-    num_llg_parser_error: usize,
-    num_llg_validation_error: usize,
-    num_llg_invalidation_error: usize,
-    num_llg_parser_limits: usize,
-    num_llg_correct_schemas: usize,
-
+struct LlgTotalStats {
+    num_compile_error: usize,
+    num_parser_error: usize,
+    num_validation_error: usize,
+    num_invalidation_error: usize,
+    num_parser_limits: usize,
+    num_correct_schemas: usize,
     num_valid_tests: usize,
     num_invalid_tests: usize,
+    num_tokens: usize,
+    num_parsers: usize,
+    num_threads: usize,
+    ttfm_us: usize,
+    mask_us: usize,
+}
 
-    num_llg_valid_tests: usize,
-    num_llg_invalid_tests: usize,
-
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct TotalStats {
+    num_files: usize,
+    num_valid_tests: usize,
+    num_invalid_tests: usize,
     num_schema_error: usize,
     num_fixed_schema_error: usize,
     num_valid_error: usize,
     num_invalid_error: usize,
-    ttfm_us: usize,
-    max_ttfm_us: usize,
     full_size: usize,
     stripped_size: usize,
+    llg: LlgTotalStats,
 }
 
 fn read_file_to_string(filename: &str) -> String {
