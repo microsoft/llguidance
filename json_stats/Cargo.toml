@@ -11,6 +11,10 @@ anyhow = "1.0.87"
 lazy_static = "1.5.0"
 serde_json = { version = "1.0.132", features = ["preserve_order"] }
 serde = { version = "1.0.210", features = ["derive"] }
+rayon = "1.10.0"
+jsonschema = "0.26.1"
+clap = { version = "4.5.23", features = ["derive"] }
+regex = "1.11.1"
 
 [[bin]]
 name = "json_stats"
