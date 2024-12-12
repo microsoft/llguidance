@@ -341,6 +341,8 @@ impl TestEnv {
 }
 
 fn main() {
+    let jsb_data = std::env::var("JSB_DATA").expect("JSB_DATA environment variable not set");
+
     let mut options = CliOptions::parse();
     if options.llg_test {
         options.llg_compile = true;
@@ -461,7 +463,7 @@ fn main() {
     save_json_to_file("tmp/test_total.json", &total);
     save_json_to_file("tmp/test_all_stats.json", &all_stats);
     save_json_to_file(
-        "../../JSONSchemaBench-plain/metainfo/all_test_info.json",
+        format!("{}/metainfo/all_stats.json", jsb_data).as_str(),
         &all_file_info,
     );
 
