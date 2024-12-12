@@ -73,6 +73,10 @@ impl Lexer {
         Ok(lex)
     }
 
+    pub fn lexer_spec(&self) -> &LexerSpec {
+        &self.spec
+    }
+
     pub fn start_state(&mut self, allowed_lexemes: &SimpleVob, first_byte: Option<u8>) -> StateID {
         let s = self.dfa.initial_state(allowed_lexemes);
         first_byte.map(|b| self.dfa.transition(s, b)).unwrap_or(s)

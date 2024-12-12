@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use toktrie::{InferenceCapabilities, TokEnv};
 
 use crate::{
     api::{ParserLimits, TopLevelGrammar},
+    earley::XorShift,
     slicer::SlicedBiasComputer,
     Logger, TokenParser,
 };
@@ -16,6 +17,7 @@ pub struct ParserFactory {
     stderr_log_level: u32,
     buffer_log_level: u32,
     limits: ParserLimits,
+    seed: Mutex<XorShift>,
 }
 
 impl ParserFactory {
@@ -31,6 +33,7 @@ impl ParserFactory {
             inference_caps,
             stderr_log_level: 1,
             buffer_log_level: 0,
+            seed: Mutex::new(XorShift::default()),
             limits: ParserLimits::default(),
         }
     }
@@ -55,6 +58,9 @@ impl ParserFactory {
             self.slicer.extra_lexemes(),
         )?;
         parser.bias_computer = self.slicer.clone();
+        let mut rng = self.seed.lock().unwrap();
+        rng.next_alt();
+        parser.parser.metrics_mut().rand = rng.clone();
         Ok(parser)
     }
 }

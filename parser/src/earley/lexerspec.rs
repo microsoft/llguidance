@@ -361,6 +361,17 @@ impl LexerSpec {
     pub fn lexeme_def_to_string(&self, idx: LexemeIdx) -> String {
         self.lexemes[idx.0].to_string(512, Some(self.regex_builder.exprset()))
     }
+
+
+    pub fn dbg_lexeme_set_ext(&self, vob: &SimpleVob) -> String {
+        format!(
+            "LexemesExt(\n    {}\n)",
+            vob.iter()
+                .map(|idx| self.lexeme_def_to_string(LexemeIdx::new(idx as usize)))
+                .collect::<Vec<_>>()
+                .join("\n    ")
+        )
+    }
 }
 
 impl Debug for LexerSpec {

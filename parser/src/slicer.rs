@@ -108,20 +108,33 @@ impl BiasComputer for SlicedBiasComputer {
     fn compute_bias<'b>(&self, rec: &mut ParserRecognizer<'b>, start: &[u8]) -> SimpleVob {
         let mut set = self.trie().alloc_token_set();
         let lexer_state = rec.lexer_state();
-        if self.slices.len() > 0 && start.is_empty() && rec.lexer().subsume_possible(lexer_state) {
+        if self.slices.len() > 0
+            && start.is_empty()
+            && rec.lexer_mut().subsume_possible(lexer_state)
+        {
             for slice in self.slices.iter() {
                 // for JSON string lexer and /[a-zA-Z\u{0080}-\u{10FFFF}]+/ kind of slices
                 // we use about 200 of the budget and it takes around 20us
-                let budget = 500;
+                let budget = 5500;
                 if slice.regex != ""
                     && rec
-                        .lexer()
+                        .lexer_mut()
                         .check_subsume(lexer_state, slice.idx, budget)
                         .unwrap_or(false)
                 {
+                    rec.stats_mut().slices_applied += 1;
                     set.or(&slice.mask);
                 } else {
                     slice.trie.add_bias(rec, &mut set, start);
+                    if slice.regex != "" && set.num_set() > 120_000 {
+                        if rec.metrics_mut().rand.one_in(500) {
+                            let pos = rec.lexer().possible_lexemes(lexer_state);
+                            let spec = rec.lexer().lexer_spec();
+                            let msg = format!("{}", spec.dbg_lexeme_set_ext(&pos));
+                            println!("{}", msg);
+                            rec.metrics_mut().message = msg;
+                        }
+                    }
                 }
             }
         } else {

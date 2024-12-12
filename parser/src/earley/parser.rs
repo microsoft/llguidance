@@ -63,6 +63,52 @@ pub struct ParserStats {
     pub all_items: usize,
     pub lexer_cost: u64,
     pub compute_time_us: u64,
+    pub slices_applied: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct XorShift {
+    seed: u32,
+}
+
+impl XorShift {
+    pub fn new(seed: u32) -> Self {
+        XorShift { seed }
+    }
+
+    pub fn next(&mut self) -> u32 {
+        let mut x = self.seed;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.seed = x;
+        x
+    }
+
+    pub fn one_in(&mut self, n: u32) -> bool {
+        self.next() % n == 0
+    }
+
+    pub fn next_alt(&mut self) -> u32 {
+        let mut x = self.seed;
+        x ^= x << 15;
+        x ^= x >> 4;
+        x ^= x << 23;
+        self.seed = x;
+        x
+    }
+}
+
+impl Default for XorShift {
+    fn default() -> Self {
+        XorShift { seed: 0xdeadf00d }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ParserMetrics {
+    pub rand: XorShift,
+    pub message: String,
 }
 
 impl ParserStats {
@@ -80,6 +126,7 @@ impl ParserStats {
             compute_time_us: self
                 .compute_time_us
                 .saturating_sub(previous.compute_time_us),
+            slices_applied: self.slices_applied.saturating_sub(previous.slices_applied),
         }
     }
 
@@ -93,6 +140,7 @@ impl ParserStats {
             all_items: self.all_items.max(other.all_items),
             lexer_cost: self.lexer_cost.max(other.lexer_cost),
             compute_time_us: self.compute_time_us.max(other.compute_time_us),
+            slices_applied: self.slices_applied.max(other.slices_applied),
         }
     }
 }
@@ -288,6 +336,7 @@ struct ParserState {
 
     stats: ParserStats,
     limits: ParserLimits,
+    metrics: ParserMetrics,
     max_all_items: usize,
     parser_error: Option<String>,
     backtrack_byte_count: usize,
@@ -433,6 +482,7 @@ impl ParserState {
             captures: vec![],
             scratch,
             stats: ParserStats::default(),
+            metrics: ParserMetrics::default(),
             token_idx: 0,
             byte_to_token_idx: vec![],
             bytes: vec![],
@@ -1841,11 +1891,20 @@ pub struct ParserRecognizer<'a> {
 }
 
 impl<'a> ParserRecognizer<'a> {
-    pub fn lexer(&mut self) -> &mut Lexer {
+    pub fn lexer_mut(&mut self) -> &mut Lexer {
         &mut self.shared.lexer
+    }
+    pub fn lexer(&self) -> &Lexer {
+        &self.shared.lexer
     }
     pub fn lexer_state(&self) -> StateID {
         self.state.lexer_state().lexer_state
+    }
+    pub fn stats_mut(&mut self) -> &mut ParserStats {
+        &mut self.state.stats
+    }
+    pub fn metrics_mut(&mut self) -> &mut ParserMetrics {
+        &mut self.state.metrics
     }
 }
 
@@ -1985,6 +2044,10 @@ impl Parser {
 
     pub fn stats(&self) -> &ParserStats {
         &self.state.stats
+    }
+
+    pub fn metrics_mut(&mut self) -> &mut ParserMetrics {
+        &mut self.state.metrics
     }
 
     // The "hidden" feature must be supported for historical reasons.

@@ -71,6 +71,9 @@ struct LlgResult {
     slow_mask_count: [usize; MASK_STEPS],
     slow_mask_us: [usize; MASK_STEPS],
 
+    slow_mask_count_a: [usize; MASK_STEPS],
+    slow_mask_us_a: [usize; MASK_STEPS],
+
     #[serde(skip_serializing_if = "Option::is_none")]
     compile_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,10 +168,24 @@ impl TestEnv {
                 let t0 = std::time::Instant::now();
                 let m = parser.compute_mask()?;
                 let us = t0.elapsed().as_micros() as usize;
+                let pstats = parser.last_step_stats();
+
                 let step = us.next_power_of_two().trailing_zeros() as usize;
                 let step = std::cmp::min(step, MASK_STEPS - 1);
+
                 stats.slow_mask_count[step] += 1;
                 stats.slow_mask_us[step] += us;
+
+                assert!(pstats.slices_applied <= 1);
+
+                let is_big = m.num_set() >= 120_000;
+                let sliced = pstats.slices_applied > 0;
+                let cond_a = is_big && sliced;
+                if cond_a {
+                    stats.slow_mask_count_a[step] += 1;
+                    stats.slow_mask_us_a[step] += us;
+                }
+
                 stats.max_mask_us = std::cmp::max(stats.max_mask_us, us);
                 m.is_allowed(token)
             } else {
@@ -461,6 +478,7 @@ fn main() {
     let mut all_file_info = vec![];
     let mut llg_results = vec![];
     let mut histogram = MaskHistogram::default();
+    let mut histogram_a = MaskHistogram::default();
 
     for (file, s) in files.iter().zip(results.into_iter()) {
         all_stats.insert(file.clone(), s.clone());
@@ -524,6 +542,10 @@ fn main() {
             for i in 0..MASK_STEPS {
                 histogram.count[i] += llg.slow_mask_count[i];
                 histogram.us[i] += llg.slow_mask_us[i];
+                histogram_a.count[i] += llg.slow_mask_count_a[i];
+                histogram_a.us[i] += llg.slow_mask_us_a[i];
+                total.llg.mask_us_total_a += llg.slow_mask_us_a[i];
+                total.llg.num_masks_a += llg.slow_mask_count_a[i];
             }
 
             llg_results.push(llg);
@@ -541,18 +563,28 @@ fn main() {
     total.llg.ttfm_us /= total.llg.num_parsers;
     total.llg.mask_us = total.llg.mask_us_total / total.llg.num_tokens;
     total.llg.num_threads = num_threads;
+    total.llg.mask_us_total_a_frac = total.llg.mask_us_total_a * 1000 / total.llg.mask_us_total;
+    total.llg.num_masks_a_frac = total.llg.num_masks_a * 1000 / total.llg.num_tokens;
 
-    let mut histogram_csv = format!("{:>10} {:>10} {:>10} {:>10}\n", "up_to", "sum", "us", "count");
+    let mut histogram_csv = format!(
+        "{:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}\n",
+        "up_to", "sum", "sum_a", "s", "s_a", "count", "count_a"
+    );
     let mut hist_sum = 0;
+    let mut hist_sum_a = 0;
     for i in 0..MASK_STEPS {
         histogram.perc[i] = histogram.us[i] * 1000 / total.llg.mask_us_total;
         hist_sum += histogram.us[i];
+        hist_sum_a += histogram_a.us[i];
         histogram_csv.push_str(&format!(
-            "{:10} {:10} {:10} {:10}\n",
+            "{:10} {:10.3} {:10.3} {:10.3} {:10.3} {:10} {:10}\n",
             1 << i,
-            hist_sum,
-            histogram.us[i],
-            histogram.count[i]
+            (hist_sum as f64 / 1000_000.0),
+            (hist_sum_a as f64 / 1000_000.0),
+            (histogram.us[i] as f64 / 1000_000.0),
+            (histogram_a.us[i] as f64 / 1000_000.0),
+            histogram.count[i],
+            histogram_a.count[i],
         ));
     }
 
@@ -619,6 +651,10 @@ struct LlgTotalStats {
     max_mask_us: usize,
     mask_us: usize,
     mask_us_total: usize,
+    mask_us_total_a: usize,
+    num_masks_a: usize,
+    mask_us_total_a_frac: usize,
+    num_masks_a_frac: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

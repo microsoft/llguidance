@@ -375,6 +375,7 @@ impl TokenParser {
                 let t = ff_tokens[0];
                 infoln!(self, "forcing ff_token by mask: {}", t);
                 let mask = self.tok_trie().singleton_token_set(t);
+                self.last_step_stats = ParserStats::default();
                 return Ok(mask);
             } else {
                 // no tokens, so we got all our bytes back
