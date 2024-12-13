@@ -214,8 +214,6 @@ impl TestEnv {
                 let us = t0.elapsed().as_micros() as usize;
                 let pstats = parser.last_step_stats();
 
-                println!("ITEMS: {}", pstats.all_items);
-
                 stats.sum_parser_items = pstats.all_items;
                 stats.max_parser_items = std::cmp::max(stats.max_parser_items, pstats.all_items);
 
