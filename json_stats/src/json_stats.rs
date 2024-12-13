@@ -68,6 +68,8 @@ struct LlgResult {
     masks_us: usize,
     #[serde(skip_serializing_if = "is_zero")]
     max_mask_us: usize,
+    #[serde(skip_serializing_if = "is_zero")]
+    slicer_leftover_us: usize,
 
     num_tokens: usize,
     num_valid_tests: usize,
@@ -265,7 +267,8 @@ impl TestEnv {
 
         let r = self.run_llg_test_inner(stats, &mut parser, t);
 
-        // let m = parser.parser.metrics_mut();
+        let m = parser.parser.metrics_mut();
+        stats.slicer_leftover_us += m.slicer_leftover_us;
 
         r
     }
@@ -487,7 +490,10 @@ fn main() {
     .unwrap()
     .to_env();
 
-    let mut slices = vec![r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string()];
+    let mut slices = vec![
+        r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string(),
+        // r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
+    ];
     if !options.llg_slicer {
         slices.clear();
     }

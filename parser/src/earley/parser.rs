@@ -109,6 +109,7 @@ impl Default for XorShift {
 pub struct ParserMetrics {
     pub rand: XorShift,
     pub message: String,
+    pub slicer_leftover_us: usize,
 }
 
 impl ParserStats {

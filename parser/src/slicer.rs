@@ -83,6 +83,13 @@ impl SlicedBiasComputer {
                 entry.regex,
                 entry.trie.trie_stats()
             );
+            if false && DEBUG && entry.regex == "" {
+                for (tok_idx, b) in entry.trie.sorted_tokens() {
+                    if b.len() > 0 {
+                        debug!("  tok{}-> {}", tok_idx, entry.trie.token_dbg(tok_idx));
+                    }
+                }
+            }
             total_nodes += entry.trie.root().subtree_size();
 
             slices.push(entry);
@@ -137,7 +144,11 @@ impl BiasComputer for SlicedBiasComputer {
                         rec.stats_mut().slices_applied += 1;
                         set.or(&slice.mask);
                     } else {
+                        // assert!(slice.regex == "");
+                        let t0 = std::time::Instant::now();
                         slice.trie.add_bias(rec, &mut set, start);
+                        let us = t0.elapsed().as_micros() as usize;
+                        rec.metrics_mut().slicer_leftover_us += us;
                         if slice.regex != "" && set.num_set() > 120_000 {
                             if rec.metrics_mut().rand.one_in(500) {
                                 let pos = rec.lexer().possible_lexemes(lexer_state);
