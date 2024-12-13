@@ -75,6 +75,10 @@ struct LlgResult {
     num_valid_tests: usize,
     num_invalid_tests: usize,
 
+    avg_parser_items: usize,
+    sum_parser_items: usize,
+    max_parser_items: usize,
+
     #[serde(skip)]
     slow_mask_count: [usize; MASK_STEPS],
     #[serde(skip)]
@@ -102,6 +106,7 @@ impl LlgResult {
         self.ttfm_us = 0;
         self.masks_us = 0;
         self.max_mask_us = 0;
+        self.slicer_leftover_us = 0;
     }
 }
 
@@ -175,7 +180,11 @@ fn json_sum(curr: &mut Value, v: &Value) {
             let v2 = if c.is_null() {
                 v
             } else {
-                c.as_i64().unwrap() + v
+                if k.starts_with("max_") {
+                    std::cmp::max(c.as_i64().unwrap(), v)
+                } else {
+                    c.as_i64().unwrap() + v
+                }
             };
             curr[k] = json!(v2);
         }
@@ -195,6 +204,8 @@ impl TestEnv {
         let masks = self.cli.llg_masks;
 
         for (tidx, &token) in tokens.iter().enumerate() {
+            //println!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
+
             stats.num_tokens += 1;
 
             let ok = if masks {
@@ -202,6 +213,9 @@ impl TestEnv {
                 let m = parser.compute_mask()?; // .unwrap_or_else(|_| trie.alloc_token_set());
                 let us = t0.elapsed().as_micros() as usize;
                 let pstats = parser.last_step_stats();
+
+                stats.sum_parser_items = pstats.all_items;
+                stats.max_parser_items = std::cmp::max(stats.max_parser_items, pstats.all_items);
 
                 let step = us.next_power_of_two().trailing_zeros() as usize;
                 let step = std::cmp::min(step, MASK_STEPS - 1);
@@ -269,6 +283,10 @@ impl TestEnv {
 
         let m = parser.parser.metrics_mut();
         stats.slicer_leftover_us += m.slicer_leftover_us;
+
+        if stats.num_tokens > 0 {
+            stats.avg_parser_items = stats.sum_parser_items / stats.num_tokens;
+        }
 
         r
     }
