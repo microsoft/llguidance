@@ -137,6 +137,7 @@ impl BiasComputer for SlicedBiasComputer {
             if slice_matches.iter().all(|&x| x == false) {
                 // if nothing matches, just run the full trie
                 self.trie().add_bias(rec, &mut set, start);
+                eprintln!("MAIN");
             } else {
                 // otherwise, apply the matching slices, and compute the rest
                 for (i, slice) in self.slices.iter().enumerate() {
@@ -149,6 +150,7 @@ impl BiasComputer for SlicedBiasComputer {
                         slice.trie.add_bias(rec, &mut set, start);
                         let us = t0.elapsed().as_micros() as usize;
                         rec.metrics_mut().slicer_leftover_us += us;
+                        eprintln!("LEFTOVER");
                         if slice.regex != "" && set.num_set() > 120_000 {
                             if rec.metrics_mut().rand.one_in(500) {
                                 let pos = rec.lexer().possible_lexemes(lexer_state);

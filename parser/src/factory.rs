@@ -43,7 +43,7 @@ impl ParserFactory {
     }
 
     pub fn quiet(&mut self) -> &mut Self {
-        self.stderr_log_level = 0;
+        self.stderr_log_level = 2;
         self.buffer_log_level = 0;
         self
     }
