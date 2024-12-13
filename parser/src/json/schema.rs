@@ -5,10 +5,13 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Result};
+use derivre::RegexAst;
 use indexmap::{IndexMap, IndexSet};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use regex_syntax::escape;
 use serde_json::Value;
+
+use super::formats::lookup_format;
 
 const DEFAULT_ROOT_URI: &str = "json-schema:///";
 const DEFAULT_DRAFT: Draft = Draft::Draft202012;
@@ -75,7 +78,7 @@ fn limited_str(node: &Value) -> String {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum Schema {
     Any,
     Unsatisfiable {
@@ -93,8 +96,7 @@ pub enum Schema {
     String {
         min_length: u64,
         max_length: Option<u64>,
-        pattern: Option<String>,
-        format: Option<String>,
+        regex: Option<RegexAst>,
     },
     Array {
         min_items: u64,
@@ -470,7 +472,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
 
         let uri: String = ctx.normalize_ref(&reference)?;
         let siblings = compile_contents_map(ctx, schemadict)?;
-        if siblings == Schema::Any {
+        if matches!(siblings, Schema::Any) {
             define_ref(ctx, &uri)?;
             return Ok(Schema::Ref { uri });
         } else {
@@ -554,8 +556,7 @@ fn compile_const(instance: &Value) -> Result<Schema> {
         Value::String(s) => Ok(Schema::String {
             min_length: 0,
             max_length: None,
-            pattern: Some(format!("^{}$", escape(s))),
-            format: None,
+            regex: Some(RegexAst::Regex(escape(s))),
         }),
         Value::Array(items) => {
             let prefix_items = items
@@ -677,6 +678,24 @@ fn compile_numeric(
     })
 }
 
+fn pattern_to_regex(pattern: &str) -> RegexAst {
+    let left_anchored = pattern.starts_with('^');
+    let right_anchored = pattern.ends_with('$');
+    let trimmed = pattern.trim_start_matches('^').trim_end_matches('$');
+    let mut result = String::new();
+    if !left_anchored {
+        result.push_str(".*");
+    }
+    // without parens, for a|b we would get .*a|b.* which is (.*a)|(b.*)
+    result.push_str("(");
+    result.push_str(trimmed);
+    result.push_str(")");
+    if !right_anchored {
+        result.push_str(".*");
+    }
+    RegexAst::Regex(result)
+}
+
 fn compile_string(
     min_length: Option<&Value>,
     max_length: Option<&Value>,
@@ -696,27 +715,36 @@ fn compile_string(
                 .ok_or_else(|| anyhow!("Expected u64 for 'maxLength', got {}", limited_str(val)))?,
         ),
     };
-    let pattern = match pattern {
+    let pattern_rx = match pattern {
         None => None,
-        Some(val) => Some(
-            val.as_str()
+        Some(val) => Some({
+            let s = val.as_str()
                 .ok_or_else(|| anyhow!("Expected string for 'pattern', got {}", limited_str(val)))?
-                .to_string(),
-        ),
+                .to_string();
+            pattern_to_regex(&s)
+        }),
     };
-    let format = match format {
+    let format_rx = match format {
         None => None,
-        Some(val) => Some(
-            val.as_str()
+        Some(val) => Some({
+            let key = val.as_str()
                 .ok_or_else(|| anyhow!("Expected string for 'format', got {}", limited_str(val)))?
-                .to_string(),
-        ),
+                .to_string();
+            let fmt = lookup_format(&key)
+                .ok_or_else(|| anyhow!("Unknown format: {}", key))?;
+            pattern_to_regex(&fmt)
+        })
+    };
+    let regex = match (pattern_rx, format_rx) {
+        (None, None) => None,
+        (None, Some(fmt)) => Some(fmt),
+        (Some(pat), None) => Some(pat),
+        (Some(pat), Some(fmt)) => Some(RegexAst::And(vec![pat, fmt]))
     };
     Ok(Schema::String {
         min_length,
         max_length,
-        pattern,
-        format,
+        regex: regex,
     })
 }
 
@@ -902,40 +930,22 @@ fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Sche
             Schema::String {
                 min_length: min1,
                 max_length: max1,
-                pattern: pattern1,
-                format: format1,
+                regex: r1,
             },
             Schema::String {
                 min_length: min2,
                 max_length: max2,
-                pattern: pattern2,
-                format: format2,
+                regex: r2,
             },
         ) => Schema::String {
             min_length: min1.max(min2),
             max_length: opt_min(max1, max2),
-            pattern: match (pattern1, pattern2) {
+            regex: match (r1, r2) {
                 (None, None) => None,
                 (None, Some(r)) => Some(r),
                 (Some(r), None) => Some(r),
                 (Some(r1), Some(r2)) => {
-                    if r1 == r2 {
-                        Some(r1)
-                    } else {
-                        bail!("intersection of patterns not implemented")
-                    }
-                }
-            },
-            format: match (format1, format2) {
-                (None, None) => None,
-                (None, Some(fmt)) => Some(fmt),
-                (Some(fmt), None) => Some(fmt),
-                (Some(fmt1), Some(fmt2)) => {
-                    if fmt1 == fmt2 {
-                        Some(fmt1)
-                    } else {
-                        bail!("intersection of formats not implemented")
-                    }
+                    Some(RegexAst::And(vec![r1, r2]))
                 }
             },
         },
