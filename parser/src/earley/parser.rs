@@ -31,6 +31,7 @@ use super::{
 
 const TRACE: bool = false;
 const DEBUG: bool = true;
+const ITEM_TRACE: bool = false;
 
 macro_rules! trace {
     ($($arg:tt)*) => {
@@ -43,6 +44,14 @@ macro_rules! trace {
 macro_rules! debug {
     ($($arg:tt)*) => {
         if cfg!(feature = "logging") && DEBUG {
+            eprintln!($($arg)*);
+        }
+    }
+}
+
+macro_rules! item_trace {
+    ($($arg:tt)*) => {
+        if ITEM_TRACE {
             eprintln!($($arg)*);
         }
     }
@@ -328,6 +337,8 @@ struct ParserState {
     lexer_stack: Vec<LexerState>,
     rows: Vec<Row>,
 
+    trace_byte_stack: Vec<u8>,
+
     // These are only updated in definitive mode.
     row_infos: Vec<RowInfo>,
     token_idx: usize,
@@ -472,7 +483,7 @@ impl ParserState {
     // The parser starts in definitive mode.
     fn new(grammar: Arc<CGrammar>, mut limits: ParserLimits) -> Result<(Self, Lexer)> {
         let start = grammar.start();
-        let mut lexer = Lexer::from(grammar.lexer_spec(), &mut limits)?;
+        let mut lexer = Lexer::from(grammar.lexer_spec(), &mut limits, true)?;
         let scratch = Scratch::new(Arc::clone(&grammar));
         let lexer_state = lexer.a_dead_state(); // placeholder
         let mut r = ParserState {
@@ -484,6 +495,7 @@ impl ParserState {
             scratch,
             stats: ParserStats::default(),
             metrics: ParserMetrics::default(),
+            trace_byte_stack: vec![],
             token_idx: 0,
             byte_to_token_idx: vec![],
             bytes: vec![],
@@ -1037,6 +1049,10 @@ impl ParserState {
         self.trie_lexer_stack = self.lexer_stack.len();
         self.trie_grammar_stack = self.scratch.grammar_stack.len();
         self.scratch.definitive = false;
+        if ITEM_TRACE {
+            self.trace_byte_stack.clear();
+            item_trace!("trie started");
+        }
     }
 
     fn trie_finished_inner(&mut self) {
@@ -1047,6 +1063,10 @@ impl ParserState {
         // cleanup excessive grammar items (perf)
         assert!(self.scratch.grammar_stack.len() >= self.trie_grammar_stack);
         self.scratch.grammar_stack.truncate(self.trie_grammar_stack);
+
+        if ITEM_TRACE {
+            self.trace_byte_stack.clear();
+        }
 
         // clean up stack
         self.pop_lexer_states(self.lexer_stack.len() - self.trie_lexer_stack);
@@ -1782,6 +1802,10 @@ impl ParserState {
         true
     }
 
+    fn lexer_stack_top(&self) -> String {
+        String::from_utf8_lossy(&self.trace_byte_stack).to_string()
+    }
+
     /// Advance the parser with given 'pre_lexeme'.
     /// On return, the lexer_state will be the state *after* consuming
     /// 'pre_lexeme'.  As a special case, a following single byte lexeme
@@ -1829,6 +1853,20 @@ impl ParserState {
         };
 
         if scan_res {
+            if ITEM_TRACE {
+                let added_row = self.num_rows();
+                let row = &self.rows[added_row];
+                println!(
+                    "  row: {:?} -> {}",
+                    self.lexer_stack_top(),
+                    row.item_indices().len()
+                );
+
+                if self.stats.all_items > self.max_all_items {
+                    panic!("max items exceeded");
+                }
+            }
+
             let mut no_hidden = self.lexer_state_for_added_row(shared, lexeme, transition_byte);
 
             if pre_lexeme.hidden_len > 0 {
@@ -1945,6 +1983,11 @@ impl BiasComputer for DefaultBiasComputer {
 impl<'a> Recognizer for ParserRecognizer<'a> {
     #[inline(always)]
     fn pop_bytes(&mut self, num: usize) {
+        if ITEM_TRACE {
+            self.state
+                .trace_byte_stack
+                .truncate(self.state.trace_byte_stack.len() - num);
+        }
         self.state.pop_lexer_states(num);
     }
 
@@ -1983,6 +2026,10 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
             .lexer
             .advance(curr.lexer_state, byte, lexer_logging);
 
+        if ITEM_TRACE {
+            self.state.trace_byte_stack.push(byte);
+        }
+
         if stats {
             // this is always true (not only with stats) but checking it has significant cost
             assert!(!self.state.scratch.definitive);
@@ -1995,7 +2042,13 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
             }
         }
 
-        self.state.advance_lexer_or_parser(self.shared, res, curr)
+        let r = self.state.advance_lexer_or_parser(self.shared, res, curr);
+
+        if ITEM_TRACE && !r {
+            self.state.trace_byte_stack.pop();
+        }
+
+        r
     }
 }
 
