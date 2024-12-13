@@ -423,7 +423,7 @@ impl Schema {
                     required: req2,
                     additional_properties: add2,
                 },
-            ) => req1.intersection(req2).any(|key| {
+            ) => req1.union(req2).any(|key| {
                 let prop1 = props1
                     .get(key)
                     .unwrap_or(add1.as_deref().unwrap_or(&Schema::Any));
