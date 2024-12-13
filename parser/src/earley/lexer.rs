@@ -22,6 +22,9 @@ macro_rules! debug {
 #[derive(Clone)]
 pub struct Lexer {
     pub(crate) dfa: RegexVec,
+    // set of bytes that are allowed in any of the lexemes
+    // this is used to fail states quickly
+    allowed_first_byte: SimpleVob,
     spec: LexerSpec,
 }
 
@@ -46,27 +49,24 @@ pub enum LexerResult {
 }
 
 impl Lexer {
-    // this is used for internal parser for lark grammars
-    // avoids debug output
-    pub fn from_internal(spec: &LexerSpec) -> Result<Self> {
-        let mut limits = ParserLimits::default();
-        let dfa = spec.to_regex_vec(&mut limits)?;
+    pub fn from(spec: &LexerSpec, limits: &mut ParserLimits, dbg: bool) -> Result<Self> {
+        let mut dfa = spec.to_regex_vec(limits)?;
+
+        if dbg {
+            debug!("lexer: {:?}\n  ==> dfa: {:?}", spec, dfa);
+        }
+
+        let s0 = dfa.initial_state(&spec.all_lexemes());
+        let mut allowed_first_byte = SimpleVob::alloc(256);
+        for i in 0..=255 {
+            if !dfa.transition(s0, i).is_dead() {
+                allowed_first_byte.allow_token(i as u32);
+            }
+        }
 
         let lex = Lexer {
             dfa,
-            spec: spec.clone(), // TODO check perf of Rc<> ?
-        };
-
-        Ok(lex)
-    }
-
-    pub fn from(spec: &LexerSpec, limits: &mut ParserLimits) -> Result<Self> {
-        let dfa = spec.to_regex_vec(limits)?;
-
-        debug!("lexer: {:?}\n  ==> dfa: {:?}", spec, dfa);
-
-        let lex = Lexer {
-            dfa,
+            allowed_first_byte,
             spec: spec.clone(), // TODO check perf of Rc<> ?
         };
 
@@ -171,6 +171,10 @@ impl Lexer {
         }
 
         if state.is_dead() {
+            // if the left-over byte is not allowed as the first byte of any lexeme, we can fail early
+            if !self.allowed_first_byte.is_allowed(byte as u32) {
+                return LexerResult::Error;
+            }
             let info = self.dfa.state_desc(prev);
             // we take the first token that matched
             // (eg., "while" will match both keyword and identifier, but keyword is first)
