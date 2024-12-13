@@ -81,7 +81,7 @@ struct Compiler {
     pending_definitions: Vec<(String, NodeRef)>,
 
     any_cache: Option<NodeRef>,
-    lexeme_cache: HashMap<String, NodeRef>,
+    lexeme_cache: HashMap<(String, bool), NodeRef>,
 }
 
 macro_rules! cache {
@@ -173,7 +173,7 @@ impl Compiler {
                 message: reason.to_string(),
             })),
             Schema::Null => Ok(self.builder.string("null")),
-            Schema::Boolean => Ok(self.lexeme(r"true|false")),
+            Schema::Boolean => Ok(self.lexeme(r"true|false", false)),
             Schema::Number {
                 minimum,
                 maximum,
@@ -283,13 +283,14 @@ impl Compiler {
         }
     }
 
-    fn lexeme(&mut self, rx: &str) -> NodeRef {
-        if self.lexeme_cache.contains_key(rx) {
-            return self.lexeme_cache[rx];
-        }
-        let r = self.builder.lexeme(mk_regex(rx), false);
-        self.lexeme_cache.insert(rx.to_string(), r);
-        r
+    fn lexeme(&mut self, rx: &str, json_quoted: bool) -> NodeRef {
+        let key = (rx.to_string(), json_quoted);
+        self.lexeme_cache
+            .entry(key)
+            .or_insert_with(||
+                self.builder.lexeme(mk_regex(rx), json_quoted)
+            )
+            .clone()
     }
 
     fn json_int(
@@ -331,7 +332,7 @@ impl Compiler {
                 minimum, maximum
             )
         })?;
-        Ok(self.lexeme(&rx))
+        Ok(self.lexeme(&rx, false))
     }
 
     fn json_number(
@@ -350,11 +351,11 @@ impl Compiler {
                     minimum, maximum
                 )
             })?;
-        Ok(self.lexeme(&rx))
+        Ok(self.lexeme(&rx, false))
     }
 
     fn json_simple_string(&mut self) -> NodeRef {
-        self.lexeme(&format!("\"{}*\"", CHAR_REGEX))
+        self.lexeme("(?s:.*)", true)
     }
 
     fn get_definition(&mut self, reference: &str) -> Result<NodeRef> {
@@ -557,12 +558,14 @@ impl Compiler {
             let node = self.builder.lexeme(RegexSpec::RegexId(id), true);
             Ok(node)
         } else {
-            Ok(self.lexeme(&format!(
-                "\"{}{{{},{}}}\"",
-                CHAR_REGEX,
-                min_length,
-                max_length.map_or("".to_string(), |v| v.to_string())
-            )))
+            Ok(self.lexeme(
+                &format!(
+                    "(?s:.{{{},{}}})",
+                    min_length,
+                    max_length.map_or("".to_string(), |v| v.to_string())
+                ),
+                true,
+            ))
         }
     }
 
