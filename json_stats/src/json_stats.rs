@@ -61,17 +61,26 @@ const MASK_STEPS: usize = 16;
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct LlgResult {
     id: String,
+
+    #[serde(skip_serializing_if = "is_zero")]
     ttfm_us: usize,
+    #[serde(skip_serializing_if = "is_zero")]
     masks_us: usize,
+    #[serde(skip_serializing_if = "is_zero")]
     max_mask_us: usize,
+
     num_tokens: usize,
     num_valid_tests: usize,
     num_invalid_tests: usize,
 
+    #[serde(skip)]
     slow_mask_count: [usize; MASK_STEPS],
+    #[serde(skip)]
     slow_mask_us: [usize; MASK_STEPS],
 
+    #[serde(skip)]
     slow_mask_count_a: [usize; MASK_STEPS],
+    #[serde(skip)]
     slow_mask_us_a: [usize; MASK_STEPS],
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,6 +89,18 @@ struct LlgResult {
     parser_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     validation_error: Option<String>,
+}
+
+fn is_zero(v: &usize) -> bool {
+    *v == 0
+}
+
+impl LlgResult {
+    pub fn clear_timings(&mut self) {
+        self.ttfm_us = 0;
+        self.masks_us = 0;
+        self.max_mask_us = 0;
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -176,7 +197,7 @@ impl TestEnv {
 
             let ok = if masks {
                 let t0 = std::time::Instant::now();
-                let m = parser.compute_mask()?;
+                let m = parser.compute_mask()?; // .unwrap_or_else(|_| trie.alloc_token_set());
                 let us = t0.elapsed().as_micros() as usize;
                 let pstats = parser.last_step_stats();
 
@@ -245,7 +266,7 @@ impl TestEnv {
         let r = self.run_llg_test_inner(stats, &mut parser, t);
 
         // let m = parser.parser.metrics_mut();
-   
+
         r
     }
 
@@ -539,7 +560,9 @@ fn main() {
                 total.llg.num_parser_error += 1;
             }
             if let Some(msg) = llg.validation_error.as_ref() {
-                if msg.contains("consider making your grammar left-recursive") {
+                if msg.contains("consider making your grammar left-recursive")
+                    || msg.contains("try avoiding single-byte/short lexemes")
+                {
                     total.llg.num_parser_limits += 1;
                 } else if msg.contains("incorrect accept") {
                     total.llg.num_invalidation_error += 1;
@@ -619,7 +642,10 @@ fn main() {
     }
 
     println!("{}", serde_json::to_string_pretty(&total).unwrap());
-    println!("LLG: {}", serde_json::to_string_pretty(&llg_totals).unwrap());
+    println!(
+        "LLG: {}",
+        serde_json::to_string_pretty(&llg_totals).unwrap()
+    );
 
     println!("Total time: {}ms", t0.elapsed().as_millis());
 
@@ -633,6 +659,10 @@ fn main() {
 
     if llg_results.len() > 0 {
         save_json_to_file("tmp/llg_results.json", &llg_results);
+        for r in llg_results.iter_mut() {
+            r.clear_timings();
+        }
+        save_json_to_file("tmp/llg_results_timeless.json", &llg_results);
     }
 
     save_sorted_json_to_file("tmp/num_files_with_feature.json", &num_files_by_feature);
