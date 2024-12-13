@@ -112,27 +112,40 @@ impl BiasComputer for SlicedBiasComputer {
             && start.is_empty()
             && rec.lexer_mut().subsume_possible(lexer_state)
         {
-            for slice in self.slices.iter() {
-                // for JSON string lexer and /[a-zA-Z\u{0080}-\u{10FFFF}]+/ kind of slices
-                // we use about 200 of the budget and it takes around 20us
-                let budget = 5500;
-                if slice.regex != ""
-                    && rec
-                        .lexer_mut()
-                        .check_subsume(lexer_state, slice.idx, budget)
-                        .unwrap_or(false)
-                {
-                    rec.stats_mut().slices_applied += 1;
-                    set.or(&slice.mask);
-                } else {
-                    slice.trie.add_bias(rec, &mut set, start);
-                    if slice.regex != "" && set.num_set() > 120_000 {
-                        if rec.metrics_mut().rand.one_in(500) {
-                            let pos = rec.lexer().possible_lexemes(lexer_state);
-                            let spec = rec.lexer().lexer_spec();
-                            let msg = format!("{}", spec.dbg_lexeme_set_ext(&pos));
-                            println!("{}", msg);
-                            rec.metrics_mut().message = msg;
+            // for JSON string lexer and /[a-zA-Z\u{0080}-\u{10FFFF}]+/ kind of slices
+            // we use about 200 of the budget and it takes around 20us
+            let budget = 5500;
+            let slice_matches = self
+                .slices
+                .iter()
+                .map(|slice| {
+                    slice.regex != ""
+                        && rec
+                            .lexer_mut()
+                            .check_subsume(lexer_state, slice.idx, budget)
+                            .unwrap_or(false)
+                })
+                .collect::<Vec<bool>>();
+
+            if slice_matches.iter().all(|&x| x == false) {
+                // if nothing matches, just run the full trie
+                self.trie().add_bias(rec, &mut set, start);
+            } else {
+                // otherwise, apply the matching slices, and compute the rest
+                for (i, slice) in self.slices.iter().enumerate() {
+                    if slice_matches[i] {
+                        rec.stats_mut().slices_applied += 1;
+                        set.or(&slice.mask);
+                    } else {
+                        slice.trie.add_bias(rec, &mut set, start);
+                        if slice.regex != "" && set.num_set() > 120_000 {
+                            if rec.metrics_mut().rand.one_in(500) {
+                                let pos = rec.lexer().possible_lexemes(lexer_state);
+                                let spec = rec.lexer().lexer_spec();
+                                let msg = format!("{}", spec.dbg_lexeme_set_ext(&pos));
+                                println!("{}", msg);
+                                rec.metrics_mut().message = msg;
+                            }
                         }
                     }
                 }
