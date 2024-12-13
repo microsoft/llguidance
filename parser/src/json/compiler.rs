@@ -1,9 +1,9 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
+use derivre::RegexAst;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 use std::{collections::HashMap, vec};
 
-use super::formats::lookup_format;
 use super::numeric::{rx_float_range, rx_int_range};
 use super::schema::{build_schema, Schema};
 use crate::{
@@ -214,14 +214,8 @@ impl Compiler {
             Schema::String {
                 min_length,
                 max_length,
-                pattern,
-                format,
-            } => self.gen_json_string(
-                *min_length,
-                *max_length,
-                pattern.as_deref(),
-                format.as_deref(),
-            ),
+                regex,
+            } => self.gen_json_string(*min_length, *max_length, regex.clone()),
             Schema::Array {
                 min_items,
                 max_items,
@@ -289,9 +283,7 @@ impl Compiler {
         let key = (rx.to_string(), json_quoted);
         self.lexeme_cache
             .entry(key)
-            .or_insert_with(||
-                self.builder.lexeme(mk_regex(rx), json_quoted)
-            )
+            .or_insert_with(|| self.builder.lexeme(mk_regex(rx), json_quoted))
             .clone()
     }
 
@@ -448,10 +440,7 @@ impl Compiler {
                         .collect::<Vec<_>>();
                     let taken = self.builder.regex.select(taken_name_ids);
                     let not_taken = self.builder.regex.not(taken);
-                    let valid = self
-                        .builder
-                        .regex
-                        .regex(format!("\"({})*\"", CHAR_REGEX));
+                    let valid = self.builder.regex.regex(format!("\"({})*\"", CHAR_REGEX));
                     let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
                     let rx = RegexSpec::RegexId(valid_and_not_taken);
                     self.builder.lexeme(rx, false)
@@ -529,8 +518,7 @@ impl Compiler {
         &mut self,
         min_length: u64,
         max_length: Option<u64>,
-        regex: Option<&str>,
-        format: Option<&str>,
+        regex: Option<RegexAst>,
     ) -> Result<NodeRef> {
         if let Some(max_length) = max_length {
             if min_length > max_length {
@@ -542,46 +530,41 @@ impl Compiler {
                 }));
             }
         }
-
-        let mut regex = regex;
-
-        if let Some(format) = format {
-            if regex.is_some() {
-                bail!("Cannot specify both a regex and a format for a JSON string");
-            }
-            if let Some(r) = lookup_format(format) {
-                regex = Some(r);
-            } else {
-                bail!("Unknown format: {}", format)
-            };
-        }
-
         if min_length == 0 && max_length.is_none() && regex.is_none() {
             return Ok(self.json_simple_string());
         }
-
-        if let Some(regex) = regex {
-            if min_length > 0 || max_length.is_some() {
-                bail!("If a pattern is specified, minLength and maxLength must be unspecified.");
+        if let Some(mut ast) = regex {
+            if min_length != 0 || max_length.is_some() {
+                ast = RegexAst::And(vec![
+                    ast,
+                    RegexAst::Regex(format!(
+                        "(?s:.{{{},{}}})",
+                        min_length,
+                        max_length.map_or("".to_string(), |v| v.to_string())
+                    )),
+                ]);
             }
-            let regex = {
-                let left_anchored = regex.starts_with('^');
-                let right_anchored = regex.ends_with('$');
-                let trimmed = regex.trim_start_matches('^').trim_end_matches('$');
-                let mut result = String::new();
-                if !left_anchored {
-                    result.push_str(".*");
-                }
-                // without parens, for a|b we would get .*a|b.* which is (.*a)|(b.*)
-                result.push_str("(");
-                result.push_str(trimmed);
-                result.push_str(")");
-                if !right_anchored {
-                    result.push_str(".*");
-                }
-                result
-            };
-            let node = self.builder.lexeme(mk_regex(&regex), true);
+            // Check if the regex is empty
+            let mut builder = derivre::RegexBuilder::new();
+            let expr = builder.mk(&ast)?;
+            fn mk_rx_repr(ast: &RegexAst) -> String {
+                let mut rx_repr = String::new();
+                ast.write_to_str(&mut rx_repr, 1_000, None);
+                rx_repr
+            }
+            let mut regex = builder.to_regex_limited(expr, 10_000).map_err(|_| {
+                anyhow!(
+                    "Unable to determine if regex is empty: {}",
+                    mk_rx_repr(&ast)
+                )
+            })?;
+            if regex.always_empty() {
+                return Err(anyhow!(UnsatisfiableSchemaError {
+                    message: format!("Regex is empty: {}", mk_rx_repr(&ast))
+                }));
+            }
+            let id = self.builder.regex.add_ast(ast)?;
+            let node = self.builder.lexeme(RegexSpec::RegexId(id), true);
             Ok(node)
         } else {
             Ok(self.lexeme(

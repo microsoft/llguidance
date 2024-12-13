@@ -377,7 +377,7 @@ dependencies = [
 [[package]]
 name = "derivre"
 version = "0.1.0"
-source = "git+https://github.com/microsoft/derivre?rev=e03c91e5cfca55876eeaaecb845d4556f0222352#e03c91e5cfca55876eeaaecb845d4556f0222352"
+source = "git+https://github.com/microsoft/derivre?rev=8a7e7224869e12b0bf316db29b9c5a3c8fae761c#8a7e7224869e12b0bf316db29b9c5a3c8fae761c"
 dependencies = [
  "ahash",
  "anyhow",
