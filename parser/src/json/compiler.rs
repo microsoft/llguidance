@@ -547,10 +547,20 @@ impl Compiler {
             // Check if the regex is empty
             let mut builder = derivre::RegexBuilder::new();
             let expr = builder.mk(&ast)?;
-            let mut regex = builder.to_regex_limited(expr, 10_000)?;
+            fn mk_rx_repr(ast: &RegexAst) -> String {
+                let mut rx_repr = String::new();
+                ast.write_to_str(&mut rx_repr, 1_000, None);
+                rx_repr
+            }
+            let mut regex = builder.to_regex_limited(expr, 10_000).map_err(|_| {
+                anyhow!(
+                    "Unable to determine if regex is empty: {}",
+                    mk_rx_repr(&ast)
+                )
+            })?;
             if regex.always_empty() {
                 return Err(anyhow!(UnsatisfiableSchemaError {
-                    message: "regex is empty set".to_string(),
+                    message: format!("Regex is empty: {}", mk_rx_repr(&ast))
                 }));
             }
             let id = self.builder.regex.add_ast(ast)?;
