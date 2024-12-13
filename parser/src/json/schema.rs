@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
+    mem,
     rc::Rc,
 };
 
@@ -8,7 +9,6 @@ use anyhow::{anyhow, bail, Result};
 use derivre::RegexAst;
 use indexmap::{IndexMap, IndexSet};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
-use regex_syntax::escape;
 use serde_json::Value;
 
 use super::formats::lookup_format;
@@ -192,7 +192,16 @@ impl Schema {
                     // Unwrap singleton
                     return valid.swap_remove(0);
                 }
-                Schema::OneOf { options: valid }
+                if valid.iter().enumerate().all(|(i, x)| {
+                    valid
+                        .iter()
+                        .skip(i + 1) // "upper diagonal"
+                        .all(|y| x.is_verifiably_disjoint_from(y))
+                }) {
+                    Schema::AnyOf { options: valid }
+                } else {
+                    Schema::OneOf { options: valid }
+                }
             }
             other_schema => other_schema,
         }
@@ -365,6 +374,69 @@ impl Schema {
             },
         };
         Ok(merged.normalize())
+    }
+
+    fn is_verifiably_disjoint_from(&self, other: &Schema) -> bool {
+        match (self, other) {
+            (Schema::Unsatisfiable { .. }, _) => true,
+            (_, Schema::Unsatisfiable { .. }) => true,
+            (Schema::Any, _) => false,
+            (_, Schema::Any) => false,
+            (Schema::Boolean, Schema::LiteralBool { .. }) => false,
+            (Schema::LiteralBool { .. }, Schema::Boolean) => false,
+            (Schema::Ref { .. }, _) => false, // TODO: could resolve
+            (_, Schema::Ref { .. }) => false, // TODO: could resolve
+            (Schema::LiteralBool { value: value1 }, Schema::LiteralBool { value: value2 }) => {
+                value1 != value2
+            }
+            (Schema::AnyOf { options }, _) => options
+                .iter()
+                .all(|opt| opt.is_verifiably_disjoint_from(other)),
+            (_, Schema::AnyOf { options }) => options
+                .iter()
+                .all(|opt| self.is_verifiably_disjoint_from(opt)),
+            (Schema::OneOf { options }, _) => options
+                .iter()
+                .all(|opt| opt.is_verifiably_disjoint_from(other)),
+            (_, Schema::OneOf { options }) => options
+                .iter()
+                .all(|opt| self.is_verifiably_disjoint_from(opt)),
+            // TODO: could actually compile the regexes and check for overlap
+            (
+                Schema::String {
+                    regex: Some(RegexAst::Literal(lit1)),
+                    ..
+                },
+                Schema::String {
+                    regex: Some(RegexAst::Literal(lit2)),
+                    ..
+                },
+            ) => lit1 != lit2,
+            (
+                Schema::Object {
+                    properties: props1,
+                    required: req1,
+                    additional_properties: add1,
+                },
+                Schema::Object {
+                    properties: props2,
+                    required: req2,
+                    additional_properties: add2,
+                },
+            ) => req1.intersection(req2).any(|key| {
+                let prop1 = props1
+                    .get(key)
+                    .unwrap_or(add1.as_deref().unwrap_or(&Schema::Any));
+                let prop2 = props2
+                    .get(key)
+                    .unwrap_or(add2.as_deref().unwrap_or(&Schema::Any));
+                prop1.is_verifiably_disjoint_from(prop2)
+            }),
+            _ => {
+                // Except for in the cases above, it should suffice to check that the types are different
+                mem::discriminant(self) != mem::discriminant(other)
+            }
+        }
     }
 }
 
@@ -637,7 +709,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .map(|res| res.and_then(|schema| siblings.clone().intersect(schema, ctx)))
             .collect::<Result<Vec<_>>>()?;
-        return Ok(Schema::OneOf { options });
+        return Ok(Schema::OneOf { options }.normalize());
     }
 
     if let Some(reference) = schemadict.remove("$ref") {
@@ -732,7 +804,7 @@ fn compile_const(instance: &Value) -> Result<Schema> {
         Value::String(s) => Ok(Schema::String {
             min_length: 0,
             max_length: None,
-            regex: Some(RegexAst::Regex(escape(s))),
+            regex: Some(RegexAst::Literal(s.to_string())),
         }),
         Value::Array(items) => {
             let prefix_items = items
