@@ -4,7 +4,6 @@
 /// Regular Expression Derivatives Reexamined".
 /// Journal of Functional Programming 19(2):173-190, March 2009.
 /// https://www.khoury.northeastern.edu/home/turon/re-deriv.pdf (retrieved 15 Nov 2024)
-
 use anyhow::{bail, Result};
 use derivre::raw::{DerivCache, ExprSet, NextByteCache, RelevanceCache, VecHashCons};
 use std::{fmt::Debug, u64};
@@ -217,7 +216,6 @@ impl RegexVec {
 
         // For every regex in this state
         for (idx, e) in iter_state(&self.rx_sets, state) {
-
             // If this lexeme is not a match.  (If the derivative at this point is nullable,
             // there is a match, so if it is not nullable, there is no match.)
             if !self.exprs.is_nullable(e) {
