@@ -4,7 +4,6 @@
 /// Regular Expression Derivatives Reexamined".
 /// Journal of Functional Programming 19(2):173-190, March 2009.
 /// https://www.khoury.northeastern.edu/home/turon/re-deriv.pdf (retrieved 15 Nov 2024)
-
 use anyhow::{bail, Result};
 use derivre::raw::{DerivCache, ExprSet, NextByteCache, RelevanceCache, VecHashCons};
 use std::{fmt::Debug, u64};
@@ -163,19 +162,20 @@ impl RegexVec {
         let mut res = false;
         for (idx, e) in iter_state(&self.rx_sets, state) {
             assert!(!self.lazy[idx]);
-            let pref = self.exprs.mk_prefixes(e);
-            let big = self.exprs.mk_not(pref);
-            let check = self.exprs.mk_and(vec![small, big]);
             let c0 = self.exprs.cost();
-            let not_contained =
-                self.relevance
-                    .is_non_empty_limited(&mut self.exprs, check, budget)?;
-            // println!(
-            //     "{} -> contained={}",
-            //     self.exprs.expr_to_string(check),
-            //     !not_contained
-            // );
-            if !not_contained {
+            let cache_failures = budget > budget0 / 2;
+            let is_contained = self
+                .relevance
+                .is_contained_in_prefixes(
+                    &mut self.exprs,
+                    &mut self.deriv,
+                    small,
+                    e,
+                    budget,
+                    cache_failures,
+                )
+                .unwrap_or(false);
+            if is_contained {
                 res = true;
                 break;
             }
@@ -217,7 +217,6 @@ impl RegexVec {
 
         // For every regex in this state
         for (idx, e) in iter_state(&self.rx_sets, state) {
-
             // If this lexeme is not a match.  (If the derivative at this point is nullable,
             // there is a match, so if it is not nullable, there is no match.)
             if !self.exprs.is_nullable(e) {
