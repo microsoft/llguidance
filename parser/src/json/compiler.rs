@@ -215,11 +215,7 @@ impl Compiler {
                 min_length,
                 max_length,
                 regex,
-            } => self.gen_json_string(
-                *min_length,
-                *max_length,
-                regex.clone(),
-            ),
+            } => self.gen_json_string(*min_length, *max_length, regex.clone()),
             Schema::Array {
                 min_items,
                 max_items,
@@ -287,9 +283,7 @@ impl Compiler {
         let key = (rx.to_string(), json_quoted);
         self.lexeme_cache
             .entry(key)
-            .or_insert_with(||
-                self.builder.lexeme(mk_regex(rx), json_quoted)
-            )
+            .or_insert_with(|| self.builder.lexeme(mk_regex(rx), json_quoted))
             .clone()
     }
 
@@ -446,10 +440,7 @@ impl Compiler {
                         .collect::<Vec<_>>();
                     let taken = self.builder.regex.select(taken_name_ids);
                     let not_taken = self.builder.regex.not(taken);
-                    let valid = self
-                        .builder
-                        .regex
-                        .regex(format!("\"({})*\"", CHAR_REGEX));
+                    let valid = self.builder.regex.regex(format!("\"({})*\"", CHAR_REGEX));
                     let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
                     let rx = RegexSpec::RegexId(valid_and_not_taken);
                     self.builder.lexeme(rx, false)
@@ -550,7 +541,7 @@ impl Compiler {
                         "(?s:.{{{},{}}})",
                         min_length,
                         max_length.map_or("".to_string(), |v| v.to_string())
-                    ))
+                    )),
                 ]);
             }
             // Check if the regex is empty

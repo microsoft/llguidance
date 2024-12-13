@@ -426,7 +426,13 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
             .iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
-        let merged = intersect(ctx, vec![siblings].into_iter().chain(options.into_iter()).collect())?;
+        let merged = intersect(
+            ctx,
+            vec![siblings]
+                .into_iter()
+                .chain(options.into_iter())
+                .collect(),
+        )?;
         return Ok(merged);
     }
 
@@ -720,7 +726,8 @@ fn compile_string(
     let pattern_rx = match pattern {
         None => None,
         Some(val) => Some({
-            let s = val.as_str()
+            let s = val
+                .as_str()
                 .ok_or_else(|| anyhow!("Expected string for 'pattern', got {}", limited_str(val)))?
                 .to_string();
             pattern_to_regex(&s)
@@ -729,19 +736,19 @@ fn compile_string(
     let format_rx = match format {
         None => None,
         Some(val) => Some({
-            let key = val.as_str()
+            let key = val
+                .as_str()
                 .ok_or_else(|| anyhow!("Expected string for 'format', got {}", limited_str(val)))?
                 .to_string();
-            let fmt = lookup_format(&key)
-                .ok_or_else(|| anyhow!("Unknown format: {}", key))?;
+            let fmt = lookup_format(&key).ok_or_else(|| anyhow!("Unknown format: {}", key))?;
             pattern_to_regex(&fmt)
-        })
+        }),
     };
     let regex = match (pattern_rx, format_rx) {
         (None, None) => None,
         (None, Some(fmt)) => Some(fmt),
         (Some(pat), None) => Some(pat),
-        (Some(pat), Some(fmt)) => Some(RegexAst::And(vec![pat, fmt]))
+        (Some(pat), Some(fmt)) => Some(RegexAst::And(vec![pat, fmt])),
     };
     Ok(Schema::String {
         min_length,
@@ -761,7 +768,10 @@ fn compile_array(
     let (prefix_items, items) = {
         // Note that draft detection falls back to Draft202012 if the draft is unknown, so let's relax the draft constraint a bit
         // and assume we're in an old draft if additionalItems is present or items is an array
-        if ctx.draft <= Draft::Draft201909 || additional_items.is_some() || matches!(items, Some(Value::Array(..))) {
+        if ctx.draft <= Draft::Draft201909
+            || additional_items.is_some()
+            || matches!(items, Some(Value::Array(..)))
+        {
             match (items, additional_items) {
                 // Treat array items as prefixItems and additionalItems as items in draft 2019-09 and earlier
                 (Some(Value::Array(..)), _) => (items, additional_items),
@@ -961,9 +971,7 @@ fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Sche
                 (None, None) => None,
                 (None, Some(r)) => Some(r),
                 (Some(r), None) => Some(r),
-                (Some(r1), Some(r2)) => {
-                    Some(RegexAst::And(vec![r1, r2]))
-                }
+                (Some(r1), Some(r2)) => Some(RegexAst::And(vec![r1, r2])),
             },
         },
         (

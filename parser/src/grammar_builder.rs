@@ -46,30 +46,30 @@ impl RegexBuilder {
             RegexAst::And(asts) => {
                 let ids = self.add_asts(asts)?;
                 self.and(ids)
-            },
+            }
             RegexAst::Or(asts) => {
                 let ids = self.add_asts(asts)?;
                 self.add_node(RegexNode::Or(ids))
-            },
+            }
             RegexAst::Concat(asts) => {
                 let ids = self.add_asts(asts)?;
                 self.concat(ids)
-            },
+            }
             RegexAst::LookAhead(ast) => {
                 let id = self.add_ast(*ast)?;
                 self.add_node(RegexNode::LookAhead(id))
-            },
+            }
             RegexAst::Not(ast) => {
                 let id = self.add_ast(*ast)?;
                 self.not(id)
-            },
-            RegexAst::Repeat(ast, min, max)  => {
+            }
+            RegexAst::Repeat(ast, min, max) => {
                 let id = self.add_ast(*ast)?;
                 self.repeat(id, min, Some(max))
-            },
+            }
             RegexAst::Prefixes(_) => {
                 bail!("Prefixes not supported")
-            },
+            }
             RegexAst::EmptyString => self.add_node(RegexNode::EmptyString),
             RegexAst::NoMatch => self.add_node(RegexNode::NoMatch),
             RegexAst::Regex(rx) => self.regex(rx),
@@ -79,7 +79,7 @@ impl RegexBuilder {
             RegexAst::ByteSet(bs) => self.add_node(RegexNode::ByteSet(bs)),
             RegexAst::ExprRef(_) => {
                 bail!("ExprRef not supported")
-            },
+            }
         };
         Ok(id)
     }
