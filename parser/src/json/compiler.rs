@@ -553,7 +553,15 @@ impl Compiler {
                     ))
                 ]);
             }
-            // TODO: check if ast corresponds to NoMatch and if so return UnsatisfiableSchemaError
+            // Check if the regex is empty
+            let mut builder = derivre::RegexBuilder::new();
+            let expr = builder.mk(&ast)?;
+            let mut regex = builder.to_regex_limited(expr, 10_000)?;
+            if regex.always_empty() {
+                return Err(anyhow!(UnsatisfiableSchemaError {
+                    message: "regex is empty set".to_string(),
+                }));
+            }
             let id = self.builder.regex.add_ast(ast)?;
             let node = self.builder.lexeme(RegexSpec::RegexId(id), true);
             Ok(node)
