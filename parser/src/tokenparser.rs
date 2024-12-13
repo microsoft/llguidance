@@ -385,6 +385,10 @@ impl TokenParser {
 
         let mut allowed_tokens = self.compute_bias(&prefix);
 
+        if let Some(s) = self.parser.get_error() {
+            return Err(self.stop_for_parser_error("", s));
+        }
+
         if self.is_accepting() {
             allowed_tokens.allow_token(self.eos_token);
         }
