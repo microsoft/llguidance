@@ -154,15 +154,15 @@ impl BiasComputer for SlicedBiasComputer {
                         let us = t0.elapsed().as_micros() as usize;
                         rec.metrics_mut().slicer_leftover_us += us;
                         debug!("slice matches #{}; {} tokens", i, set.num_set() - c0);
-                        if slice.regex != "" && set.num_set() > 120_000 {
-                            if rec.metrics_mut().rand.one_in(500) {
-                                let pos = rec.lexer().possible_lexemes(lexer_state);
-                                let spec = rec.lexer().lexer_spec();
-                                let msg = format!("{}", spec.dbg_lexeme_set_ext(&pos));
-                                println!("{}", msg);
-                                rec.metrics_mut().message = msg;
-                            }
-                        }
+                        // if slice.regex != "" && set.num_set() > 120_000 {
+                        //     if rec.metrics_mut().rand.one_in(500) {
+                        //         let pos = rec.lexer().possible_lexemes(lexer_state);
+                        //         let spec = rec.lexer().lexer_spec();
+                        //         let msg = format!("{}", spec.dbg_lexeme_set_ext(&pos));
+                        //         println!("{}", msg);
+                        //         rec.metrics_mut().message = msg;
+                        //     }
+                        // }
                     }
                 }
             }

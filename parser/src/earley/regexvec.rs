@@ -513,10 +513,10 @@ impl RegexVec {
 
         let mut vec_desc = vec![];
 
-        let d0 = self.deriv.num_deriv;
+        // let d0 = self.deriv.num_deriv;
         let c0 = self.exprs.cost();
-        let t0 = instant::Instant::now();
-        let mut state_size = 0;
+        // let t0 = instant::Instant::now();
+        // let mut state_size = 0;
 
         for (idx, e) in iter_state(&self.rx_sets, state) {
             let d = self.deriv.derivative(&mut self.exprs, e, b);
@@ -534,31 +534,31 @@ impl RegexVec {
                 }
             };
 
-            state_size += 1;
+            // state_size += 1;
             if d != ExprRef::NO_MATCH {
                 Self::push_rx(&mut vec_desc, idx, d);
             }
         }
 
-        let num_deriv = self.deriv.num_deriv - d0;
+        // let num_deriv = self.deriv.num_deriv - d0;
         let cost = self.exprs.cost() - c0;
         self.fuel = self.fuel.saturating_sub(cost);
         if self.fuel == 0 {
             self.alpha.enter_error_state();
         }
-        if false && cost > 40 {
-            eprintln!(
-                "cost: {:?} {} {} size={}",
-                t0.elapsed() / (cost as u32),
-                num_deriv,
-                cost,
-                state_size
-            );
+        // if false && cost > 40 {
+        //     eprintln!(
+        //         "cost: {:?} {} {} size={}",
+        //         t0.elapsed() / (cost as u32),
+        //         num_deriv,
+        //         cost,
+        //         state_size
+        //     );
 
-            // for (idx, e) in iter_state(&self.rx_sets, state) {
-            //     eprintln!("expr{}: {}", idx, self.exprs.expr_to_string(e));
-            // }
-        }
+        //     // for (idx, e) in iter_state(&self.rx_sets, state) {
+        //     //     eprintln!("expr{}: {}", idx, self.exprs.expr_to_string(e));
+        //     // }
+        // }
         let new_state = self.insert_state(vec_desc);
         self.num_transitions += 1;
         self.state_table[idx] = new_state;
