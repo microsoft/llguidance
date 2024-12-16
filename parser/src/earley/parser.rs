@@ -21,6 +21,7 @@ use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie};
 use crate::{
     api::{ParserLimits, StopReason},
     earley::{lexer::Lexer, lexerspec::LexemeClass},
+    id32_type,
 };
 
 use super::{
@@ -155,24 +156,6 @@ impl ParserStats {
     }
 }
 
-macro_rules! id32_type {
-    ($name:ident) => {
-        #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy, Debug)]
-        #[serde(transparent)]
-        pub struct $name(pub u32);
-
-        impl $name {
-            pub fn as_usize(&self) -> usize {
-                self.0 as usize
-            }
-
-            pub fn new(idx: usize) -> Self {
-                $name(idx as u32)
-            }
-        }
-    };
-}
-
 id32_type!(GrammarStackPtr);
 
 #[derive(Clone, Debug)]
@@ -200,6 +183,8 @@ struct Row {
     // will accept in the next row.  They are all and only those lexemes
     // which can lead to a successful parse.
     lexer_start_state: StateID,
+
+    lexeme_idx: LexemeIdx,
 }
 
 impl Row {
@@ -260,6 +245,7 @@ struct Scratch {
     push_allowed_grammar_ids: SimpleVob,
     push_allowed_lexemes: SimpleVob,
     push_grm_top: GrammarStackPtr,
+    push_lexeme_idx: LexemeIdx,
 
     // Is this Earley table in "definitive" mode?
     // 'definitive' is set when the new lexeme is being 'defined',
@@ -340,6 +326,7 @@ struct ParserState {
     // history - items are not popped in definitive mode.
     lexer_stack: Vec<LexerState>,
     rows: Vec<Row>,
+    rows_valid_end: usize,
 
     trace_byte_stack: Vec<u8>,
 
@@ -389,6 +376,7 @@ impl Scratch {
             push_allowed_lexemes: grammar.lexer_spec().alloc_lexeme_set(),
             push_allowed_grammar_ids: grammar.lexer_spec().alloc_grammar_set(),
             push_grm_top: GrammarStackPtr::new(0),
+            push_lexeme_idx: LexemeIdx::new(0),
             grammar,
             row_start: 0,
             row_end: 0,
@@ -419,6 +407,7 @@ impl Scratch {
             // TODO convert this to lexer state
             grammar_stack_ptr: self.push_grm_top,
             lexer_start_state,
+            lexeme_idx: self.push_lexeme_idx,
         }
     }
 
@@ -508,6 +497,7 @@ impl ParserState {
             grammar,
             trie_lexer_stack: usize::MAX,
             rows: vec![],
+            rows_valid_end: 0,
             row_infos: vec![],
             captures: vec![],
             scratch,
@@ -1096,6 +1086,7 @@ impl ParserState {
         self.pop_lexer_states(self.lexer_stack.len() - self.trie_lexer_stack);
         self.scratch.definitive = true;
         self.assert_definitive();
+        self.rows_valid_end = self.num_rows();
     }
 
     fn run_speculative<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -1246,6 +1237,7 @@ impl ParserState {
         }
         self.scratch.ensure_items(src.end + n + 100);
         self.scratch.new_row(src.end);
+        self.scratch.push_lexeme_idx = lexeme.idx;
 
         // we'll not re-run process_agenda() for the newly added row, so save its allowed lexemes
         // (this is unless we hit max_tokens case)
@@ -1285,6 +1277,7 @@ impl ParserState {
         let items = self.rows[row_idx].item_indices();
         self.scratch.ensure_items(items.end + items.len() + 100);
         self.scratch.new_row(items.end);
+        self.scratch.push_lexeme_idx = lexeme.idx;
 
         if self.scratch.definitive {
             debug!(
@@ -1484,6 +1477,7 @@ impl ParserState {
                 // stack as tracked by the lexer.
                 self.rows[idx] = row;
             }
+            self.rows_valid_end = idx + 1;
 
             if self.scratch.definitive {
                 // Clear all row info data after the
@@ -1875,14 +1869,22 @@ impl ParserState {
             Lexeme::just_idx(lexeme_idx)
         };
 
-        let lex_spec = self.lexer_spec().lexeme_spec(lexeme.idx);
-        let scan_res = if lex_spec.is_skip {
-            // If this is the SKIP lexeme, then skip it
-            self.scan_skip_lexeme(&lexeme)
+        let scan_res = if !self.scratch.definitive
+            && self.num_rows() < self.rows_valid_end
+            && self.rows[self.num_rows()].lexeme_idx == lexeme_idx
+        {
+            // re-use pushed row
+            true
         } else {
-            // For all but the SKIP lexeme, process this lexeme
-            // with the parser
-            self.scan(&lexeme)
+            let lex_spec = self.lexer_spec().lexeme_spec(lexeme.idx);
+            if lex_spec.is_skip {
+                // If this is the SKIP lexeme, then skip it
+                self.scan_skip_lexeme(&lexeme)
+            } else {
+                // For all but the SKIP lexeme, process this lexeme
+                // with the parser
+                self.scan(&lexeme)
+            }
         };
 
         if scan_res {

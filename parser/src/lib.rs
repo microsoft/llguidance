@@ -78,3 +78,22 @@ macro_rules! warn {
         }
     };
 }
+
+#[macro_export]
+macro_rules! id32_type {
+    ($name:ident) => {
+        #[derive(serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Clone, Copy, Debug)]
+        #[serde(transparent)]
+        pub struct $name(pub u32);
+
+        impl $name {
+            pub fn as_usize(&self) -> usize {
+                self.0 as usize
+            }
+
+            pub fn new(idx: usize) -> Self {
+                $name(idx as u32)
+            }
+        }
+    };
+}
