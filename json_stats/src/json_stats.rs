@@ -81,6 +81,7 @@ struct LlgResult {
     sum_parser_items: usize,
     max_sum_parser_items: usize,
     max_parser_items: usize,
+    max_lexer_cost: u64,
 
     #[serde(skip)]
     slow_mask_count: [usize; MASK_STEPS],
@@ -221,6 +222,7 @@ impl TestEnv {
 
                 stats.sum_parser_items += pstats.all_items;
                 stats.max_parser_items = std::cmp::max(stats.max_parser_items, pstats.all_items);
+                stats.max_lexer_cost = std::cmp::max(stats.max_lexer_cost, pstats.lexer_cost);
 
                 let step = us.next_power_of_two().trailing_zeros() as usize;
                 let step = std::cmp::min(step, MASK_STEPS - 1);

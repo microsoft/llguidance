@@ -367,15 +367,18 @@ pub struct ParserLimits {
     pub max_items_in_row: usize,
 
     /// How much "fuel" are we willing to spend to build initial lexer regex AST nodes.
-    /// Default: 1_000_000 (~20ms)
+    /// Default: 1_000_000
+    /// Speed: 50k/ms
     pub initial_lexer_fuel: u64,
 
     /// Maximum lexer fuel for computation of the whole token mask.
-    /// Default: 500_000 (~10ms)
+    /// Default: 200_000
+    /// Speed: 10k/ms
     pub step_lexer_fuel: u64,
 
     /// Number of Earley items created for the whole token mask.
-    /// Default: 50_000 (~2ms)
+    /// Default: 50_000
+    /// Speed: 20k/ms
     pub step_max_items: usize,
 
     /// Maximum number of lexer states.
@@ -392,7 +395,7 @@ impl Default for ParserLimits {
         Self {
             max_items_in_row: 2000,
             initial_lexer_fuel: 1_000_000, // fhir schema => 500k
-            step_lexer_fuel: 500_000,      // 500k => 10ms
+            step_lexer_fuel: 200_000,      //
             max_lexer_states: 10_000,      // ?
             max_grammar_size: 500_000,     // fhir schema => 200k
             step_max_items: 50_000,        //
