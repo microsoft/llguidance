@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
+    mem,
     rc::Rc,
 };
 
@@ -8,7 +9,6 @@ use anyhow::{anyhow, bail, Result};
 use derivre::RegexAst;
 use indexmap::{IndexMap, IndexSet};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
-use regex_syntax::escape;
 use serde_json::Value;
 
 use super::formats::lookup_format;
@@ -192,9 +192,250 @@ impl Schema {
                     // Unwrap singleton
                     return valid.swap_remove(0);
                 }
-                Schema::OneOf { options: valid }
+                if valid.iter().enumerate().all(|(i, x)| {
+                    valid
+                        .iter()
+                        .skip(i + 1) // "upper diagonal"
+                        .all(|y| x.is_verifiably_disjoint_from(y))
+                }) {
+                    Schema::AnyOf { options: valid }
+                } else {
+                    Schema::OneOf { options: valid }
+                }
             }
             other_schema => other_schema,
+        }
+    }
+
+    /// Intersect two schemas, returning a new (normalized) schema that represents the intersection of the two.
+    fn intersect(self, other: Schema, ctx: &Context) -> Result<Schema> {
+        ctx.increment()?;
+
+        let merged = match (self, other) {
+            (Schema::Any, schema1) => schema1,
+            (schema0, Schema::Any) => schema0,
+            (Schema::Unsatisfiable { reason }, _) => Schema::Unsatisfiable { reason },
+            (_, Schema::Unsatisfiable { reason }) => Schema::Unsatisfiable { reason },
+            (Schema::Ref { uri }, schema1) => intersect_ref(ctx, &uri, schema1, true)?,
+            (schema0, Schema::Ref { uri }) => intersect_ref(ctx, &uri, schema0, false)?,
+            (Schema::OneOf { options }, schema1) => Schema::OneOf {
+                options: options
+                    .into_iter()
+                    .map(|opt| opt.intersect(schema1.clone(), ctx))
+                    .collect::<Result<Vec<_>>>()?,
+            },
+            (schema0, Schema::OneOf { options }) => Schema::OneOf {
+                options: options
+                    .into_iter()
+                    .map(|opt| schema0.clone().intersect(opt, ctx))
+                    .collect::<Result<Vec<_>>>()?,
+            },
+            (Schema::AnyOf { options }, schema1) => Schema::AnyOf {
+                options: options
+                    .into_iter()
+                    .map(|opt| opt.intersect(schema1.clone(), ctx))
+                    .collect::<Result<Vec<_>>>()?,
+            },
+            (schema0, Schema::AnyOf { options }) => Schema::AnyOf {
+                options: options
+                    .into_iter()
+                    .map(|opt| schema0.clone().intersect(opt, ctx))
+                    .collect::<Result<Vec<_>>>()?,
+            },
+            (Schema::Null, Schema::Null) => Schema::Null,
+            (Schema::Boolean, Schema::Boolean) => Schema::Boolean,
+            (Schema::Boolean, Schema::LiteralBool { value }) => Schema::LiteralBool { value },
+            (Schema::LiteralBool { value }, Schema::Boolean) => Schema::LiteralBool { value },
+            (Schema::LiteralBool { value: value1 }, Schema::LiteralBool { value: value2 }) => {
+                if value1 == value2 {
+                    Schema::LiteralBool { value: value1 }
+                } else {
+                    Schema::Unsatisfiable {
+                        reason: "incompatible boolean values".to_string(),
+                    }
+                }
+            }
+            (
+                Schema::Number {
+                    minimum: min1,
+                    maximum: max1,
+                    exclusive_minimum: emin1,
+                    exclusive_maximum: emax1,
+                    integer: int1,
+                },
+                Schema::Number {
+                    minimum: min2,
+                    maximum: max2,
+                    exclusive_minimum: emin2,
+                    exclusive_maximum: emax2,
+                    integer: int2,
+                },
+            ) => Schema::Number {
+                minimum: opt_max(min1, min2),
+                maximum: opt_min(max1, max2),
+                exclusive_minimum: opt_max(emin1, emin2),
+                exclusive_maximum: opt_min(emax1, emax2),
+                integer: int1 || int2,
+            },
+            (
+                Schema::String {
+                    min_length: min1,
+                    max_length: max1,
+                    regex: r1,
+                },
+                Schema::String {
+                    min_length: min2,
+                    max_length: max2,
+                    regex: r2,
+                },
+            ) => Schema::String {
+                min_length: min1.max(min2),
+                max_length: opt_min(max1, max2),
+                regex: match (r1, r2) {
+                    (None, None) => None,
+                    (None, Some(r)) => Some(r),
+                    (Some(r), None) => Some(r),
+                    (Some(r1), Some(r2)) => Some(RegexAst::And(vec![r1, r2])),
+                },
+            },
+            (
+                Schema::Array {
+                    min_items: min1,
+                    max_items: max1,
+                    prefix_items: mut prefix1,
+                    items: items1,
+                },
+                Schema::Array {
+                    min_items: min2,
+                    max_items: max2,
+                    prefix_items: mut prefix2,
+                    items: items2,
+                },
+            ) => Schema::Array {
+                min_items: min1.max(min2),
+                max_items: opt_min(max1, max2),
+                prefix_items: {
+                    let len = prefix1.len().max(prefix2.len());
+                    prefix1.resize_with(len, || items1.as_deref().cloned().unwrap_or(Schema::Any));
+                    prefix2.resize_with(len, || items2.as_deref().cloned().unwrap_or(Schema::Any));
+                    prefix1
+                        .into_iter()
+                        .zip(prefix2.into_iter())
+                        .map(|(item1, item2)| item1.intersect(item2, ctx))
+                        .collect::<Result<Vec<_>>>()?
+                },
+                items: match (items1, items2) {
+                    (None, None) => None,
+                    (None, Some(item)) => Some(item),
+                    (Some(item), None) => Some(item),
+                    (Some(item1), Some(item2)) => Some(Box::new((*item1).intersect(*item2, ctx)?)),
+                },
+            },
+            (
+                Schema::Object {
+                    properties: props1,
+                    additional_properties: add1,
+                    required: req1,
+                },
+                Schema::Object {
+                    properties: mut props2,
+                    additional_properties: add2,
+                    required: req2,
+                },
+            ) => {
+                let mut new_props = IndexMap::new();
+                for (key, prop1) in props1.into_iter() {
+                    let prop2 = props2
+                        .shift_remove(&key)
+                        .or_else(|| add2.as_deref().cloned())
+                        .unwrap_or(Schema::Any);
+                    new_props.insert(key, prop1.intersect(prop2, ctx)?);
+                }
+                for (key, prop2) in props2.into_iter() {
+                    let prop1 = add1.as_deref().cloned().unwrap_or(Schema::Any);
+                    new_props.insert(key, prop1.intersect(prop2, ctx)?);
+                }
+                let mut required = req1;
+                required.extend(req2);
+                Schema::Object {
+                    properties: new_props,
+                    additional_properties: match (add1, add2) {
+                        (None, None) => None,
+                        (None, Some(add2)) => Some(add2),
+                        (Some(add1), None) => Some(add1),
+                        (Some(add1), Some(add2)) => Some(Box::new((*add1).intersect(*add2, ctx)?)),
+                    },
+                    required,
+                }
+            }
+            //TODO: get types for error message
+            _ => Schema::Unsatisfiable {
+                reason: "incompatible types".to_string(),
+            },
+        };
+        Ok(merged.normalize())
+    }
+
+    fn is_verifiably_disjoint_from(&self, other: &Schema) -> bool {
+        match (self, other) {
+            (Schema::Unsatisfiable { .. }, _) => true,
+            (_, Schema::Unsatisfiable { .. }) => true,
+            (Schema::Any, _) => false,
+            (_, Schema::Any) => false,
+            (Schema::Boolean, Schema::LiteralBool { .. }) => false,
+            (Schema::LiteralBool { .. }, Schema::Boolean) => false,
+            (Schema::Ref { .. }, _) => false, // TODO: could resolve
+            (_, Schema::Ref { .. }) => false, // TODO: could resolve
+            (Schema::LiteralBool { value: value1 }, Schema::LiteralBool { value: value2 }) => {
+                value1 != value2
+            }
+            (Schema::AnyOf { options }, _) => options
+                .iter()
+                .all(|opt| opt.is_verifiably_disjoint_from(other)),
+            (_, Schema::AnyOf { options }) => options
+                .iter()
+                .all(|opt| self.is_verifiably_disjoint_from(opt)),
+            (Schema::OneOf { options }, _) => options
+                .iter()
+                .all(|opt| opt.is_verifiably_disjoint_from(other)),
+            (_, Schema::OneOf { options }) => options
+                .iter()
+                .all(|opt| self.is_verifiably_disjoint_from(opt)),
+            // TODO: could actually compile the regexes and check for overlap
+            (
+                Schema::String {
+                    regex: Some(RegexAst::Literal(lit1)),
+                    ..
+                },
+                Schema::String {
+                    regex: Some(RegexAst::Literal(lit2)),
+                    ..
+                },
+            ) => lit1 != lit2,
+            (
+                Schema::Object {
+                    properties: props1,
+                    required: req1,
+                    additional_properties: add1,
+                },
+                Schema::Object {
+                    properties: props2,
+                    required: req2,
+                    additional_properties: add2,
+                },
+            ) => req1.union(req2).any(|key| {
+                let prop1 = props1
+                    .get(key)
+                    .unwrap_or(add1.as_deref().unwrap_or(&Schema::Any));
+                let prop2 = props2
+                    .get(key)
+                    .unwrap_or(add2.as_deref().unwrap_or(&Schema::Any));
+                prop1.is_verifiably_disjoint_from(prop2)
+            }),
+            _ => {
+                // Except for in the cases above, it should suffice to check that the types are different
+                mem::discriminant(self) != mem::discriminant(other)
+            }
         }
     }
 }
@@ -393,7 +634,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
     if let Some(instance) = schemadict.remove("const") {
         let const_schema = compile_const(instance)?;
         let siblings = compile_contents_map(ctx, schemadict)?;
-        return intersect_two(ctx, const_schema, siblings);
+        return const_schema.intersect(siblings, ctx);
     }
 
     if let Some(instances) = schemadict.remove("enum") {
@@ -408,7 +649,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
         let options = instances
             .into_iter()
             .map(|instance| compile_const(instance))
-            .map(|res| res.and_then(|schema| intersect_two(ctx, schema, siblings.clone())))
+            .map(|res| res.and_then(|schema| schema.intersect(siblings.clone(), ctx)))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::AnyOf { options });
     }
@@ -448,7 +689,7 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
         let options = any_of
             .into_iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
-            .map(|res| res.and_then(|schema| intersect_two(ctx, siblings.clone(), schema)))
+            .map(|res| res.and_then(|schema| siblings.clone().intersect(schema, ctx)))
             .collect::<Result<Vec<_>>>()?;
         return Ok(Schema::AnyOf { options });
     }
@@ -466,9 +707,9 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
         let options = one_of
             .into_iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
-            .map(|res| res.and_then(|schema| intersect_two(ctx, siblings.clone(), schema)))
+            .map(|res| res.and_then(|schema| siblings.clone().intersect(schema, ctx)))
             .collect::<Result<Vec<_>>>()?;
-        return Ok(Schema::OneOf { options });
+        return Ok(Schema::OneOf { options }.normalize());
     }
 
     if let Some(reference) = schemadict.remove("$ref") {
@@ -535,9 +776,9 @@ fn intersect_ref(ctx: &Context, ref_uri: &str, schema: Schema, ref_first: bool) 
             )
         })?;
     if ref_first {
-        intersect_two(ctx, resolved_schema, schema)
+        resolved_schema.intersect(schema, ctx)
     } else {
-        intersect_two(ctx, schema, resolved_schema)
+        schema.intersect(resolved_schema, ctx)
     }
 }
 
@@ -563,7 +804,7 @@ fn compile_const(instance: &Value) -> Result<Schema> {
         Value::String(s) => Ok(Schema::String {
             min_length: 0,
             max_length: None,
-            regex: Some(RegexAst::Regex(escape(s))),
+            regex: Some(RegexAst::Literal(s.to_string())),
         }),
         Value::Array(items) => {
             let prefix_items = items
@@ -874,182 +1115,13 @@ fn intersect(ctx: &Context, schemas: Vec<Schema>) -> Result<Schema> {
 
     let mut merged = Schema::Any;
     for subschema in schemas.into_iter() {
-        merged = intersect_two(ctx, merged, subschema)?;
+        merged = merged.intersect(subschema, ctx)?;
         if matches!(merged, Schema::Unsatisfiable { .. }) {
             // Early exit if the schema is already unsatisfiable
             break;
         }
     }
     Ok(merged)
-}
-
-/// Intersect two schemas, returning a new (normalized) schema that represents the intersection of the two.
-fn intersect_two(ctx: &Context, schema0: Schema, schema1: Schema) -> Result<Schema> {
-    ctx.increment()?;
-
-    let merged = match (schema0, schema1) {
-        (Schema::Any, schema1) => schema1,
-        (schema0, Schema::Any) => schema0,
-        (Schema::Unsatisfiable { reason }, _) => Schema::Unsatisfiable { reason },
-        (_, Schema::Unsatisfiable { reason }) => Schema::Unsatisfiable { reason },
-        (Schema::Ref { uri }, schema1) => intersect_ref(ctx, &uri, schema1, true)?,
-        (schema0, Schema::Ref { uri }) => intersect_ref(ctx, &uri, schema0, false)?,
-        (Schema::OneOf { options }, schema1) => Schema::OneOf {
-            options: options
-                .into_iter()
-                .map(|opt| intersect_two(ctx, opt, schema1.clone()))
-                .collect::<Result<Vec<_>>>()?,
-        },
-        (schema0, Schema::OneOf { options }) => Schema::OneOf {
-            options: options
-                .into_iter()
-                .map(|opt| intersect_two(ctx, schema0.clone(), opt))
-                .collect::<Result<Vec<_>>>()?,
-        },
-        (Schema::AnyOf { options }, schema1) => Schema::AnyOf {
-            options: options
-                .into_iter()
-                .map(|opt| intersect_two(ctx, opt, schema1.clone()))
-                .collect::<Result<Vec<_>>>()?,
-        },
-        (schema0, Schema::AnyOf { options }) => Schema::AnyOf {
-            options: options
-                .into_iter()
-                .map(|opt| intersect_two(ctx, schema0.clone(), opt))
-                .collect::<Result<Vec<_>>>()?,
-        },
-        (Schema::Null, Schema::Null) => Schema::Null,
-        (Schema::Boolean, Schema::Boolean) => Schema::Boolean,
-        (Schema::Boolean, Schema::LiteralBool { value }) => Schema::LiteralBool { value },
-        (Schema::LiteralBool { value }, Schema::Boolean) => Schema::LiteralBool { value },
-        (Schema::LiteralBool { value: value1 }, Schema::LiteralBool { value: value2 }) => {
-            if value1 == value2 {
-                Schema::LiteralBool { value: value1 }
-            } else {
-                Schema::Unsatisfiable {
-                    reason: "incompatible boolean values".to_string(),
-                }
-            }
-        }
-        (
-            Schema::Number {
-                minimum: min1,
-                maximum: max1,
-                exclusive_minimum: emin1,
-                exclusive_maximum: emax1,
-                integer: int1,
-            },
-            Schema::Number {
-                minimum: min2,
-                maximum: max2,
-                exclusive_minimum: emin2,
-                exclusive_maximum: emax2,
-                integer: int2,
-            },
-        ) => Schema::Number {
-            minimum: opt_max(min1, min2),
-            maximum: opt_min(max1, max2),
-            exclusive_minimum: opt_max(emin1, emin2),
-            exclusive_maximum: opt_min(emax1, emax2),
-            integer: int1 || int2,
-        },
-        (
-            Schema::String {
-                min_length: min1,
-                max_length: max1,
-                regex: r1,
-            },
-            Schema::String {
-                min_length: min2,
-                max_length: max2,
-                regex: r2,
-            },
-        ) => Schema::String {
-            min_length: min1.max(min2),
-            max_length: opt_min(max1, max2),
-            regex: match (r1, r2) {
-                (None, None) => None,
-                (None, Some(r)) => Some(r),
-                (Some(r), None) => Some(r),
-                (Some(r1), Some(r2)) => Some(RegexAst::And(vec![r1, r2])),
-            },
-        },
-        (
-            Schema::Array {
-                min_items: min1,
-                max_items: max1,
-                prefix_items: mut prefix1,
-                items: items1,
-            },
-            Schema::Array {
-                min_items: min2,
-                max_items: max2,
-                prefix_items: mut prefix2,
-                items: items2,
-            },
-        ) => Schema::Array {
-            min_items: min1.max(min2),
-            max_items: opt_min(max1, max2),
-            prefix_items: {
-                let len = prefix1.len().max(prefix2.len());
-                prefix1.resize_with(len, || items1.as_deref().cloned().unwrap_or(Schema::Any));
-                prefix2.resize_with(len, || items2.as_deref().cloned().unwrap_or(Schema::Any));
-                prefix1
-                    .into_iter()
-                    .zip(prefix2.into_iter())
-                    .map(|(item1, item2)| intersect_two(ctx, item1, item2))
-                    .collect::<Result<Vec<_>>>()?
-            },
-            items: match (items1, items2) {
-                (None, None) => None,
-                (None, Some(item)) => Some(item),
-                (Some(item), None) => Some(item),
-                (Some(item1), Some(item2)) => Some(Box::new(intersect_two(ctx, *item1, *item2)?)),
-            },
-        },
-        (
-            Schema::Object {
-                properties: props1,
-                additional_properties: add1,
-                required: req1,
-            },
-            Schema::Object {
-                properties: mut props2,
-                additional_properties: add2,
-                required: req2,
-            },
-        ) => {
-            let mut new_props = IndexMap::new();
-            for (key, prop1) in props1.into_iter() {
-                let prop2 = props2
-                    .shift_remove(&key)
-                    .or_else(|| add2.as_deref().cloned())
-                    .unwrap_or(Schema::Any);
-                new_props.insert(key, intersect_two(ctx, prop1, prop2)?);
-            }
-            for (key, prop2) in props2.into_iter() {
-                let prop1 = add1.as_deref().cloned().unwrap_or(Schema::Any);
-                new_props.insert(key, intersect_two(ctx, prop1, prop2)?);
-            }
-            let mut required = req1;
-            required.extend(req2);
-            Schema::Object {
-                properties: new_props,
-                additional_properties: match (add1, add2) {
-                    (None, None) => None,
-                    (None, Some(add2)) => Some(add2),
-                    (Some(add1), None) => Some(add1),
-                    (Some(add1), Some(add2)) => Some(Box::new(intersect_two(ctx, *add1, *add2)?)),
-                },
-                required,
-            }
-        }
-        //TODO: get types for error message
-        _ => Schema::Unsatisfiable {
-            reason: "incompatible types".to_string(),
-        },
-    };
-    Ok(merged.normalize())
 }
 
 fn opt_max<T: PartialOrd>(a: Option<T>, b: Option<T>) -> Option<T> {
