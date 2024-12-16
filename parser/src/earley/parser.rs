@@ -1241,7 +1241,7 @@ impl ParserState {
 
         // we'll not re-run process_agenda() for the newly added row, so save its allowed lexemes
         // (this is unless we hit max_tokens case)
-        let lex_start = self.rows[self.num_rows() - 1].lexer_start_state;
+        let mut lex_start = Some(self.rows[self.num_rows() - 1].lexer_start_state);
 
         for i in src {
             self.scratch
@@ -1255,9 +1255,11 @@ impl ParserState {
         if let Some(ptr) = max_token_ptr {
             // but we have to do it if we hit the max tokens case
             self.process_max_tokens(ptr, lexeme);
+            // process_agenda() will recompute push_allowed_lexemes etc
+            lex_start = None;
         }
 
-        let push_res = self.just_push_row(grammar_id, Some(lex_start));
+        let push_res = self.just_push_row(grammar_id, lex_start);
         assert!(push_res);
 
         true
@@ -1872,6 +1874,7 @@ impl ParserState {
         let scan_res = if !self.scratch.definitive
             && self.num_rows() < self.rows_valid_end
             && self.rows[self.num_rows()].lexeme_idx == lexeme_idx
+            && false
         {
             // re-use pushed row
             true
