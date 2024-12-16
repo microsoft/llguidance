@@ -242,7 +242,8 @@ impl Debug for Item {
     }
 }
 
-// This structure implements the Earley table.
+// This structure implements the Earley table, and in particular working data
+// used when processing a row.
 #[derive(Clone)]
 struct Scratch {
     grammar: Arc<CGrammar>,
@@ -251,6 +252,8 @@ struct Scratch {
     row_start: usize,
     row_end: usize,
 
+    // these two are not really "scratch" - they are just here for convenience
+    // grammar_stack only grows, until the trie is finished
     items: Vec<Item>,
     grammar_stack: Vec<GrammarStackNode>,
 
@@ -1689,14 +1692,14 @@ impl ParserState {
         // note, that while self.rows[] is updated, the lexer stack is not
         // so the last added row is at self.num_rows(), and not self.num_rows() - 1
         let added_row = self.num_rows();
-        let added_row_state_state = self.rows[added_row].lexer_start_state;
+        let added_row_start_state = self.rows[added_row].lexer_start_state;
 
         let no_hidden = LexerState {
             row_idx: added_row as u32,
             lexer_state: self
                 .shared_box
                 .lexer_mut()
-                .transition_start_state(added_row_state_state, transition_byte),
+                .transition_start_state(added_row_start_state, transition_byte),
             byte: transition_byte,
         };
 
@@ -1716,7 +1719,7 @@ impl ParserState {
                 "lex: re-start {:?} (via {:?}); allowed: {}",
                 no_hidden.lexer_state,
                 transition_byte.map(|b| b as char),
-                self.allowed_lexemes_dbg(added_row_state_state)
+                self.allowed_lexemes_dbg(added_row_start_state)
             );
         }
 
