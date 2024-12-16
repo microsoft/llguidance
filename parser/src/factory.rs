@@ -38,6 +38,10 @@ impl ParserFactory {
         }
     }
 
+    pub fn limits_mut(&mut self) -> &mut ParserLimits {
+        &mut self.limits
+    }
+
     pub fn tok_env(&self) -> &TokEnv {
         &self.tok_env
     }

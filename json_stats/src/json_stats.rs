@@ -72,11 +72,14 @@ struct LlgResult {
     slicer_leftover_us: usize,
 
     num_tokens: usize,
+    num_masks: usize,
     num_valid_tests: usize,
     num_invalid_tests: usize,
 
     avg_parser_items: usize,
+    max_avg_parser_items: usize,
     sum_parser_items: usize,
+    max_sum_parser_items: usize,
     max_parser_items: usize,
 
     #[serde(skip)]
@@ -203,6 +206,8 @@ impl TestEnv {
         let trie = self.tok_env.tok_trie();
         let masks = self.cli.llg_masks;
 
+        stats.num_masks += 1;
+
         for (tidx, &token) in tokens.iter().enumerate() {
             //println!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
 
@@ -214,7 +219,7 @@ impl TestEnv {
                 let us = t0.elapsed().as_micros() as usize;
                 let pstats = parser.last_step_stats();
 
-                stats.sum_parser_items = pstats.all_items;
+                stats.sum_parser_items += pstats.all_items;
                 stats.max_parser_items = std::cmp::max(stats.max_parser_items, pstats.all_items);
 
                 let step = us.next_power_of_two().trailing_zeros() as usize;
@@ -244,6 +249,8 @@ impl TestEnv {
                     bail!(
                         "token not accepted at {}",
                         trie.tokens_dbg(&tokens[0..tidx + 1])
+                            .replace("\\\"", "“")
+                            .replace("\"", "")
                     )
                 } else {
                     return Ok(());
@@ -283,10 +290,6 @@ impl TestEnv {
 
         let m = parser.parser.metrics_mut();
         stats.slicer_leftover_us += m.slicer_leftover_us;
-
-        if stats.num_tokens > 0 {
-            stats.avg_parser_items = stats.sum_parser_items / stats.num_tokens;
-        }
 
         r
     }
@@ -340,6 +343,11 @@ impl TestEnv {
                     }
                 }
                 res.masks_us += t0.elapsed().as_micros() as usize;
+            }
+
+            if res.num_tokens > 0 {
+                res.avg_parser_items = res.sum_parser_items / res.num_tokens;
+                res.max_avg_parser_items = res.sum_parser_items / res.num_tokens;
             }
         }
 

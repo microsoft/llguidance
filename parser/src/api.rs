@@ -363,7 +363,7 @@ impl StopReason {
 pub struct ParserLimits {
     /// For non-ambiguous grammars, this is the maximum "branching factor" of the grammar.
     /// For ambiguous grammars, this might get hit much quicker.
-    /// Default: 200
+    /// Default: 2000
     pub max_items_in_row: usize,
 
     /// How much "fuel" are we willing to spend to build initial lexer regex AST nodes.
@@ -375,7 +375,7 @@ pub struct ParserLimits {
     pub step_lexer_fuel: u64,
 
     /// Number of Earley items created for the whole token mask.
-    /// Default: 100_000 (~3ms)
+    /// Default: 50_000 (~2ms)
     pub step_max_items: usize,
 
     /// Maximum number of lexer states.
@@ -390,12 +390,12 @@ pub struct ParserLimits {
 impl Default for ParserLimits {
     fn default() -> Self {
         Self {
-            max_items_in_row: 200,
+            max_items_in_row: 2000,
             initial_lexer_fuel: 1_000_000, // fhir schema => 500k
             step_lexer_fuel: 500_000,      // 500k => 10ms
             max_lexer_states: 10_000,      // ?
             max_grammar_size: 500_000,     // fhir schema => 200k
-            step_max_items: 100_000,       //
+            step_max_items: 50_000,        //
         }
     }
 }
