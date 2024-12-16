@@ -1874,7 +1874,6 @@ impl ParserState {
         let scan_res = if !self.scratch.definitive
             && self.num_rows() < self.rows_valid_end
             && self.rows[self.num_rows()].lexeme_idx == lexeme_idx
-            && false
         {
             // re-use pushed row
             true
