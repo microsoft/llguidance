@@ -199,6 +199,8 @@ struct Row {
     // will accept in the next row.  They are all and only those lexemes
     // which can lead to a successful parse.
     allowed_lexemes: SimpleVob,
+
+    lexer_start_state: StateID,
 }
 
 impl Row {
@@ -352,16 +354,30 @@ struct ParserState {
     max_all_items: usize,
     parser_error: Option<String>,
     backtrack_byte_count: usize,
+
+    shared_box: Box<SharedState>,
 }
 
 #[derive(Clone)]
 struct SharedState {
-    lexer: Lexer,
+    lexer_opt: Option<Lexer>,
+}
+
+impl SharedState {
+    #[inline(always)]
+    fn lexer_mut(&mut self) -> &mut Lexer {
+        self.lexer_opt.as_mut().unwrap()
+    }
+
+    #[inline(always)]
+    fn lexer(&self) -> &Lexer {
+        self.lexer_opt.as_ref().unwrap()
+    }
 }
 
 #[derive(Clone)]
 pub struct Parser {
-    shared: Arc<Mutex<SharedState>>,
+    shared: Arc<Mutex<Box<SharedState>>>,
     state: ParserState,
 }
 
@@ -394,13 +410,14 @@ impl Scratch {
 
     // Add a new row to the Earley table.  It will be the
     // current, working, row.
-    fn work_row(&self) -> Row {
+    fn work_row(&self, lexer_start_start: StateID) -> Row {
         Row {
             first_item: self.row_start as u32,
             last_item: self.row_end as u32,
             // TODO convert this to lexer state
             allowed_lexemes: self.push_allowed_lexemes.clone(),
             grammar_stack_ptr: self.push_grm_top,
+            lexer_start_state: lexer_start_start,
         }
     }
 
@@ -509,6 +526,7 @@ impl ParserState {
             }],
             trie_grammar_stack: 0,
             parser_error: None,
+            shared_box: Box::new(SharedState { lexer_opt: None }),
         };
 
         r.scratch.grammar_stack.push(GrammarStackNode {
@@ -542,7 +560,7 @@ impl ParserState {
             r.rows[0].allowed_lexemes.set(skip_id.as_usize(), false);
             debug!(
                 "disallowing initial SKIP; {}",
-                r.lexer_spec().dbg_lexeme_set(&r.rows[0].allowed_lexemes)
+                r.allowed_lexemes_dbg(r.rows[0].lexer_start_state)
             );
         }
 
@@ -553,6 +571,16 @@ impl ParserState {
         r.stats.lexer_cost = lexer.dfa.total_fuel_spent();
 
         Ok((r, lexer))
+    }
+
+    #[inline(always)]
+    fn lexer(&self) -> &Lexer {
+        self.shared_box.lexer()
+    }
+
+    #[inline(always)]
+    fn lexer_mut(&mut self) -> &mut Lexer {
+        self.shared_box.lexer_mut()
     }
 
     fn with_items_limit<T>(
@@ -577,23 +605,19 @@ impl ParserState {
         r
     }
 
-    fn compute_bias(
-        &mut self,
-        shared: &mut SharedState,
-        computer: &dyn BiasComputer,
-        start: &[u8],
-    ) -> SimpleVob {
+    fn compute_bias(&mut self, computer: &dyn BiasComputer, start: &[u8]) -> SimpleVob {
         let t0 = Instant::now();
-        let dfa = &mut shared.lexer.dfa;
-        dfa.set_fuel(self.limits.step_lexer_fuel);
-        dfa.set_max_states(self.limits.max_lexer_states);
+        let limits = self.limits.clone();
+        let dfa = &mut self.lexer_mut().dfa;
+        dfa.set_fuel(limits.step_lexer_fuel);
+        dfa.set_max_states(limits.max_lexer_states);
 
-        let mut set = self.with_items_limit(self.limits.step_max_items, "mask", |state| {
-            let mut r = ParserRecognizer { shared, state };
+        let mut set = self.with_items_limit(limits.step_max_items, "mask", |state| {
+            let mut r = ParserRecognizer { state };
             computer.compute_bias(&mut r, start)
         });
 
-        self.stats.lexer_cost = shared.lexer.dfa.total_fuel_spent();
+        self.stats.lexer_cost = self.lexer_mut().dfa.total_fuel_spent();
 
         // The SPECIAL_TOKEN_MARKER should never be allowed by itself
         let toks = computer
@@ -607,10 +631,10 @@ impl ParserState {
         if set.is_zero() {
             // nothing allowed
             // we're going to be stopped outside - we better flush the lexer
-            let _ = self.flush_lexer(shared);
+            let _ = self.flush_lexer();
         }
 
-        if start.is_empty() && self.lexer_allows_eos(shared) {
+        if start.is_empty() && self.lexer_allows_eos() {
             set.allow_token(computer.trie().eos_token());
         }
 
@@ -665,9 +689,10 @@ impl ParserState {
         false
     }
 
-    pub fn lexer_allows_eos(&mut self, shared: &mut SharedState) -> bool {
+    pub fn lexer_allows_eos(&mut self) -> bool {
         if self.has_pending_lexeme_bytes() {
-            shared.lexer.allows_eos(self.lexer_state().lexer_state)
+            let lexer_state = self.lexer_state().lexer_state;
+            self.lexer_mut().allows_eos(lexer_state)
         } else {
             // empty lexemes are not allowed
             false
@@ -759,10 +784,9 @@ impl ParserState {
         self.grammar.sym_data(self.item_lhs(item))
     }
 
-    fn hidden_start(&self, shared: &mut SharedState) -> usize {
-        let hidden_len = shared
-            .lexer
-            .possible_hidden_len(self.lexer_state().lexer_state);
+    fn hidden_start(&self, lexer: &mut Lexer) -> usize {
+        let lexer_state = self.lexer_state().lexer_state;
+        let hidden_len = lexer.possible_hidden_len(lexer_state);
         if hidden_len == 0 {
             return usize::MAX;
         }
@@ -785,12 +809,7 @@ impl ParserState {
         }
     }
 
-    pub fn validate_bytes(
-        &mut self,
-        shared: &mut SharedState,
-        tok_bytes: &[u8],
-        check_eos: bool,
-    ) -> usize {
+    pub fn validate_bytes(&mut self, tok_bytes: &[u8], check_eos: bool) -> usize {
         self.assert_definitive();
         let applied_idx = self.byte_to_token_idx.len();
         let mut prefix_len = 0;
@@ -823,8 +842,8 @@ impl ParserState {
             return prefix_len;
         }
 
-        self.run_speculative(|s| {
-            let mut r = ParserRecognizer { shared, state: s };
+        self.run_speculative(|state| {
+            let mut r = ParserRecognizer { state };
             for &b in tok_bytes {
                 if !r.try_push_byte(b) {
                     return prefix_len;
@@ -832,7 +851,7 @@ impl ParserState {
                 prefix_len += 1;
             }
             if check_eos {
-                if s.is_accepting_inner(shared) {
+                if state.is_accepting_inner() {
                     prefix_len += 1;
                 }
             }
@@ -843,7 +862,7 @@ impl ParserState {
     // apply_tokens() "pushes" the bytes in 'tokens' into the lexer and parser.  It is a top-level
     // method in this file.  It is well below llguidance's top-level methods, but in the llguidance
     // LLInterpreter interface, it is called indirectly via the commit_token() method.
-    pub fn apply_token(&mut self, shared: &mut SharedState, tok_bytes: &[u8]) -> Result<usize> {
+    pub fn apply_token(&mut self, tok_bytes: &[u8]) -> Result<usize> {
         self.assert_definitive();
 
         let mut check_lexer_max_tokens = false;
@@ -869,7 +888,7 @@ impl ParserState {
 
                 self.row_infos[row_idx].apply_token_idx(self.token_idx);
 
-                let (ok, bt) = self.try_push_byte_definitive(shared, Some(b));
+                let (ok, bt) = self.try_push_byte_definitive(Some(b));
                 if !ok {
                     bail!(
                         "byte {:?} fails parse; applying {:?}",
@@ -936,7 +955,7 @@ impl ParserState {
             let mut limit = self.lexer_spec().alloc_lexeme_set();
             let mut num_limit = 0;
             {
-                let possible_lexemes = shared.lexer.possible_lexemes(lex_state);
+                let possible_lexemes = self.lexer().possible_lexemes(lex_state);
                 for idx in possible_lexemes.iter() {
                     let lex = LexemeIdx::new(idx as usize);
                     let lex_spec = self.lexer_spec().lexeme_spec(lex);
@@ -962,10 +981,10 @@ impl ParserState {
                     "  max_tokens limiting to: {}",
                     self.lexer_spec().dbg_lexeme_set(&limit)
                 );
-                let new_state = shared.lexer.limit_state_to(lex_state, &limit);
+                let new_state = self.lexer_mut().limit_state_to(lex_state, &limit);
                 if new_state.is_dead() {
                     debug!("  limited everything; forcing EOI");
-                    let (ok, bt) = self.try_push_byte_definitive(shared, None);
+                    let (ok, bt) = self.try_push_byte_definitive(None);
                     assert!(bt == 0);
                     if !ok {
                         debug!("parse reject on max_tokens");
@@ -994,13 +1013,13 @@ impl ParserState {
     /// force_bytes() forces bytes into the parser, definitively.
     /// They must be, at each point, the only bytes allowed by
     /// the parser.  force_bytes() returns a 'Vec' of the bytes pushed.
-    pub fn force_bytes(&mut self, shared: &mut SharedState) -> &[u8] {
+    pub fn force_bytes(&mut self) {
         self.assert_definitive();
         trace!("force_bytes lexer_stack {}", self.lexer_stack.len());
         self.with_items_limit(self.limits.step_max_items, "ff_tokens", |s| {
-            while let Some(b) = s.forced_byte(shared) {
+            while let Some(b) = s.forced_byte() {
                 debug!("  forced: {:?} 0x{:x}", b as char, b);
-                let (ok, bt) = s.try_push_byte_definitive(shared, Some(b));
+                let (ok, bt) = s.try_push_byte_definitive(Some(b));
                 assert!(bt == 0);
                 if !ok {
                     // shouldn't happen?
@@ -1016,18 +1035,12 @@ impl ParserState {
             bytes.len(),
             self.lexer_stack.len()
         );
-        bytes
     }
 
     // Advance the parser or the lexer, depending on whether 'lex_result'
     // is a pre-lexeme or not.
     #[inline(always)]
-    fn advance_lexer_or_parser(
-        &mut self,
-        shared: &mut SharedState,
-        lex_result: LexerResult,
-        curr: LexerState,
-    ) -> bool {
+    fn advance_lexer_or_parser(&mut self, lex_result: LexerResult, curr: LexerState) -> bool {
         match lex_result {
             LexerResult::State(next_state, byte) => {
                 // lexer advanced, but no lexeme - fast path
@@ -1039,7 +1052,7 @@ impl ParserState {
                 true
             }
             LexerResult::Error => false,
-            LexerResult::Lexeme(pre_lexeme) => self.advance_parser(shared, pre_lexeme),
+            LexerResult::Lexeme(pre_lexeme) => self.advance_parser(pre_lexeme),
         }
     }
 
@@ -1081,52 +1094,48 @@ impl ParserState {
         r
     }
 
-    fn is_accepting_inner(&mut self, shared: &mut SharedState) -> bool {
-        self.flush_lexer(shared) && self.row_is_accepting()
+    fn is_accepting_inner(&mut self) -> bool {
+        self.flush_lexer() && self.row_is_accepting()
     }
 
-    pub fn is_accepting(&mut self, shared: &mut SharedState) -> bool {
-        self.run_speculative(|s| s.is_accepting_inner(shared))
+    pub fn is_accepting(&mut self) -> bool {
+        self.run_speculative(|s| s.is_accepting_inner())
     }
 
     // try_push_byte_definitive() attempts to 'push' a byte (that is advance
     // the parse with 'byte') into the parse in definitive mode.
     // Returns 'false' if this is not possible.
-    fn try_push_byte_definitive(
-        &mut self,
-        shared: &mut SharedState,
-        byte: Option<u8>,
-    ) -> (bool, usize) {
+    fn try_push_byte_definitive(&mut self, byte: Option<u8>) -> (bool, usize) {
         assert!(self.scratch.definitive);
 
         let curr = self.lexer_state();
-        let row = &self.rows[curr.row_idx as usize];
 
         let res = if byte.is_none() {
-            let lexeme = shared.lexer.force_lexeme_end(curr.lexer_state);
+            let lexeme = self.lexer_mut().force_lexeme_end(curr.lexer_state);
             if lexeme.is_error() {
                 debug!(
                     "    lexer fail on forced end; allowed: {}",
-                    self.lexer_spec().dbg_lexeme_set(&row.allowed_lexemes)
+                    self.lexer_spec()
+                        .dbg_lexeme_set(&self.rows[curr.row_idx as usize].allowed_lexemes)
                 );
             }
             lexeme
         } else {
             self.stats.definitive_bytes += 1;
-            shared
-                .lexer
-                .advance(curr.lexer_state, byte.unwrap(), self.scratch.definitive)
+            self.lexer_mut()
+                .advance(curr.lexer_state, byte.unwrap(), true)
         };
 
         if res.is_error() {
             debug!(
                 "  lexer fail; allowed: {}",
-                self.lexer_spec().dbg_lexeme_set(&row.allowed_lexemes)
+                self.lexer_spec()
+                    .dbg_lexeme_set(&self.rows[curr.row_idx as usize].allowed_lexemes)
             );
         }
 
         assert!(self.backtrack_byte_count == 0);
-        if self.advance_lexer_or_parser(shared, res, curr) {
+        if self.advance_lexer_or_parser(res, curr) {
             if let Some(b) = byte {
                 self.bytes.push(b);
             }
@@ -1149,8 +1158,8 @@ impl ParserState {
     /// forced_byte() finds the unique byte allowed by the
     /// parser at this point, and returns it.  If there is
     /// no such byte, forced_byte() returns 'None'.
-    fn forced_byte(&mut self, shared: &mut SharedState) -> Option<u8> {
-        if self.is_accepting(shared) {
+    fn forced_byte(&mut self) -> Option<u8> {
+        if self.is_accepting() {
             debug!("  in accept state, not forcing");
             return None;
         }
@@ -1160,8 +1169,8 @@ impl ParserState {
         // TODO: use RegexVec::next_byte() here if possible ?
         // currently, this will likely take a few thousand cycles to produce a byte
 
-        self.run_speculative(|s| {
-            let mut r = ParserRecognizer { shared, state: s };
+        self.run_speculative(|state| {
+            let mut r = ParserRecognizer { state };
             let mut byte_sym = None;
             for b in 0..=255 {
                 if r.try_push_byte(b) {
@@ -1182,25 +1191,25 @@ impl ParserState {
     /// Advance the parser as if the current lexeme (if any)
     /// finished right here.
     /// Returns true if the parser was able to advance (or there were no pending bytes for a lexeme).
-    fn flush_lexer(&mut self, shared: &mut SharedState) -> bool {
+    fn flush_lexer(&mut self) -> bool {
         if !self.has_pending_lexeme_bytes() {
             return true;
         }
         let curr = self.lexer_state();
-        let lex_result = shared.lexer.try_lexeme_end(curr.lexer_state);
-        let r = self.advance_lexer_or_parser(shared, lex_result, curr);
+        let lex_result = self.lexer_mut().try_lexeme_end(curr.lexer_state);
+        let r = self.advance_lexer_or_parser(lex_result, curr);
         assert!(self.backtrack_byte_count == 0);
         r
     }
 
-    pub fn scan_eos(&mut self, shared: &mut SharedState) -> bool {
+    pub fn scan_eos(&mut self) -> bool {
         self.assert_definitive(); // ???
 
-        let lexer_eos = self.lexer_allows_eos(shared);
+        let lexer_eos = self.lexer_allows_eos();
 
         debug!("  scan eos: lexer_eos={}", lexer_eos);
 
-        if !self.flush_lexer(shared) {
+        if !self.flush_lexer() {
             debug!("  flush_lexer() failed");
             return false;
         }
@@ -1451,7 +1460,12 @@ impl ParserState {
             // Add the working row to the parser state
             let idx = self.num_rows();
 
-            let row = self.scratch.work_row();
+            let lex_start = self
+                .shared_box
+                .lexer_mut()
+                .start_state(&self.scratch.push_allowed_lexemes, None);
+
+            let row = self.scratch.work_row(lex_start);
             if self.rows.len() == 0 || self.rows.len() == idx {
                 // If the physical 'rows' Vec is full, we push a new row
                 // otherwise ...
@@ -1622,6 +1636,11 @@ impl ParserState {
         self.grammar.lexer_spec()
     }
 
+    fn allowed_lexemes_dbg(&self, lex_state: StateID) -> String {
+        self.lexer_spec()
+            .dbg_lexeme_set(self.lexer().possible_lexemes(lex_state))
+    }
+
     // mk_lexeme() converts a pre-lexeme for the current row into
     // a lexeme (ie., it determines the bytes that go into the lexeme), and returns it.
     #[inline(always)]
@@ -1658,7 +1677,6 @@ impl ParserState {
     #[inline(always)]
     fn lexer_state_for_added_row(
         &mut self,
-        shared: &mut SharedState,
         lexeme: Lexeme,
         transition_byte: Option<u8>,
     ) -> LexerState {
@@ -1669,7 +1687,10 @@ impl ParserState {
 
         let no_hidden = LexerState {
             row_idx: added_row as u32,
-            lexer_state: shared.lexer.start_state(added_row_lexemes, transition_byte),
+            lexer_state: self
+                .shared_box
+                .lexer_mut()
+                .start_state(added_row_lexemes, transition_byte),
             byte: transition_byte,
         };
 
@@ -1699,7 +1720,6 @@ impl ParserState {
     #[inline(always)]
     fn handle_hidden_bytes(
         &mut self,
-        shared: &mut SharedState,
         no_hidden: LexerState,
         lexeme_byte: Option<u8>,
         pre_lexeme: PreLexeme,
@@ -1724,14 +1744,18 @@ impl ParserState {
             if self.scratch.definitive {
                 trace!("  hidden forced");
             }
-            let mut lexer_state = shared.lexer.start_state(added_row_lexemes, None);
+            let mut lexer_state = self
+                .shared_box
+                .lexer_mut()
+                .start_state(added_row_lexemes, None);
             // if the bytes are forced, we just advance the lexer
             // by replacing the top lexer states
             self.pop_lexer_states(hidden_bytes.len() - 1);
             for idx in 0..hidden_bytes.len() {
                 let b = hidden_bytes[idx];
-                match shared
-                    .lexer
+                match self
+                    .shared_box
+                    .lexer_mut()
                     .advance(lexer_state, b, self.scratch.definitive)
                 {
                     LexerResult::State(next_state, _) => {
@@ -1753,7 +1777,7 @@ impl ParserState {
                             byte: None,
                             ..no_hidden
                         });
-                        let r = self.advance_parser(shared, second_lexeme);
+                        let r = self.advance_parser(second_lexeme);
                         // println!("hidden bytes lexeme: {:?} -> {r}", second_lexeme);
                         if r {
                             // here, advance_parser() has pushed a state; we replace our state with it
@@ -1782,7 +1806,10 @@ impl ParserState {
             if self.scratch.definitive {
                 // set it up for matching after backtrack
                 self.lexer_stack.push(LexerState {
-                    lexer_state: shared.lexer.start_state(added_row_lexemes, None),
+                    lexer_state: self
+                        .shared_box
+                        .lexer_mut()
+                        .start_state(added_row_lexemes, None),
                     byte: None,
                     ..no_hidden
                 });
@@ -1791,7 +1818,7 @@ impl ParserState {
             } else {
                 // prevent any further matches in this branch
                 self.lexer_stack.push(LexerState {
-                    lexer_state: shared.lexer.a_dead_state(),
+                    lexer_state: self.shared_box.lexer_mut().a_dead_state(),
                     byte: None,
                     ..no_hidden
                 });
@@ -1817,7 +1844,7 @@ impl ParserState {
 
     // This is never inlined anyways, so better make it formal
     #[inline(never)]
-    fn advance_parser(&mut self, shared: &mut SharedState, pre_lexeme: PreLexeme) -> bool {
+    fn advance_parser(&mut self, pre_lexeme: PreLexeme) -> bool {
         if self.stats.all_items > self.max_all_items {
             return false;
         }
@@ -1867,10 +1894,10 @@ impl ParserState {
                 }
             }
 
-            let mut no_hidden = self.lexer_state_for_added_row(shared, lexeme, transition_byte);
+            let mut no_hidden = self.lexer_state_for_added_row(lexeme, transition_byte);
 
             if pre_lexeme.hidden_len > 0 {
-                return self.handle_hidden_bytes(shared, no_hidden, lexeme_byte, pre_lexeme);
+                return self.handle_hidden_bytes(no_hidden, lexeme_byte, pre_lexeme);
             } else {
                 if pre_lexeme.byte_next_row && no_hidden.lexer_state.is_dead() {
                     if self.scratch.definitive {
@@ -1884,8 +1911,8 @@ impl ParserState {
                     // we just recognized.  For example, assuming C language, in the
                     // token "foo(", once we recognize the "foo" lexeme, we immediately
                     // have a single byte "(" lexeme.  We deal with these here.
-                    let single = shared
-                        .lexer
+                    let single = self
+                        .lexer_mut()
                         .check_for_single_byte_lexeme(no_hidden.lexer_state, b);
                     if let Some(second_lexeme) = single {
                         if self.scratch.definitive {
@@ -1898,7 +1925,7 @@ impl ParserState {
                         assert!(pre_lexeme.byte_next_row);
                         assert!(!second_lexeme.byte_next_row);
 
-                        let r = self.advance_parser(shared, second_lexeme);
+                        let r = self.advance_parser(second_lexeme);
                         if r {
                             let new_top = self.lexer_stack.pop().unwrap();
                             *self.lexer_stack.last_mut().unwrap() = new_top;
@@ -1926,15 +1953,14 @@ impl ParserState {
 
 pub struct ParserRecognizer<'a> {
     state: &'a mut ParserState,
-    shared: &'a mut SharedState,
 }
 
 impl<'a> ParserRecognizer<'a> {
     pub fn lexer_mut(&mut self) -> &mut Lexer {
-        &mut self.shared.lexer
+        self.state.lexer_mut()
     }
     pub fn lexer(&self) -> &Lexer {
-        &self.shared.lexer
+        self.state.lexer()
     }
     pub fn lexer_state(&self) -> StateID {
         self.state.lexer_state().lexer_state
@@ -2022,8 +2048,8 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
         let lexer_logging = false;
         let curr = self.state.lexer_state();
         let res = self
-            .shared
-            .lexer
+            .state
+            .lexer_mut()
             .advance(curr.lexer_state, byte, lexer_logging);
 
         if ITEM_TRACE {
@@ -2042,7 +2068,7 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
             }
         }
 
-        let r = self.state.advance_lexer_or_parser(self.shared, res, curr);
+        let r = self.state.advance_lexer_or_parser(res, curr);
 
         if ITEM_TRACE && !r {
             self.state.trace_byte_stack.pop();
@@ -2080,7 +2106,9 @@ impl ParserError {
 impl Parser {
     pub fn new(grammar: Arc<CGrammar>, limits: ParserLimits) -> Result<Self> {
         let (state, lexer) = ParserState::new(grammar, limits)?;
-        let shared = Arc::new(Mutex::new(SharedState { lexer }));
+        let shared = Arc::new(Mutex::new(Box::new(SharedState {
+            lexer_opt: Some(lexer),
+        })));
         Ok(Parser { shared, state })
     }
 
@@ -2088,8 +2116,7 @@ impl Parser {
     /// in TokenParser in tokenparser.rs.  It is used by the compute_mask() method of
     /// the LLInterpreter interface.
     pub fn compute_bias(&mut self, computer: &dyn BiasComputer, start: &[u8]) -> SimpleVob {
-        let mut shared = self.shared.lock().unwrap();
-        self.state.compute_bias(&mut shared, computer, start)
+        self.with_shared(|state| state.compute_bias(computer, start))
     }
 
     pub fn captures(&self) -> &[(String, Vec<u8>)] {
@@ -2110,17 +2137,16 @@ impl Parser {
     // The bytes in 'foo' are therefore said to be "hidden".
     pub fn hidden_start(&self) -> usize {
         let mut shared = self.shared.lock().unwrap();
-        self.state.hidden_start(&mut shared)
+        self.state.hidden_start(shared.lexer_mut())
     }
 
     pub fn lexer_stats(&self) -> String {
-        let shared = self.shared.lock().unwrap();
-        shared.lexer.dfa.stats()
+        self.shared.lock().unwrap().lexer().dfa.stats()
     }
 
     pub fn get_error(&self) -> Option<ParserError> {
         let shared = self.shared.lock().unwrap();
-        if let Some(e) = shared.lexer.dfa.get_error() {
+        if let Some(e) = shared.lexer().dfa.get_error() {
             return Some(ParserError::LexerError(e));
         }
         if let Some(e) = &self.state.parser_error {
@@ -2130,12 +2156,10 @@ impl Parser {
     }
 
     pub fn with_recognizer<T>(&mut self, f: impl FnOnce(&mut ParserRecognizer) -> T) -> T {
-        let mut shared = self.shared.lock().unwrap();
-        let mut p = ParserRecognizer {
-            shared: &mut shared,
-            state: &mut self.state,
-        };
-        f(&mut p)
+        self.with_shared(|state| {
+            let mut rec = ParserRecognizer { state };
+            f(&mut rec)
+        })
     }
 
     pub fn get_bytes(&self) -> &[u8] {
@@ -2143,13 +2167,12 @@ impl Parser {
     }
 
     pub fn force_bytes(&mut self) -> &[u8] {
-        let mut shared = self.shared.lock().unwrap();
-        self.state.force_bytes(&mut shared)
+        self.with_shared(|state| state.force_bytes());
+        self.currently_forced_bytes()
     }
 
     pub fn scan_eos(&mut self) -> bool {
-        let mut shared = self.shared.lock().unwrap();
-        self.state.scan_eos(&mut shared)
+        self.with_shared(|state| state.scan_eos())
     }
 
     pub(crate) fn apply_forced(&mut self, byte_idx: usize) {
@@ -2164,16 +2187,24 @@ impl Parser {
     }
 
     pub fn apply_token(&mut self, tok_bytes: &[u8]) -> Result<usize> {
-        let mut shared = self.shared.lock().unwrap();
-        let r = self.state.apply_token(&mut shared, tok_bytes);
+        let r = self.with_shared(|state| state.apply_token(tok_bytes));
         self.state.token_idx += 1;
+        r
+    }
+
+    fn with_shared<T>(&mut self, f: impl FnOnce(&mut ParserState) -> T) -> T {
+        let mut shared = self.shared.lock().unwrap();
+        assert!(shared.lexer_opt.is_some());
+        std::mem::swap(&mut self.state.shared_box, &mut shared);
+        let r = f(&mut self.state);
+        std::mem::swap(&mut self.state.shared_box, &mut shared);
+        assert!(shared.lexer_opt.is_some());
         r
     }
 
     /// Returns how many bytes can be applied.
     pub fn validate_bytes(&mut self, tok_bytes: &[u8], check_eos: bool) -> usize {
-        let mut shared = self.shared.lock().unwrap();
-        self.state.validate_bytes(&mut shared, tok_bytes, check_eos)
+        self.with_shared(|state| state.validate_bytes(tok_bytes, check_eos))
     }
 
     pub fn log_row_infos(&self, label: &str) {
@@ -2190,8 +2221,7 @@ impl Parser {
     }
 
     pub fn is_accepting(&mut self) -> bool {
-        let mut shared = self.shared.lock().unwrap();
-        self.state.is_accepting(&mut shared)
+        self.with_shared(|state| state.is_accepting())
     }
 
     pub fn currently_forced_bytes(&self) -> &[u8] {
