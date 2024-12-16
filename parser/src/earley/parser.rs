@@ -358,7 +358,7 @@ struct ParserState {
     shared_box: Box<SharedState>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct SharedState {
     lexer_opt: Option<Lexer>,
 }
@@ -566,9 +566,7 @@ impl ParserState {
             );
         }
 
-        let mut shared2 = Box::new(SharedState { lexer_opt: None });
-        std::mem::swap(&mut r.shared_box, &mut shared2);
-        let mut lexer = shared2.lexer_opt.unwrap();
+        let mut lexer = std::mem::take(&mut r.shared_box).lexer_opt.unwrap();
 
         let state = lexer.start_state(&r.rows[0].allowed_lexemes, None);
         r.lexer_stack[0].lexer_state = state;
@@ -2200,10 +2198,9 @@ impl Parser {
 
     fn with_shared<T>(&mut self, f: impl FnOnce(&mut ParserState) -> T) -> T {
         let mut shared = self.shared.lock().unwrap();
-        assert!(shared.lexer_opt.is_some());
-        std::mem::swap(&mut self.state.shared_box, &mut shared);
+        self.state.shared_box = std::mem::take(&mut *shared);
         let r = f(&mut self.state);
-        std::mem::swap(&mut self.state.shared_box, &mut shared);
+        *shared = std::mem::take(&mut self.state.shared_box);
         assert!(shared.lexer_opt.is_some());
         r
     }
