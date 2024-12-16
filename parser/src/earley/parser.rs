@@ -32,7 +32,7 @@ use super::{
 
 const TRACE: bool = false;
 const DEBUG: bool = true;
-const ITEM_TRACE: bool = false;
+pub(crate) const ITEM_TRACE: bool = false;
 
 macro_rules! trace {
     ($($arg:tt)*) => {

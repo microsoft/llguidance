@@ -6,6 +6,8 @@ use crate::{
     toktrie::{SimpleVob, TokEnv, TokTrie, TokenId},
 };
 
+use super::parser::ITEM_TRACE;
+
 struct TokenizerSlice {
     idx: usize,
     regex: String,
@@ -18,7 +20,7 @@ pub struct SlicedBiasComputer {
     slices: Arc<Vec<TokenizerSlice>>,
 }
 
-const DEBUG: bool = false;
+const DEBUG: bool = ITEM_TRACE;
 macro_rules! debug {
     ($($arg:tt)*) => {
         if DEBUG {

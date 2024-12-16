@@ -5,8 +5,7 @@ use toktrie::{InferenceCapabilities, TokEnv};
 
 use crate::{
     api::{ParserLimits, TopLevelGrammar},
-    earley::XorShift,
-    slicer::SlicedBiasComputer,
+    earley::{SlicedBiasComputer, XorShift},
     Logger, TokenParser,
 };
 
