@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use rustc_hash::FxHashMap;
+use hashbrown::HashMap as FxHashMap;
 use std::{collections::BTreeMap, sync::Arc};
 use tokenizers::{normalizers::Sequence, FromPretrainedParameters, NormalizerWrapper, Tokenizer};
 use toktrie::{TokEnv, TokRxInfo, TokTrie, TokenId, TokenizerEnv};

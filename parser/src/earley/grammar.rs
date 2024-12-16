@@ -5,7 +5,8 @@ use anyhow::{bail, ensure, Result};
 use crate::api::{GenGrammarOptions, GrammarId};
 
 use super::lexerspec::{LexemeClass, LexemeIdx, LexerSpec};
-use rustc_hash::FxHashMap;
+
+use hashbrown::HashMap as FxHashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymIdx(u32);
@@ -305,7 +306,7 @@ impl Grammar {
             }
         }
 
-        let mut repl = FxHashMap::default();
+        let mut repl = hashbrown::HashMap::new();
 
         for sym in &self.symbols {
             if self.is_special_symbol(sym) {
@@ -354,7 +355,7 @@ impl Grammar {
         repl = simple_repl;
 
         for (k, v) in repl.iter() {
-            if let Some(p) = v.iter().find(|e| repl.contains_key(e)) {
+            if let Some(p) = v.iter().find(|e| repl.contains_key(*e)) {
                 panic!("loop at {:?} ({:?})", k, p);
             }
         }
@@ -796,7 +797,7 @@ impl CGrammar {
             lexeme: None,
         });
 
-        let mut sym_map = FxHashMap::default();
+        let mut sym_map = hashbrown::HashMap::new();
 
         assert!(grammar.symbols.len() < u16::MAX as usize - 10);
 

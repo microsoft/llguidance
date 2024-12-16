@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, bail, Result};
-use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toktrie::TokTrie;
+
+use hashbrown::HashMap as FxHashMap;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct AddedToken {
