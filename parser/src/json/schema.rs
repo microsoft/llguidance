@@ -1,10 +1,7 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 
 use anyhow::{anyhow, bail, Result};
+use hashbrown::{HashMap, HashSet};
 use indexmap::{IndexMap, IndexSet};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use regex_syntax::escape;
@@ -425,7 +422,13 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
             .iter()
             .map(|value| compile_resource(&ctx, ctx.as_resource_ref(value)))
             .collect::<Result<Vec<_>>>()?;
-        let merged = intersect(ctx, vec![siblings].into_iter().chain(options.into_iter()).collect())?;
+        let merged = intersect(
+            ctx,
+            vec![siblings]
+                .into_iter()
+                .chain(options.into_iter())
+                .collect(),
+        )?;
         return Ok(merged);
     }
 

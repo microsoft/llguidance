@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bytemuck_derive::{Pod, Zeroable};
-use hashbrown::HashMap as FxHashMap;
+use hashbrown::HashMap as HashMap;
 
 use crate::{
     bytes::{to_hex_string, vec_from_bytes},
@@ -200,7 +200,7 @@ pub struct TokTrie {
     token_data: Vec<u8>,
     nodes: Vec<TrieNode>,
     max_token_len: usize,
-    token_duplicates: FxHashMap<TokenId, Vec<TokenId>>,
+    token_duplicates: HashMap<TokenId, Vec<TokenId>>,
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
@@ -293,7 +293,7 @@ impl TokTrie {
             token_data,
             nodes,
             max_token_len: 0,
-            token_duplicates: FxHashMap::default(),
+            token_duplicates: HashMap::default(),
         };
         r.finalize_ctor();
         r
@@ -646,7 +646,7 @@ impl TokTrie {
             token_data,
             nodes,
             max_token_len: 0,
-            token_duplicates: FxHashMap::default(),
+            token_duplicates: HashMap::default(),
         };
         r.finalize_ctor();
         r

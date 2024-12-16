@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
+use hashbrown::HashMap;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
-use std::{collections::HashMap, vec};
 
 use super::formats::lookup_format;
 use super::numeric::{rx_float_range, rx_int_range};
@@ -447,10 +447,7 @@ impl Compiler {
                         .collect::<Vec<_>>();
                     let taken = self.builder.regex.select(taken_name_ids);
                     let not_taken = self.builder.regex.not(taken);
-                    let valid = self
-                        .builder
-                        .regex
-                        .regex(format!("\"({})*\"", CHAR_REGEX));
+                    let valid = self.builder.regex.regex(format!("\"({})*\"", CHAR_REGEX));
                     let valid_and_not_taken = self.builder.regex.and(vec![valid, not_taken]);
                     let rx = RegexSpec::RegexId(valid_and_not_taken);
                     self.builder.lexeme(rx, false)

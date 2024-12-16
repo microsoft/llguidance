@@ -9,10 +9,7 @@ use llguidance::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
-    fs::File,
-    io::{Read, Write},
-    sync::Arc,
+    collections::HashMap, fs::File, io::{Read, Write}, sync::Arc
 };
 
 use rayon::prelude::*;

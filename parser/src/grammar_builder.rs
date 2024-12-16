@@ -1,6 +1,6 @@
-use std::{collections::HashMap, sync::atomic::AtomicU32};
-
 use anyhow::{ensure, Result};
+use hashbrown::HashMap;
+use std::sync::atomic::AtomicU32;
 
 use crate::api::{
     GenGrammarOptions, GenOptions, GrammarWithLexer, Node, NodeId, NodeProps, RegexId, RegexNode,

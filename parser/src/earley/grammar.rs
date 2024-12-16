@@ -1,12 +1,8 @@
-use std::{collections::HashMap, fmt::Debug, hash::Hash};
-
-use anyhow::{bail, ensure, Result};
-
-use crate::api::{GenGrammarOptions, GrammarId};
-
 use super::lexerspec::{LexemeClass, LexemeIdx, LexerSpec};
-
-use hashbrown::HashMap as FxHashMap;
+use crate::api::{GenGrammarOptions, GrammarId};
+use anyhow::{bail, ensure, Result};
+use hashbrown::HashMap;
+use std::{fmt::Debug, hash::Hash};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymIdx(u32);
@@ -141,7 +137,7 @@ impl Rule {
 pub struct Grammar {
     name: Option<String>,
     symbols: Vec<Symbol>,
-    symbol_by_name: FxHashMap<String, SymIdx>,
+    symbol_by_name: HashMap<String, SymIdx>,
 }
 
 impl Grammar {
@@ -149,7 +145,7 @@ impl Grammar {
         Grammar {
             name,
             symbols: vec![],
-            symbol_by_name: FxHashMap::default(),
+            symbol_by_name: HashMap::default(),
         }
     }
 
@@ -331,9 +327,9 @@ impl Grammar {
             }
         }
 
-        let mut simple_repl = FxHashMap::default();
+        let mut simple_repl = HashMap::default();
         while !repl.is_empty() {
-            let mut new_repl = FxHashMap::default();
+            let mut new_repl = HashMap::default();
             for (k, v) in repl.iter() {
                 let v2 = v
                     .iter()

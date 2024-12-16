@@ -1,11 +1,8 @@
-use std::collections::HashMap;
-
 use anyhow::{anyhow, bail, Result};
+use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toktrie::TokTrie;
-
-use hashbrown::HashMap as FxHashMap;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct AddedToken {
@@ -30,8 +27,8 @@ fn is_self_mapped(c: char) -> bool {
     }
 }
 
-fn build_char_map() -> FxHashMap<char, u8> {
-    let mut res = FxHashMap::default();
+fn build_char_map() -> HashMap<char, u8> {
+    let mut res = HashMap::default();
     let mut k = 0x100u32;
     for byte in 0..=255u8 {
         let c = byte as char;

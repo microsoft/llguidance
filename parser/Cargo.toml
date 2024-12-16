@@ -17,7 +17,7 @@ regex-syntax = "0.8.5"
 indexmap = "2.6.0"
 referencing = "0.26.1"
 rayon = { version = "1.10.0", optional = true }
-hashbrown = "0.15.2"
+hashbrown = { version = "0.15.2", features = ["serde"] }
 
 [features]
 default = ["jsonschema_validation", "lark", "rayon"]

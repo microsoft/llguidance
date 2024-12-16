@@ -1,7 +1,8 @@
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
 
 use anyhow::{bail, Result};
 use derivre::RegexAst;
+use hashbrown::HashMap;
 
 use crate::{
     api::ParserLimits,

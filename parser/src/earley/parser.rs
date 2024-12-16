@@ -5,7 +5,6 @@
 // (Retrieved 18 Sep 2024).
 
 use std::{
-    collections::HashSet,
     fmt::Debug,
     hash::Hash,
     ops::Range,
@@ -14,6 +13,7 @@ use std::{
 
 use anyhow::{bail, ensure, Result};
 use derivre::{RegexAst, StateID};
+use hashbrown::HashSet;
 use instant::Instant;
 use serde::{Deserialize, Serialize};
 use toktrie::{Recognizer, SimpleVob, SpecialToken, TokEnv, TokTrie};
