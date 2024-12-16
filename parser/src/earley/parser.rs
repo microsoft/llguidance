@@ -66,14 +66,16 @@ struct Item {
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ParserStats {
     pub rows: usize,
+    pub cached_rows: usize,
+    pub all_items: usize,
+    pub lexer_cost: u64,
+    pub slices_applied: usize,
+    pub compute_time_us: u64,
+
     pub definitive_bytes: usize,
     pub lexer_ops: usize,
     pub num_lex_errors: usize,
     pub num_lexemes: usize,
-    pub all_items: usize,
-    pub lexer_cost: u64,
-    pub compute_time_us: u64,
-    pub slices_applied: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +128,7 @@ impl ParserStats {
     pub fn delta(&self, previous: &ParserStats) -> ParserStats {
         ParserStats {
             rows: self.rows.saturating_sub(previous.rows),
+            cached_rows: self.cached_rows.saturating_sub(previous.cached_rows),
             definitive_bytes: self
                 .definitive_bytes
                 .saturating_sub(previous.definitive_bytes),
@@ -144,6 +147,7 @@ impl ParserStats {
     pub fn max(&self, other: &ParserStats) -> ParserStats {
         ParserStats {
             rows: self.rows.max(other.rows),
+            cached_rows: self.cached_rows.max(other.cached_rows),
             definitive_bytes: self.definitive_bytes.max(other.definitive_bytes),
             lexer_ops: self.lexer_ops.max(other.lexer_ops),
             num_lexemes: self.num_lexemes.max(other.num_lexemes),
@@ -329,6 +333,8 @@ struct ParserState {
     rows_valid_end: usize,
 
     trace_byte_stack: Vec<u8>,
+    trace_stats0: ParserStats,
+    trace_start: Instant,
 
     // These are only updated in definitive mode.
     row_infos: Vec<RowInfo>,
@@ -503,7 +509,9 @@ impl ParserState {
             scratch,
             stats: ParserStats::default(),
             metrics: ParserMetrics::default(),
+            trace_stats0: ParserStats::default(),
             trace_byte_stack: vec![],
+            trace_start: Instant::now(),
             token_idx: 0,
             byte_to_token_idx: vec![],
             bytes: vec![],
@@ -843,7 +851,7 @@ impl ParserState {
             return prefix_len;
         }
 
-        self.run_speculative(|state| {
+        self.run_speculative("validate_bytes", |state| {
             let mut r = ParserRecognizer { state };
             for &b in tok_bytes {
                 if !r.try_push_byte(b) {
@@ -1057,15 +1065,17 @@ impl ParserState {
         }
     }
 
-    fn trie_started_inner(&mut self) {
+    fn trie_started_inner(&mut self, lbl: &str) {
         // debug!("trie_started: rows={} lexer={}", self.num_rows(), self.lexer_stack.len());
         self.assert_definitive();
         self.trie_lexer_stack = self.lexer_stack.len();
         self.trie_grammar_stack = self.scratch.grammar_stack.len();
         self.scratch.definitive = false;
         if ITEM_TRACE {
+            self.trace_stats0 = self.stats.clone();
+            self.trace_start = Instant::now();
             self.trace_byte_stack.clear();
-            item_trace!("trie started");
+            item_trace!("trie started; {}", lbl);
         }
     }
 
@@ -1079,6 +1089,9 @@ impl ParserState {
         self.scratch.grammar_stack.truncate(self.trie_grammar_stack);
 
         if ITEM_TRACE {
+            let mut st = self.stats.delta(&self.trace_stats0);
+            st.compute_time_us = self.trace_start.elapsed().as_micros() as u64;
+            item_trace!("trie finished: {}", serde_json::to_string(&st).unwrap());
             self.trace_byte_stack.clear();
         }
 
@@ -1089,8 +1102,8 @@ impl ParserState {
         self.rows_valid_end = self.num_rows();
     }
 
-    fn run_speculative<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        self.trie_started_inner();
+    fn run_speculative<T>(&mut self, lbl: &str, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.trie_started_inner(lbl);
         let r = f(self);
         self.trie_finished_inner();
         r
@@ -1101,7 +1114,7 @@ impl ParserState {
     }
 
     pub fn is_accepting(&mut self) -> bool {
-        self.run_speculative(|s| s.is_accepting_inner())
+        self.run_speculative("is_accepting", |s| s.is_accepting_inner())
     }
 
     // try_push_byte_definitive() attempts to 'push' a byte (that is advance
@@ -1169,7 +1182,7 @@ impl ParserState {
         // TODO: use RegexVec::next_byte() here if possible ?
         // currently, this will likely take a few thousand cycles to produce a byte
 
-        self.run_speculative(|state| {
+        self.run_speculative("forced_byte", |state| {
             let mut r = ParserRecognizer { state };
             let mut byte_sym = None;
             for b in 0..=255 {
@@ -1876,24 +1889,22 @@ impl ParserState {
             && self.rows[self.num_rows()].lexeme_idx == lexeme_idx
         {
             // re-use pushed row
+            self.stats.cached_rows += 1;
             true
         } else {
             let lex_spec = self.lexer_spec().lexeme_spec(lexeme.idx);
-            if lex_spec.is_skip {
+            let scan_res = if lex_spec.is_skip {
                 // If this is the SKIP lexeme, then skip it
                 self.scan_skip_lexeme(&lexeme)
             } else {
                 // For all but the SKIP lexeme, process this lexeme
                 // with the parser
                 self.scan(&lexeme)
-            }
-        };
-
-        if scan_res {
-            if ITEM_TRACE {
+            };
+            if scan_res && ITEM_TRACE {
                 let added_row = self.num_rows();
                 let row = &self.rows[added_row];
-                println!(
+                item_trace!(
                     "  row: {:?} -> {}",
                     self.lexer_stack_top(),
                     row.item_indices().len()
@@ -1903,7 +1914,10 @@ impl ParserState {
                     panic!("max items exceeded");
                 }
             }
+            scan_res
+        };
 
+        if scan_res {
             let mut no_hidden = self.lexer_state_for_added_row(lexeme, transition_byte);
 
             if pre_lexeme.hidden_len > 0 {
@@ -2038,8 +2052,8 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
         unreachable!("special_allowed")
     }
 
-    fn trie_started(&mut self) {
-        self.state.trie_started_inner();
+    fn trie_started(&mut self, lbl: &str) {
+        self.state.trie_started_inner(lbl);
     }
 
     fn trie_finished(&mut self) {

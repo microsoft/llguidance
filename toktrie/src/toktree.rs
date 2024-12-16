@@ -95,7 +95,7 @@ pub trait Recognizer {
     /// In that case, the stack may have more than one element, and trie_finished() needs to pop the excessive elements.
     fn trie_finished(&mut self);
     /// Called when iteration over the trie is started
-    fn trie_started(&mut self) {}
+    fn trie_started(&mut self, _dbg_lbl: &str) {}
     /// This combines `push_byte` and `byte_allowed` into one function for performance.
     fn try_push_byte(&mut self, byte: u8) -> bool;
     /// Check if there are any errors to be reported to the user.
@@ -828,7 +828,7 @@ impl TokTrie {
         let bytes = self.token(t);
         let mut num = 0;
         let mut ok = true;
-        r.trie_started();
+        r.trie_started("token_allowed");
         for &byte in bytes {
             if r.try_push_byte(byte) {
                 num += 1;
@@ -869,7 +869,7 @@ impl TokTrie {
             return false;
         }
         let n = n.unwrap();
-        r.trie_started();
+        r.trie_started("has_valid_extensions");
         let off = self.node_offset(n);
         let mut p = off + 1;
         let endp = off + n.subtree_size();
@@ -919,7 +919,7 @@ impl TokTrie {
             return;
         }
         let n = n.unwrap();
-        r.trie_started();
+        r.trie_started("add_bias");
         let next_pop = self.add_bias_inner(r, toks, n);
         if start.len() == 0 {
             // if start was non-empty, trie_finished() is supposed to clean this up
