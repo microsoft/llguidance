@@ -141,7 +141,7 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
     let mut limits = ParserLimits::default();
     let mut lexer = Lexer::from(&spec, &mut limits, false).unwrap();
     let all_lexemes = spec.all_lexemes();
-    let state0 = lexer.start_state(&all_lexemes, None);
+    let state0 = lexer.start_state(&all_lexemes);
     let mut line_no = 1;
     let mut column_no = 1;
     let mut curr_lexeme = Lexeme {
@@ -191,7 +191,8 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
                     lexemes.push(curr_lexeme.clone());
                 }
 
-                state = lexer.start_state(&all_lexemes, transition_byte);
+                state = lexer.start_state(&all_lexemes);
+                state = lexer.transition_start_state(state, transition_byte);
 
                 curr_lexeme.value.clear();
                 curr_lexeme.line = line_no;
