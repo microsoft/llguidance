@@ -6,7 +6,7 @@ CRATE=$1
 shift
 RUSTFLAGS="--emit asm $RUSTFLAGS" cargo $RUSTCHANNEL build --release --target $TRG
 TRG_DIR=`cargo metadata --format-version 1 | jq -r '.target_directory'`
-F=`echo $TRG_DIR/$TRG/release/deps/$CRATE-*.s`
+F=`ls $TRG_DIR/$TRG/release/deps/$CRATE{,-*}.s 2>/dev/null`
 # if $F has more than one file
 if [ `echo $F | wc -w` -gt 1 ]; then
     echo "More than one file found: $F; removing; try again"
