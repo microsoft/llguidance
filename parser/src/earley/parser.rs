@@ -53,6 +53,7 @@ macro_rules! debug {
 macro_rules! item_trace {
     ($($arg:tt)*) => {
         if ITEM_TRACE {
+            eprint!(">>> ");
             eprintln!($($arg)*);
         }
     }
@@ -65,12 +66,12 @@ struct Item {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ParserStats {
+    pub compute_time_us: u64,
     pub rows: usize,
     pub cached_rows: usize,
     pub all_items: usize,
     pub lexer_cost: u64,
     pub slices_applied: usize,
-    pub compute_time_us: u64,
 
     pub definitive_bytes: usize,
     pub lexer_ops: usize,
@@ -626,7 +627,7 @@ impl ParserState {
             computer.compute_bias(&mut r, start)
         });
 
-        self.stats.lexer_cost = self.lexer_mut().dfa.total_fuel_spent();
+        self.stats.lexer_cost = self.lexer().dfa.total_fuel_spent();
 
         // The SPECIAL_TOKEN_MARKER should never be allowed by itself
         let toks = computer
@@ -1089,7 +1090,9 @@ impl ParserState {
         self.scratch.grammar_stack.truncate(self.trie_grammar_stack);
 
         if ITEM_TRACE {
-            let mut st = self.stats.delta(&self.trace_stats0);
+            let mut st = self.stats.clone();
+            st.lexer_cost = self.lexer().dfa.total_fuel_spent();
+            st = st.delta(&self.trace_stats0);
             st.compute_time_us = self.trace_start.elapsed().as_micros() as u64;
             item_trace!("trie finished: {}", serde_json::to_string(&st).unwrap());
             self.trace_byte_stack.clear();

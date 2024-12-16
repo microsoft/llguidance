@@ -72,7 +72,7 @@ struct LlgResult {
     slicer_leftover_us: usize,
 
     num_tokens: usize,
-    num_masks: usize,
+    num_tests: usize,
     num_valid_tests: usize,
     num_invalid_tests: usize,
 
@@ -206,7 +206,7 @@ impl TestEnv {
         let trie = self.tok_env.tok_trie();
         let masks = self.cli.llg_masks;
 
-        stats.num_masks += 1;
+        stats.num_tests += 1;
 
         for (tidx, &token) in tokens.iter().enumerate() {
             //println!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
@@ -279,9 +279,9 @@ impl TestEnv {
         parser: &TokenParser,
         t: &JsonTestSequence,
     ) -> Result<()> {
-        if self.cli.llg_masks && !t.valid {
-            return Ok(());
-        }
+        // if self.cli.llg_masks && !t.valid {
+        //     return Ok(());
+        // }
 
         let mut parser = parser.deep_clone();
         parser.start_without_prompt();

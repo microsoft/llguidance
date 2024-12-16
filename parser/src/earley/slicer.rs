@@ -168,7 +168,10 @@ impl BiasComputer for SlicedBiasComputer {
             }
         } else {
             self.trie().add_bias(rec, &mut set, start);
+            debug!("slicer disabled; {} tokens", set.num_set());
         }
+
+        debug!("");
 
         set
     }
