@@ -43,6 +43,9 @@ pub struct CliOptions {
     llg_slicer: bool,
 
     #[arg(long)]
+    num_threads: Option<usize>,
+
+    #[arg(long)]
     remove_broken_tests: bool,
 
     #[arg(long)]
@@ -471,14 +474,6 @@ impl TestEnv {
 fn main() {
     let jsb_data = std::env::var("JSB_DATA").expect("JSB_DATA environment variable not set");
 
-    // set max thread numbers
-    let num_cores = std::thread::available_parallelism().unwrap().get();
-    let num_threads = std::cmp::min(num_cores, 40);
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build_global()
-        .unwrap();
-
     let mut options = CliOptions::parse();
     if options.llg_masks {
         options.llg_test = true;
@@ -486,6 +481,19 @@ fn main() {
     if options.llg_test {
         options.llg_compile = true;
     }
+
+    // set max thread numbers
+    let num_cores = std::thread::available_parallelism().unwrap().get();
+    let num_threads = options
+        .num_threads
+        .unwrap_or_else(|| std::cmp::min(num_cores, 40));
+    if num_threads > 1 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .build_global()
+            .unwrap();
+    }
+
     let options = Arc::new(options);
 
     let mut files = vec![];
@@ -540,7 +548,7 @@ fn main() {
     let factory = Arc::new(factory);
 
     let t0 = std::time::Instant::now();
-    let par = true; // options.llg_test == false;
+    let par = num_threads > 1;
     let do_file = |file: &String| {
         let env = TestEnv {
             tok_env: tok_env.clone(),
