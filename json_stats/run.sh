@@ -12,5 +12,6 @@ else
     PERF='perf record -F 999 -g'
     RUSTFLAGS='-C force-frame-pointers=y' cargo build --profile perf
     $PERF ../target/perf/json_stats $DEFAULT_ARGS "$@"
-    echo "perf report -g graph,0.5,caller"
+    echo "perf report -g graph,0.05,caller"
+    echo "perf report -g graph,0.05,callee"
 fi

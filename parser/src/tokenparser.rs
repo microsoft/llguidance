@@ -395,7 +395,7 @@ impl TokenParser {
 
         self.log_final(&prefix, &allowed_tokens);
 
-        if allowed_tokens.num_set() == 0 {
+        if allowed_tokens.is_zero() {
             infoln!(self, "no tokens allowed, stopping");
             return Err(self.stop("", StopReason::NoExtensionBias));
         }
