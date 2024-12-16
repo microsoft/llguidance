@@ -500,7 +500,7 @@ impl ParserState {
     // The parser starts in definitive mode.
     fn new(grammar: Arc<CGrammar>, mut limits: ParserLimits) -> Result<(Self, Lexer)> {
         let start = grammar.start();
-        let mut lexer = Lexer::from(grammar.lexer_spec(), &mut limits, true)?;
+        let lexer = Lexer::from(grammar.lexer_spec(), &mut limits, true)?;
         let scratch = Scratch::new(Arc::clone(&grammar));
         let lexer_state = lexer.a_dead_state(); // placeholder
         let mut r = ParserState {
@@ -526,7 +526,9 @@ impl ParserState {
             }],
             trie_grammar_stack: 0,
             parser_error: None,
-            shared_box: Box::new(SharedState { lexer_opt: None }),
+            shared_box: Box::new(SharedState {
+                lexer_opt: Some(lexer),
+            }),
         };
 
         r.scratch.grammar_stack.push(GrammarStackNode {
@@ -563,6 +565,10 @@ impl ParserState {
                 r.allowed_lexemes_dbg(r.rows[0].lexer_start_state)
             );
         }
+
+        let mut shared2 = Box::new(SharedState { lexer_opt: None });
+        std::mem::swap(&mut r.shared_box, &mut shared2);
+        let mut lexer = shared2.lexer_opt.unwrap();
 
         let state = lexer.start_state(&r.rows[0].allowed_lexemes, None);
         r.lexer_stack[0].lexer_state = state;
