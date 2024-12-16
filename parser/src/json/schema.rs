@@ -1,19 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
-
-use anyhow::{anyhow, bail, Result};
-use hashbrown::{HashMap, HashSet};
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    mem,
-    rc::Rc,
-};
-
 use anyhow::{anyhow, bail, Result};
 use derivre::RegexAst;
+use hashbrown::{HashMap, HashSet};
 use indexmap::{IndexMap, IndexSet};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use serde_json::Value;
+use std::{cell::RefCell, mem, rc::Rc};
 
 use super::formats::lookup_format;
 

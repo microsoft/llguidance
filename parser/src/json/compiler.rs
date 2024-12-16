@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use derivre::RegexAst;
 use hashbrown::HashMap;
 use indexmap::IndexMap;
