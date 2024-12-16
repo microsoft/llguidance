@@ -53,7 +53,7 @@ macro_rules! debug {
 macro_rules! item_trace {
     ($($arg:tt)*) => {
         if ITEM_TRACE {
-            eprint!(">>> ");
+            eprint!("    ");
             eprintln!($($arg)*);
         }
     }
@@ -874,6 +874,8 @@ impl ParserState {
     // LLInterpreter interface, it is called indirectly via the commit_token() method.
     pub fn apply_token(&mut self, tok_bytes: &[u8]) -> Result<usize> {
         self.assert_definitive();
+
+        item_trace!("apply_token: {:?}", String::from_utf8_lossy(tok_bytes));
 
         let mut check_lexer_max_tokens = false;
 
