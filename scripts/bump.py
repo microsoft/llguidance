@@ -61,7 +61,7 @@ def ensure_clean_working_tree():
 
 
 def main():
-    subprocess.run(["python3", "./scripts/update-git.py"], check=True)
+    #subprocess.run(["python3", "./scripts/update-git.py"], check=True)
 
     ensure_clean_working_tree()
 

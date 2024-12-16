@@ -448,7 +448,8 @@ mod test {
         let re = Regex::new(&format!("^{}$", rx)).unwrap();
         for n in (left.unwrap_or(0) - 1000)..=(right.unwrap_or(0) + 1000) {
             let matches = re.is_match(&n.to_string());
-            let expected = (left.is_none() || left.unwrap() <= n) && (right.is_none() || n <= right.unwrap());
+            let expected =
+                (left.is_none() || left.unwrap() <= n) && (right.is_none() || n <= right.unwrap());
             if expected != matches {
                 let range_str = match (left, right) {
                     (Some(l), Some(r)) => format!("[{}, {}]", l, r),
@@ -550,12 +551,15 @@ mod test {
             for offset in [0.0, -eps1, eps1, -eps2, eps2, 1.0, -1.0].iter() {
                 let n = x + offset;
                 let matches = re.is_match(&n.to_string());
-                let left_cond = left.is_none() || left.unwrap() < n || (left.unwrap() == n && left_inclusive);
-                let right_cond = right.is_none() || right.unwrap() > n || (right.unwrap() == n && right_inclusive);
+                let left_cond =
+                    left.is_none() || left.unwrap() < n || (left.unwrap() == n && left_inclusive);
+                let right_cond = right.is_none()
+                    || right.unwrap() > n
+                    || (right.unwrap() == n && right_inclusive);
                 let expected = left_cond && right_cond;
                 if expected != matches {
-                    let lket = if left_inclusive {"["} else {"("};
-                    let rket = if right_inclusive {"]"} else {")"};
+                    let lket = if left_inclusive { "[" } else { "(" };
+                    let rket = if right_inclusive { "]" } else { ")" };
                     let range_str = match (left, right) {
                         (Some(l), Some(r)) => format!("{}{}, {}{}", lket, l, r, rket),
                         (Some(l), None) => format!("{}{}, ∞)", lket, l),
@@ -625,12 +629,27 @@ mod test {
             for left_inclusive in [true, false].iter() {
                 for right_inclusive in [true, false].iter() {
                     match (left, right) {
-                        (Some(left), Some(right)) if left == right && !(*left_inclusive && *right_inclusive) => {
-                            assert!(rx_float_range(Some(left), Some(right), *left_inclusive, *right_inclusive).is_err());
+                        (Some(left), Some(right))
+                            if left == right && !(*left_inclusive && *right_inclusive) =>
+                        {
+                            assert!(rx_float_range(
+                                Some(left),
+                                Some(right),
+                                *left_inclusive,
+                                *right_inclusive
+                            )
+                            .is_err());
                         }
                         _ => {
-                            let rx = rx_float_range(left, right, *left_inclusive, *right_inclusive).unwrap();
-                            do_test_float_range(&rx, left, right, *left_inclusive, *right_inclusive);
+                            let rx = rx_float_range(left, right, *left_inclusive, *right_inclusive)
+                                .unwrap();
+                            do_test_float_range(
+                                &rx,
+                                left,
+                                right,
+                                *left_inclusive,
+                                *right_inclusive,
+                            );
                         }
                     }
                 }
