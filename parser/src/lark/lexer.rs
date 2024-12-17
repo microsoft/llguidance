@@ -1,11 +1,15 @@
-use std::{collections::HashMap, fmt::Display};
+use std::fmt::Display;
 
 use anyhow::{bail, Result};
 use derivre::RegexAst;
+use hashbrown::HashMap;
 
-use crate::earley::{
-    lexer::{Lexer, LexerResult},
-    lexerspec::LexerSpec,
+use crate::{
+    api::ParserLimits,
+    earley::{
+        lexer::{Lexer, LexerResult},
+        lexerspec::LexerSpec,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,9 +139,10 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
             .unwrap();
         lexeme_idx_to_token.insert(l, *token);
     }
-    let mut lexer = Lexer::from_internal(&spec).unwrap();
+    let mut limits = ParserLimits::default();
+    let mut lexer = Lexer::from(&spec, &mut limits, false).unwrap();
     let all_lexemes = spec.all_lexemes();
-    let state0 = lexer.start_state(&all_lexemes, None);
+    let state0 = lexer.start_state(&all_lexemes);
     let mut line_no = 1;
     let mut column_no = 1;
     let mut curr_lexeme = Lexeme {
@@ -187,7 +192,8 @@ pub fn lex_lark(input: &str) -> Result<Vec<Lexeme>> {
                     lexemes.push(curr_lexeme.clone());
                 }
 
-                state = lexer.start_state(&all_lexemes, transition_byte);
+                state = lexer.start_state(&all_lexemes);
+                state = lexer.transition_start_state(state, transition_byte);
 
                 curr_lexeme.value.clear();
                 curr_lexeme.line = line_no;

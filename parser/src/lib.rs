@@ -16,6 +16,9 @@ mod constraint;
 mod tokenizer_json;
 pub use constraint::{CommitResult, Constraint};
 
+mod factory;
+pub use factory::ParserFactory;
+
 mod logging;
 pub use logging::Logger;
 
@@ -71,6 +74,25 @@ macro_rules! warn {
             use std::fmt::Write;
             $s.logger.write_warning("Warning: ");
             writeln!($s.logger.warning_logger(), $($arg)*).unwrap();
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! id32_type {
+    ($name:ident) => {
+        #[derive(serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Clone, Copy, Debug)]
+        #[serde(transparent)]
+        pub struct $name(pub u32);
+
+        impl $name {
+            pub fn as_usize(&self) -> usize {
+                self.0 as usize
+            }
+
+            pub fn new(idx: usize) -> Self {
+                $name(idx as u32)
+            }
         }
     };
 }

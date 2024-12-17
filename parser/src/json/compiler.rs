@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Context, Result};
 use derivre::RegexAst;
+use hashbrown::HashMap;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
-use std::{collections::HashMap, vec};
 
 use super::numeric::{rx_float_range, rx_int_range};
 use super::schema::{build_schema, Schema};

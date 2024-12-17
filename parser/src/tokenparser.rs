@@ -375,6 +375,7 @@ impl TokenParser {
                 let t = ff_tokens[0];
                 infoln!(self, "forcing ff_token by mask: {}", t);
                 let mask = self.tok_trie().singleton_token_set(t);
+                self.last_step_stats = ParserStats::default();
                 return Ok(mask);
             } else {
                 // no tokens, so we got all our bytes back
@@ -384,13 +385,17 @@ impl TokenParser {
 
         let mut allowed_tokens = self.compute_bias(&prefix);
 
+        if let Some(s) = self.parser.get_error() {
+            return Err(self.stop_for_parser_error("", s));
+        }
+
         if self.is_accepting() {
             allowed_tokens.allow_token(self.eos_token);
         }
 
         self.log_final(&prefix, &allowed_tokens);
 
-        if allowed_tokens.num_set() == 0 {
+        if allowed_tokens.is_zero() {
             infoln!(self, "no tokens allowed, stopping");
             return Err(self.stop("", StopReason::NoExtensionBias));
         }

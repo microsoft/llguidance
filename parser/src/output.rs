@@ -1,3 +1,4 @@
+use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
 use toktrie::{bytes::to_hex_string, StepResult};
 
@@ -99,7 +100,7 @@ impl Reporter {
         self.reported_captures += captures.len();
 
         // remove duplicate names
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         let captures = captures
             .iter()
             .rev()

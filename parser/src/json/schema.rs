@@ -1,15 +1,10 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    mem,
-    rc::Rc,
-};
-
 use anyhow::{anyhow, bail, Result};
 use derivre::RegexAst;
+use hashbrown::{HashMap, HashSet};
 use indexmap::{IndexMap, IndexSet};
 use referencing::{Draft, Registry, Resolver, ResourceRef};
 use serde_json::Value;
+use std::{cell::RefCell, mem, rc::Rc};
 
 use super::formats::lookup_format;
 
@@ -623,11 +618,13 @@ fn compile_contents_map(ctx: &Context, mut schemadict: HashMap<&str, &Value>) ->
     }
 
     // Check for unimplemented keys and bail if any are found
-    let unimplemented_keys = schemadict
+    let mut unimplemented_keys = schemadict
         .keys()
         .filter(|k| !ctx.is_valid_keyword(k))
         .collect::<Vec<_>>();
     if unimplemented_keys.len() > 0 {
+        // ensure consistent order for tests
+        unimplemented_keys.sort();
         bail!("Unimplemented keys: {:?}", unimplemented_keys);
     }
 

@@ -16,7 +16,7 @@ echo "Running sample_parser"
 pip uninstall -y llguidance || :
 
 if test -z "$CONDA_PREFIX" -a -z "$VIRTUAL_ENV" ; then
-    if [ "X$CI" = "Xtrue" ]; then
+    if [ "X$CI" = "Xtrue" -o -f /.dockerenv ]; then
         echo "Building in CI with pip"
         pip install -v -e .
     else
@@ -35,7 +35,9 @@ if test -f ../guidance/tests/unit/test_ll.py ; then
 else
     mkdir -p tmp
     cd tmp
-    PYTEST_FLAGS=-v
+    if [ "X$CI" = "Xtrue" ] ; then
+      PYTEST_FLAGS=-v
+    fi
     if test -f guidance/tests/unit/test_ll.py ; then
         echo "Guidance clone OK"
     else

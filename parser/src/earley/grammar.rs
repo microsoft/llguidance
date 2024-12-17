@@ -1,11 +1,8 @@
-use std::{collections::HashMap, fmt::Debug, hash::Hash};
-
-use anyhow::{bail, ensure, Result};
-
-use crate::api::{GenGrammarOptions, GrammarId};
-
 use super::lexerspec::{LexemeClass, LexemeIdx, LexerSpec};
-use rustc_hash::FxHashMap;
+use crate::api::{GenGrammarOptions, GrammarId};
+use anyhow::{bail, ensure, Result};
+use hashbrown::HashMap;
+use std::{fmt::Debug, hash::Hash};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymIdx(u32);
@@ -140,7 +137,7 @@ impl Rule {
 pub struct Grammar {
     name: Option<String>,
     symbols: Vec<Symbol>,
-    symbol_by_name: FxHashMap<String, SymIdx>,
+    symbol_by_name: HashMap<String, SymIdx>,
 }
 
 impl Grammar {
@@ -148,7 +145,7 @@ impl Grammar {
         Grammar {
             name,
             symbols: vec![],
-            symbol_by_name: FxHashMap::default(),
+            symbol_by_name: HashMap::default(),
         }
     }
 
@@ -305,7 +302,7 @@ impl Grammar {
             }
         }
 
-        let mut repl = FxHashMap::default();
+        let mut repl = hashbrown::HashMap::new();
 
         for sym in &self.symbols {
             if self.is_special_symbol(sym) {
@@ -330,9 +327,9 @@ impl Grammar {
             }
         }
 
-        let mut simple_repl = FxHashMap::default();
+        let mut simple_repl = HashMap::default();
         while !repl.is_empty() {
-            let mut new_repl = FxHashMap::default();
+            let mut new_repl = HashMap::default();
             for (k, v) in repl.iter() {
                 let v2 = v
                     .iter()
@@ -354,7 +351,7 @@ impl Grammar {
         repl = simple_repl;
 
         for (k, v) in repl.iter() {
-            if let Some(p) = v.iter().find(|e| repl.contains_key(e)) {
+            if let Some(p) = v.iter().find(|e| repl.contains_key(*e)) {
                 panic!("loop at {:?} ({:?})", k, p);
             }
         }
@@ -796,7 +793,7 @@ impl CGrammar {
             lexeme: None,
         });
 
-        let mut sym_map = FxHashMap::default();
+        let mut sym_map = hashbrown::HashMap::new();
 
         assert!(grammar.symbols.len() < u16::MAX as usize - 10);
 

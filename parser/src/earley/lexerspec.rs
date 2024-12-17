@@ -3,7 +3,7 @@ use derivre::{raw::ExprSet, ExprRef, JsonQuoteOptions, RegexAst, RegexBuilder};
 use std::{fmt::Debug, hash::Hash};
 use toktrie::{bytes::limit_str, SimpleVob, TokTrie};
 
-use crate::api::ParserLimits;
+use crate::{api::ParserLimits, id32_type};
 
 use super::regexvec::RegexVec;
 
@@ -47,25 +47,10 @@ pub struct LexemeSpec {
     json_options: Option<JsonQuoteOptions>,
 }
 
-/// LexemeIdx is an index into the lexeme table.
-/// It corresponds to a category like IDENTIFIER or STRING,
-/// or to a very specific lexeme like WHILE or MULTIPLY.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct LexemeIdx(usize);
-
-impl LexemeIdx {
-    pub fn new(idx: usize) -> Self {
-        LexemeIdx(idx)
-    }
-
-    pub fn as_usize(&self) -> usize {
-        self.0
-    }
-
-    pub fn as_u16(&self) -> u16 {
-        self.0 as u16
-    }
-}
+// LexemeIdx is an index into the lexeme table.
+// It corresponds to a category like IDENTIFIER or STRING,
+// or to a very specific lexeme like WHILE or MULTIPLY.
+id32_type!(LexemeIdx);
 
 impl LexemeSpec {
     pub fn class(&self) -> LexemeClass {
@@ -174,7 +159,7 @@ impl LexerSpec {
 
     pub fn is_nullable(&self, idx: LexemeIdx) -> bool {
         self.regex_builder
-            .is_nullable(self.lexemes[idx.0].compiled_rx)
+            .is_nullable(self.lexemes[idx.as_usize()].compiled_rx)
     }
 
     pub fn to_regex_vec(&self, limits: &mut ParserLimits) -> Result<RegexVec> {
@@ -205,9 +190,9 @@ impl LexerSpec {
                 && lex.class == spec.class
                 && lex.max_tokens == spec.max_tokens
         }) {
-            return Ok(LexemeIdx(idx));
+            return Ok(LexemeIdx::new(idx));
         }
-        let idx = LexemeIdx(self.lexemes.len());
+        let idx = LexemeIdx::new(self.lexemes.len());
         spec.idx = idx;
         spec.compiled_rx = compiled;
         self.lexemes.push(spec);
@@ -323,7 +308,7 @@ impl LexerSpec {
 
     pub fn dbg_lexeme(&self, lex: &Lexeme) -> String {
         let str = String::from_utf8_lossy(&lex.bytes).to_string();
-        let info = &self.lexemes[lex.idx.0];
+        let info = &self.lexemes[lex.idx.as_usize()];
         if matches!(info.rx, RegexAst::Literal(_)) && lex.hidden_len == 0 {
             format!("[{}]", info.name)
         } else {
@@ -347,7 +332,7 @@ impl LexerSpec {
     }
 
     pub fn lexeme_spec(&self, idx: LexemeIdx) -> &LexemeSpec {
-        &self.lexemes[idx.0]
+        &self.lexemes[idx.as_usize()]
     }
 
     pub fn cost(&self) -> u64 {
@@ -359,7 +344,17 @@ impl LexerSpec {
     }
 
     pub fn lexeme_def_to_string(&self, idx: LexemeIdx) -> String {
-        self.lexemes[idx.0].to_string(512, Some(self.regex_builder.exprset()))
+        self.lexemes[idx.as_usize()].to_string(512, Some(self.regex_builder.exprset()))
+    }
+
+    pub fn dbg_lexeme_set_ext(&self, vob: &SimpleVob) -> String {
+        format!(
+            "LexemesExt(\n    {}\n)",
+            vob.iter()
+                .map(|idx| self.lexeme_def_to_string(LexemeIdx::new(idx as usize)))
+                .collect::<Vec<_>>()
+                .join("\n    ")
+        )
     }
 }
 

@@ -1,9 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, ensure, Result};
+use hashbrown::{HashMap, HashSet};
 
 use crate::{
     api::{

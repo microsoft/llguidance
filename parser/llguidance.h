@@ -15,22 +15,25 @@ typedef struct LlgParserLimits {
   /**
    * For non-ambiguous grammars, this is the maximum "branching factor" of the grammar.
    * For ambiguous grammars, this might get hit much quicker.
-   * Default: 200
+   * Default: 2000
    */
   size_t max_items_in_row;
   /**
    * How much "fuel" are we willing to spend to build initial lexer regex AST nodes.
-   * Default: 1_000_000 (~20ms)
+   * Default: 1_000_000
+   * Speed: 50k/ms
    */
   uint64_t initial_lexer_fuel;
   /**
    * Maximum lexer fuel for computation of the whole token mask.
-   * Default: 500_000 (~10ms)
+   * Default: 200_000
+   * Speed: 10k/ms
    */
   uint64_t step_lexer_fuel;
   /**
    * Number of Earley items created for the whole token mask.
-   * Default: 100_000 (~3ms)
+   * Default: 50_000
+   * Speed: 20k/ms
    */
   size_t step_max_items;
   /**

@@ -1,7 +1,7 @@
-use std::{collections::HashMap, sync::atomic::AtomicU32};
-
 use anyhow::{bail, ensure, Result};
 use derivre::RegexAst;
+use hashbrown::HashMap;
+use std::sync::atomic::AtomicU32;
 
 use crate::api::{
     GenGrammarOptions, GenOptions, GrammarWithLexer, Node, NodeId, NodeProps, RegexId, RegexNode,
@@ -66,9 +66,6 @@ impl RegexBuilder {
             RegexAst::Repeat(ast, min, max) => {
                 let id = self.add_ast(*ast)?;
                 self.repeat(id, min, Some(max))
-            }
-            RegexAst::Prefixes(_) => {
-                bail!("Prefixes not supported")
             }
             RegexAst::EmptyString => self.add_node(RegexNode::EmptyString),
             RegexAst::NoMatch => self.add_node(RegexNode::NoMatch),

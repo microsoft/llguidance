@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Write;
 use std::{sync::Arc, vec};
 
@@ -12,6 +11,7 @@ use crate::earley::lexerspec::LexemeClass;
 use crate::{lark_to_llguidance, loginfo, JsonCompileOptions, Logger};
 use anyhow::{bail, ensure, Result};
 use derivre::{ExprRef, JsonQuoteOptions, RegexAst};
+use hashbrown::HashMap;
 use instant::Instant;
 use toktrie::TokEnv;
 

@@ -3,12 +3,15 @@ members = [
     "python_ext",
     "parser",
     "sample_parser",
+    "json_stats",
     "toktrie",
     "toktrie_hf_tokenizers",
 ]
+# just exclude python_ext since it doesn't build without maturin
 default-members = [
     "parser",
     "sample_parser",
+    "json_stats",
     "toktrie",
     "toktrie_hf_tokenizers",
 ]
@@ -18,6 +21,11 @@ resolver = "2"
 # debug = 1
 # lto = "thin"
 # codegen-units = 1
+
+[profile.perf]
+inherits = "release"
+debug = 1
+opt-level = 3
 
 # [patch.'https://github.com/microsoft/derivre']
 # derivre = { path = "../derivre" }
