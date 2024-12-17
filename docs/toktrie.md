@@ -95,14 +95,14 @@ The `if` in argument to `pop_bytes` is compiled to bit operations, so it is bran
 
 ### Actual code
 
-See `add_bias_inner` in [toktree.rs](./core/src/toktree.rs).
+See `add_bias_inner` in [toktree.rs](../toktrie/src/toktree.rs).
 
 - it uses `try_push_byte()` which combines `byte_allowed()` and `push_byte()`
 - it calls `pop_bytes()` at the beginning with a variable stored in previous iteration
 
 The following is a breakdown of all memory reads and writes,
 when used with [llguidance](https://github.com/microsoft/llguidance),
-see `try_push_byte()` in [parser.rs](https://github.com/microsoft/llguidance/blob/main/parser/src/earley/parser.rs#L1638).
+see `try_push_byte()` in [parser.rs](../parser/src/earley/parser.rs).
 This only considers the fast lexer path.
 
 - `pop_bytes()` - only register update (stack length)
