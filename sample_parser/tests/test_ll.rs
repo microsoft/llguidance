@@ -27,6 +27,57 @@ fn test_ll_skip() {
 }
 
 #[test]
+fn test_ll_format() {
+    check_lark_json(
+        r#"start: "JSON" @sub
+        "#,
+        json!({
+            "type": "object",
+            "properties": {
+                "a": {
+                    "type": "string",
+                    "format": "date-time"
+                }
+            }
+        }),
+        &[
+            "JSON",
+            "{\"‧a‧\":‧ ‧\"‧2‧0‧2‧0",
+            "-",
+            "0‧2",
+            "-",
+            "2‧9‧T‧1‧0",
+            ":",
+            "3‧3",
+            ":",
+            "2‧2‧Z‧\"‧}",
+        ],
+    );
+
+    check_lark_json(
+        r#"start: "JSON" @sub
+        "#,
+        json!({
+            "type": "object",
+            "properties": {
+                "a": {
+                    "type": "string",
+                    "format": "date"
+                }
+            }
+        }),
+        &[
+            "JSON",
+            "{\"‧a‧\":‧ ‧\"‧2‧0‧2‧0",
+            "-",
+            "0‧2",
+            "-",
+            "2‧9‧\"‧}",
+        ],
+    );
+}
+
+#[test]
 fn test_ll_json() {
     // basic JSON parsing
     check_lark_json(

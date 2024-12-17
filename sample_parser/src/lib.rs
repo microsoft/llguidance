@@ -182,9 +182,9 @@ fn tokenize_trace(tok_env: &TokEnv, s: &str) -> Vec<TokenId> {
         let tt = trie.greedy_tokenize(word.as_bytes());
         assert!(
             tt.len() == 1,
-            "Expected single token for {:?} got {:?}",
+            "Expected single token for {:?} got {}",
             word,
-            tt
+            trie.test_trace_tokens(&tt)
         );
         result.push(tt[0]);
     }
