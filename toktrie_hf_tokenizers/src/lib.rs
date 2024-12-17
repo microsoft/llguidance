@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use hashbrown::HashMap as HashMap;
+use hashbrown::HashMap;
 use std::{collections::BTreeMap, sync::Arc};
 use tokenizers::{normalizers::Sequence, FromPretrainedParameters, NormalizerWrapper, Tokenizer};
 use toktrie::{TokEnv, TokRxInfo, TokTrie, TokenId, TokenizerEnv};

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bytemuck_derive::{Pod, Zeroable};
-use hashbrown::HashMap as HashMap;
+use hashbrown::HashMap;
 
 use crate::{
     bytes::{to_hex_string, vec_from_bytes},
