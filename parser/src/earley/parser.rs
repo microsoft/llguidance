@@ -1080,6 +1080,7 @@ impl ParserState {
             self.trace_byte_stack.clear();
             item_trace!("trie started; {}", lbl);
         }
+        self.rows_valid_end = self.num_rows();
     }
 
     fn trie_finished_inner(&mut self) {
