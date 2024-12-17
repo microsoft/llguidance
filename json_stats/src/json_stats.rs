@@ -267,7 +267,12 @@ impl TestEnv {
 
         if parser.is_accepting() {
             if !t.valid {
-                bail!("incorrect accept");
+                bail!(
+                    "incorrect accept; expected {}",
+                    t.rust_error
+                        .clone()
+                        .unwrap_or_else(|| t.python_error.clone().unwrap_or("???".to_string()))
+                );
             }
         } else {
             if t.valid {
@@ -655,11 +660,13 @@ fn main() {
         }
     }
 
-    total.llg.ttfm_us /= total.llg.num_parsers;
-    total.llg.mask_us = total.llg.mask_us_total / total.llg.num_tokens;
-    total.llg.num_threads = num_threads;
-    total.llg.mask_us_total_a_frac = total.llg.mask_us_total_a * 1000 / total.llg.mask_us_total;
-    total.llg.num_masks_a_frac = total.llg.num_masks_a * 1000 / total.llg.num_tokens;
+    if total.llg.num_parsers > 0 {
+        total.llg.ttfm_us /= total.llg.num_parsers;
+        total.llg.mask_us = total.llg.mask_us_total / total.llg.num_tokens;
+        total.llg.num_threads = num_threads;
+        total.llg.mask_us_total_a_frac = total.llg.mask_us_total_a * 1000 / total.llg.mask_us_total;
+        total.llg.num_masks_a_frac = total.llg.num_masks_a * 1000 / total.llg.num_tokens;
+    }
 
     let mut histogram_csv = format!(
         "{:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}\n",
@@ -667,20 +674,22 @@ fn main() {
     );
     let mut hist_sum = 0;
     let mut hist_sum_a = 0;
-    for i in 0..MASK_STEPS {
-        histogram.perc[i] = histogram.us[i] * 1000 / total.llg.mask_us_total;
-        hist_sum += histogram.us[i];
-        hist_sum_a += histogram_a.us[i];
-        histogram_csv.push_str(&format!(
-            "{:10} {:10.3} {:10.3} {:10.3} {:10.3} {:10} {:10}\n",
-            1 << i,
-            (hist_sum as f64 / 1000_000.0),
-            (hist_sum_a as f64 / 1000_000.0),
-            (histogram.us[i] as f64 / 1000_000.0),
-            (histogram_a.us[i] as f64 / 1000_000.0),
-            histogram.count[i],
-            histogram_a.count[i],
-        ));
+    if total.llg.mask_us_total > 0 {
+        for i in 0..MASK_STEPS {
+            histogram.perc[i] = histogram.us[i] * 1000 / total.llg.mask_us_total;
+            hist_sum += histogram.us[i];
+            hist_sum_a += histogram_a.us[i];
+            histogram_csv.push_str(&format!(
+                "{:10} {:10.3} {:10.3} {:10.3} {:10.3} {:10} {:10}\n",
+                1 << i,
+                (hist_sum as f64 / 1000_000.0),
+                (hist_sum_a as f64 / 1000_000.0),
+                (histogram.us[i] as f64 / 1000_000.0),
+                (histogram_a.us[i] as f64 / 1000_000.0),
+                histogram.count[i],
+                histogram_a.count[i],
+            ));
+        }
     }
 
     println!("{}", serde_json::to_string_pretty(&total).unwrap());

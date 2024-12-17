@@ -250,6 +250,51 @@ def reorder_json(test: dict, interp: llguidance.LLInterpreter):
         raise ValueError("reordering failed", stringify(root_obj))
 
 
+def remove_constraints(obj):
+    if isinstance(obj, dict):
+        if "properties" in obj:
+            for k, v in obj["properties"].items():
+                remove_constraints(v)
+            return
+        for k in [
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "multipleOf",
+            "pattern",
+            "minLength",
+            "maxLength",
+            "format",
+        ]:
+            if k in obj:
+                del obj[k]
+        for k, v in obj.items():
+            remove_constraints(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            remove_constraints(v)
+
+
+def mk_interp(schema):
+    return llguidance.LLInterpreter(
+        PhiTokenizer.ll_tokenizer(),
+        json.dumps(
+            {
+                "grammars": [
+                    {
+                        "json_schema": schema,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        log_level=0,
+        enable_ff_tokens=False,
+        enable_backtrack=False,
+    )
+
+
 def process_file(file_name):
     file_base = file_name.split("/")[-1]
 
@@ -261,27 +306,17 @@ def process_file(file_name):
     schema = pos_data["schema"]
     tests = pos_data["tests"]
 
+    schema_simplified = copy.deepcopy(schema)
+    remove_constraints(schema_simplified)
+
     try:
-        interp0 = llguidance.LLInterpreter(
-            PhiTokenizer.ll_tokenizer(),
-            json.dumps(
-                {
-                    "grammars": [
-                        {
-                            "json_schema": schema,
-                        }
-                    ]
-                },
-                ensure_ascii=False,
-            ),
-            log_level=0,
-            enable_ff_tokens=False,
-            enable_backtrack=False,
-        )
+        interp0 = mk_interp(schema)
     except Exception as e:
         # print("interpreter creation error", file_name, str(e))
         stats.grammar_error += 1
         return
+
+    interp1 = mk_interp(schema_simplified)
 
     num_reordered = 0
 
@@ -294,7 +329,6 @@ def process_file(file_name):
         interp = interp0.deep_copy()
 
         interp.start_without_prompt()
-
 
         try:
             tests_valid = True
@@ -313,6 +347,9 @@ def process_file(file_name):
                         stats.valid_error += 1
                         num_reordered += 1
                     else:
+                        # first try with a simplified schema, that
+                        # doesn't have string/number constraints
+                        reorder_json(test, interp1)
                         reorder_json(test, interp0)
                         num_reordered += 1
 
