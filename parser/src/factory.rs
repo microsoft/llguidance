@@ -51,6 +51,17 @@ impl ParserFactory {
         self
     }
 
+    pub fn extra_lexemes(&self) -> Vec<String> {
+        self.slicer.extra_lexemes()
+    }
+
+    pub fn post_process_parser(&self, parser: &mut TokenParser) {
+        parser.bias_computer = self.slicer.clone();
+        let mut rng = self.seed.lock().unwrap();
+        rng.next_alt();
+        parser.parser.metrics_mut().rand = rng.clone();
+    }
+
     pub fn create_parser(&self, grammar: TopLevelGrammar) -> Result<TokenParser> {
         let mut parser = TokenParser::from_llguidance_json(
             self.tok_env.clone(),
@@ -58,12 +69,9 @@ impl ParserFactory {
             Logger::new(self.buffer_log_level, self.stderr_log_level),
             self.inference_caps.clone(),
             self.limits.clone(),
-            self.slicer.extra_lexemes(),
+            self.extra_lexemes(),
         )?;
-        parser.bias_computer = self.slicer.clone();
-        let mut rng = self.seed.lock().unwrap();
-        rng.next_alt();
-        parser.parser.metrics_mut().rand = rng.clone();
+        self.post_process_parser(&mut parser);
         Ok(parser)
     }
 }
