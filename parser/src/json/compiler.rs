@@ -6,6 +6,7 @@ use std::{collections::HashMap, vec};
 
 use super::numeric::{rx_float_range, rx_int_range};
 use super::schema::{build_schema, Schema};
+use crate::api::{RegexId, RegexNode};
 use crate::{
     api::{GrammarWithLexer, RegexSpec, TopLevelGrammar},
     GrammarBuilder, NodeRef,
@@ -253,7 +254,47 @@ impl Compiler {
         }
     }
 
-    fn process_any_of(&mut self, options: Vec<Schema>) -> Result<NodeRef> {
+    fn regex_compile_schema(&mut self, schema: &Schema) -> Result<Option<RegexId>> {
+        let str = match schema {
+            Schema::Null => "null",
+            Schema::Boolean => return Some(RegexNode::Regex("true|false".to_string())),
+            Schema::Number {
+                minimum: Some(x),
+                maximum: Some(y),
+                ..
+            } if x == y => return Some(RegexNode::Literal(x.to_string())),
+            Schema::LiteralBool { value } => {
+                if *value {
+                    "true"
+                } else {
+                    "false"
+                }
+            }
+
+            Schema::Any
+            | Schema::Number { .. }
+            | Schema::String { .. }
+            | Schema::Unsatisfiable { .. }
+            | Schema::Array { .. }
+            | Schema::Object { .. }
+            | Schema::AnyOf { .. }
+            | Schema::OneOf { .. }
+            | Schema::Ref { .. } => return None,
+        };
+        Some(RegexNode::Literal(str.to_string()))
+    }
+
+    fn process_any_of(&mut self, mut options: Vec<Schema>) -> Result<NodeRef> {
+        let mut consts = vec![];
+        options.retain(|schema| match schema.regex_compile() {
+            Some(c) => {
+                let id = self.builder.regex.add_node(c);
+                consts.push(id);
+                false
+            }
+            None => true,
+        });
+
         let mut nodes = vec![];
         let mut errors = vec![];
         for option in options.into_iter() {
@@ -265,6 +306,13 @@ impl Compiler {
                 },
             }
         }
+
+        if !consts.is_empty() {
+            let rx = self.builder.regex.or(consts);
+            let lex = self.builder.lexeme(RegexSpec::RegexId(rx), false);
+            nodes.push(lex);
+        }
+
         if !nodes.is_empty() {
             Ok(self.builder.select(&nodes))
         } else if let Some(e) = errors.pop() {
@@ -279,12 +327,10 @@ impl Compiler {
         }
     }
 
-    fn lexeme(&mut self, rx: &str, json_quoted: bool) -> NodeRef {
-        let key = (rx.to_string(), json_quoted);
-        self.lexeme_cache
-            .entry(key)
-            .or_insert_with(|| self.builder.lexeme(mk_regex(rx), json_quoted))
-            .clone()
+    fn lexeme(&mut self, rx: &str, json_quoted: bool) -> RegexId {
+        self.builder
+            .regex
+            .add_node(RegexNode::Regex(rx.to_string()))
     }
 
     fn json_int(

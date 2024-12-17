@@ -150,6 +150,10 @@ impl RegexBuilder {
         self.add_node(RegexNode::And(nodes))
     }
 
+    pub fn or(&mut self, nodes: Vec<RegexId>) -> RegexId {
+        self.add_node(RegexNode::Or(nodes))
+    }
+
     fn finalize(&mut self) -> Vec<RegexNode> {
         let r = std::mem::take(&mut self.nodes);
         *self = Self::new();

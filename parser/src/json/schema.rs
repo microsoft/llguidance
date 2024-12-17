@@ -13,6 +13,8 @@ use serde_json::Value;
 
 use super::formats::lookup_format;
 
+use crate::api::RegexNode;
+
 const DEFAULT_ROOT_URI: &str = "json-schema:///";
 const DEFAULT_DRAFT: Draft = Draft::Draft202012;
 const TYPES: [&str; 6] = ["null", "boolean", "number", "string", "array", "object"];
