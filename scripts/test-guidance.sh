@@ -3,15 +3,23 @@
 set -e
 cd $(dirname $0)/..
 
-cargo fmt --check
+PY_ONLY=0
+if [ "X$1" = "X--py" ] ; then
+    PY_ONLY=1
+    shift
+fi
 
-cargo build --locked
-cargo test
+if [ "$PY_ONLY" = 0 ] ; then
+    cargo fmt --check
 
-echo "Running sample_parser"
-(cd sample_parser && ./run.sh >/dev/null)
+    cargo build --locked
+    cargo test
 
-(cd c_sample && make)
+    echo "Running sample_parser"
+    (cd sample_parser && ./run.sh >/dev/null)
+
+    (cd c_sample && make)
+fi
 
 pip uninstall -y llguidance || :
 
