@@ -201,7 +201,6 @@ impl RegexVec {
         let t0 = instant::Instant::now();
         assert!(self.subsume_possible(state));
         let small = self.rx_list[lexeme_idx];
-        self.set_fuel(u64::MAX);
         let mut res = false;
         for (idx, e) in iter_state(&self.rx_sets, state) {
             assert!(!self.lazy[idx]);
