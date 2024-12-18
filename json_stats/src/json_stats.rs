@@ -3,6 +3,7 @@ use clap::Parser;
 use json_stats::SchemaStats;
 use jsonschema::Validator;
 use llguidance::{
+    earley::regexvec::LexerStats,
     toktrie::{InferenceCapabilities, TokEnv},
     Constraint, JsonCompileOptions, ParserFactory, TokenParser,
 };
@@ -77,6 +78,8 @@ struct LlgResult {
     #[serde(skip_serializing_if = "is_zero")]
     slicer_leftover_us: usize,
 
+    one: usize,
+
     num_tokens: usize,
     num_tests: usize,
     num_valid_tests: usize,
@@ -88,8 +91,9 @@ struct LlgResult {
     max_sum_parser_items: usize,
     max_parser_items: usize,
     max_lexer_cost: u64,
+    max_lexer_states: usize,
 
-    lexer_stats: String,
+    lexer_stats: LexerStats,
 
     #[serde(skip)]
     slow_mask_count: [usize; MASK_STEPS],
@@ -230,6 +234,13 @@ impl TestEnv {
                 let us = t0.elapsed().as_micros() as usize;
                 let pstats = parser.last_step_stats();
 
+                // if us > 4000 {
+                //     eprintln!(
+                //         "MASK,{},{},{}",
+                //         us, pstats.lexer_cost, pstats.slices_applied
+                //     );
+                // }
+
                 stats.sum_parser_items += pstats.all_items;
                 stats.max_parser_items = std::cmp::max(stats.max_parser_items, pstats.all_items);
                 stats.max_lexer_cost = std::cmp::max(stats.max_lexer_cost, pstats.lexer_cost);
@@ -308,6 +319,9 @@ impl TestEnv {
         let m = parser.parser.metrics_mut();
         stats.slicer_leftover_us += m.slicer_leftover_us;
 
+        let lx = parser.parser.lexer_stats();
+        stats.max_lexer_states = std::cmp::max(stats.max_lexer_states, lx.num_states);
+
         r
     }
 
@@ -339,6 +353,7 @@ impl TestEnv {
                 let mut constraint = Constraint::new(parser.clone());
                 constraint.compute_mask().unwrap();
                 res.ttfm_us = t0.elapsed().as_micros() as usize;
+                res.one = 1;
                 parser
                 // eprintln!("{} OK", file);
             }

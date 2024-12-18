@@ -28,6 +28,7 @@ use super::{
     grammar::{CGrammar, CSymIdx, CSymbol, RhsPtr},
     lexer::{LexerResult, PreLexeme},
     lexerspec::{Lexeme, LexemeIdx, LexerSpec},
+    regexvec::LexerStats,
 };
 
 const TRACE: bool = false;
@@ -2170,7 +2171,7 @@ impl Parser {
         self.state.hidden_start(shared.lexer_mut())
     }
 
-    pub fn lexer_stats(&self) -> String {
+    pub fn lexer_stats(&self) -> LexerStats {
         self.shared.lock().unwrap().lexer().dfa.stats()
     }
 
