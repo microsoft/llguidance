@@ -38,7 +38,7 @@ impl Display for LexerStats {
             "regexps: {} with {} nodes (+ {} derived via {} derivatives with total fuel {}), states: {}; transitions: {}; bytes: {}; alphabet size: {} {}",
             self.num_regexps,
             self.num_ast_nodes,
-            self.num_regexps - self.num_ast_nodes,
+            self.num_derived,
             self.num_derivatives,
             self.total_fuel_spent,
             self.num_states,

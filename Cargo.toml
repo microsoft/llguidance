@@ -27,8 +27,8 @@ inherits = "release"
 debug = 1
 opt-level = 3
 
-# [patch.'https://github.com/microsoft/derivre']
-# derivre = { path = "../derivre" }
+[patch.'https://github.com/microsoft/derivre']
+derivre = { path = "../derivre" }
 
 [workspace.dependencies]
 toktrie = { path = "toktrie" }

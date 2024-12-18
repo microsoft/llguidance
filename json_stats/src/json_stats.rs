@@ -92,6 +92,7 @@ struct LlgResult {
     max_parser_items: usize,
     max_lexer_cost: u64,
     max_lexer_states: usize,
+    lexer_cost: u64,
 
     lexer_stats: LexerStats,
 
@@ -224,7 +225,7 @@ impl TestEnv {
         // println!("tokenized: {}", trie.tokens_dbg(&tokens));
 
         for (tidx, &token) in tokens.iter().enumerate() {
-            // println!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
+            // eprintln!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
 
             stats.num_tokens += 1;
 
@@ -234,16 +235,28 @@ impl TestEnv {
                 let us = t0.elapsed().as_micros() as usize;
                 let pstats = parser.last_step_stats();
 
-                // if us > 4000 {
-                //     eprintln!(
-                //         "MASK,{},{},{}",
-                //         us, pstats.lexer_cost, pstats.slices_applied
-                //     );
-                // }
+                // && pstats.lexer_cost < 7 * us as u64
+                if false && us > 100 {
+                    // MASK,us,lexer_cost,slices,items,rows,cached_rows
+                    eprintln!(
+                        "{},{},{},{},{},{},{}",
+                        if us > 1000 { "SLOW" } else { "OK" },
+                        us,
+                        pstats.lexer_cost,
+                        pstats.slices_applied,
+                        pstats.all_items,
+                        pstats.rows,
+                        pstats.cached_rows,
+                    );
+                    eprintln!("{}", parser.parser.lexer_stats());
+
+                    // eprintln!("{:?}", pstats);
+                }
 
                 stats.sum_parser_items += pstats.all_items;
                 stats.max_parser_items = std::cmp::max(stats.max_parser_items, pstats.all_items);
                 stats.max_lexer_cost = std::cmp::max(stats.max_lexer_cost, pstats.lexer_cost);
+                stats.lexer_cost += pstats.lexer_cost;
 
                 let step = us.next_power_of_two().trailing_zeros() as usize;
                 let step = std::cmp::min(step, MASK_STEPS - 1);
