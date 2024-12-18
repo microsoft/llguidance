@@ -373,7 +373,7 @@ pub struct ParserLimits {
 
     /// Maximum lexer fuel for computation of the whole token mask.
     /// Default: 200_000
-    /// Speed: 10k/ms
+    /// Speed: 14k/ms
     pub step_lexer_fuel: u64,
 
     /// Number of Earley items created for the whole token mask.

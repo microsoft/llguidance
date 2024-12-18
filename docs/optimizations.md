@@ -123,18 +123,35 @@ We thus define a series _slices_, under-approximation of such unconstrained cont
 The slices are defined by regular expressions typically of the form `[...]{1,N}`
 (that is a character class repeated up to `N` times).
 
-For example, a good slice for JSON schemas is `[^"\\\x00-\x1F\x7F]{1,30}` -
-it excludes `"`, `\`, and ASCII control characters, all of which have to
+For example, a good set of slices for JSON schemas is 
+
+```regex
+[^"\\\x00-\x1F\x7F]{1,10}
+[^"\\\x00-\x1F\x7F]{1,30}
+[^"\\\x00-\x1F\x7F]+
+```
+
+They all exclude `"`, `\`, and ASCII control characters, all of which have to
 be escaped in JSON strings.
-We put a length limit of `30`, since it covers a vast majority of the
-tokenizer, but allows for matching in context when the length of the string
-is limited to more than 30.
+The first one puts a length limit of `10`, the second relaxes it to `30`,
+and the third one catches any remaining lengths of JSON-like strings,
+while the implicit fourth one catches everything else.
+The length limits make the slice apply for strings with `maxLength` of at least
+10 (or 30).
 
 We go through each slice in the definition order,
 and for each claim all tokens that match the regular expression of the slice,
 and build a token trie for them.
 The final slice is implicitly defined as the remainder of the tokens.
 Thus, each token is only present in one slice (and thus one token trie and one corresponding mask).
+
+Also, an equivalent set of the above set of slices is:
+
+```regex
+[^"\\\x00-\x1F\x7F]{1,10}
+[^"\\\x00-\x1F\x7F]{11,30}
+[^"\\\x00-\x1F\x7F]{31,}
+```
 
 When computing the mask,
 we check if the slice is completely contained in any of the currently allowed lexemes.
@@ -153,7 +170,7 @@ Now, the JSON slice is contained in `C*"`,
 and thus we can skip walking the trie for the slice.
 
 Similarly, if the lexer allows `C{0,50}"` (because there is a `"string"`
-with `"maxLength": 50` in the schema), the JSON slice is contained in this lexeme.
+with `"maxLength": 50` in the schema), the JSON slice `[^"\\\x00-\x1F\x7F]{1,30}` is contained in this lexeme.
 OTOH, if the lexer allows `C{0,20}"`, than the JSON slice is not contained in this lexeme.
 
 This optimization make the mask computation about 10x faster for JSON schemas.
