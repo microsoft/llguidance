@@ -573,6 +573,7 @@ fn main() {
     .to_env();
 
     let mut slices = vec![
+        r#"[^"\\\x00-\x1F\x7F]{1,10}"#.to_string(),
         r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string(),
         r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
 
