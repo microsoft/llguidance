@@ -48,6 +48,50 @@ leaving the rest to the lexer.
 
 As a consequence, walking the trie with a CFG is almost as fast as walking it with a regular expression.
 
+## Lexer construction
+
+The lexer is based on the `derivre` library, which uses regular expression derivatives.
+For basic introduction see
+[Regular-expression derivatives reexamined](https://www.khoury.northeastern.edu/home/turon/re-deriv.pdf).
+The derivative `d(L, c)` of a language (set of strings) `L` with respect to a character `c`,
+is the set of words that start with `c` in `L`, with `c` removed, ie. `{ s | cs ∈ L }`.
+For example, `d([ab][cd], a) = [cd]`, `d([ab]+, a) = [ab]*`, `d([ab], a) = ε`, `d([ab]c, c) = ∅`
+(note that `∅` is an empty set, i.e., a regular expression that matches nothing,
+while `ε` is empty string regular expression, which matches the word of length 0).
+Derivatives can be defined recursively for regular expressions,
+for example `d(R|Q, a) = d(R, a) | d(Q, a)`.
+A regular expression is _nullable_ if it can match an empty string.
+
+The regular expressions correspond to states of a DFA
+(deterministic finite automaton),
+while the derivatives correspond to transitions.
+State is accepting if the regular expression is nullable.
+The `derivre` library constructs such a DFA lazily, by caching derivatives.
+The regular expressions can be simplified using algebraic laws,
+reducing the number of states in the DFA.
+While the DFA is not minimal, it is typically much smaller
+(depending on simplification used) than the
+un-minimized DFA resulting from standard determinization of an NFA.
+
+The lexer puts regular expressions for all lexemes in a hash-consed
+expression set, with a single derivative cache (also hash-based).
+The states of the lexer are sets of regular expressions, indexed
+with lexeme index.
+They are semantically equivalent to the alternative of the regular
+expressions, but we use indices to keep track of them separately,
+so the lexer can say which lexeme was recognized.
+
+For a given lexer state `{ (l0, R0), (l1, R1), ..., (ln, Rn) }`
+(where `li` is lexeme index and `Ri` is regular expression),
+the state after transition via byte `c` is defined as
+`{ (li, d(Ri, c)) | 0 ≤ i ≤ n when d(Ri, c) ≠ ∅ }`.
+For every lexer state, we can see which lexemes are still possible in that state.
+These states and transitions are cached in a simple table (no hashing).
+Walking the trie mostly involves successful lookups in that table,
+and the derivative engine is only used when the table doesn't yet have the
+given transition.
+
+
 ## Earley parser optimizations
 
 - CFG rules are stored in a flat array
