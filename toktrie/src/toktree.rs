@@ -263,8 +263,8 @@ impl TrieNode {
     }
 }
 
-// max length of token is 1023 bytes
-const LEN_BITS: u32 = 10;
+// max length of token is 255 bytes
+const LEN_BITS: u32 = 8;
 
 impl TokTrie {
     // see https://github.com/microsoft/llguidance/blob/main/docs/special_tokens.md
