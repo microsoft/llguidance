@@ -363,13 +363,14 @@ impl TokenParser {
 
         infoln!(self, "compute_mask");
 
-        let mut prefix = self.compute_ff_bytes();
+        let mut prefix = vec![]; 
 
         // if ff_tokens is enabled, we assume the user has already called compute_ff_tokens()
         if !self.inference_caps.ff_tokens
             && !self.parser.grammar().lexer_spec().no_forcing
             && self.token_env.tokenize_is_canonical()
         {
+            prefix = self.compute_ff_bytes();
             let (ff_tokens, token_prefix) = self.ff_bytes_to_tokens(prefix);
             if ff_tokens.len() > 0 {
                 let t = ff_tokens[0];
