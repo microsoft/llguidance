@@ -108,6 +108,37 @@ impl SlicedBiasComputer {
         }
     }
 
+    pub fn stats(&self, include_tokens: bool) -> String {
+        let mut total_nodes = 0;
+        let mut s = String::new();
+        for (i, slice) in self.slices.iter().enumerate() {
+            total_nodes += slice.trie.root().subtree_size();
+            s.push_str(&format!(
+                "slice{}: /{}/ -> {}\n",
+                i,
+                slice.regex,
+                slice.trie.trie_stats()
+            ));
+            if include_tokens {
+                for (tok_idx, b) in slice.trie.sorted_tokens() {
+                    if b.len() > 0 {
+                        s.push_str(&format!(
+                            "  tok{}-> {}\n",
+                            tok_idx,
+                            slice.trie.token_dbg(tok_idx)
+                        ));
+                    }
+                }
+            }
+        }
+        s.push_str(&format!("total_nodes: {}\n", total_nodes));
+        s.push_str(&format!(
+            "GLOBAL: {}\n",
+            self.tok_env.tok_trie().trie_stats()
+        ));
+        s
+    }
+
     pub fn extra_lexemes(&self) -> Vec<String> {
         self.slices.iter().map(|s| s.regex.clone()).collect()
     }

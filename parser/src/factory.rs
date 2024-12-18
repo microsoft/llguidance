@@ -55,6 +55,10 @@ impl ParserFactory {
         self.slicer.extra_lexemes()
     }
 
+    pub fn slicer(&self) -> Arc<SlicedBiasComputer> {
+        self.slicer.clone()
+    }
+
     pub fn post_process_parser(&self, parser: &mut TokenParser) {
         parser.bias_computer = self.slicer.clone();
         let mut rng = self.seed.lock().unwrap();

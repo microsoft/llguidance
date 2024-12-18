@@ -264,7 +264,7 @@ impl TestEnv {
                 stats.slow_mask_count[step] += 1;
                 stats.slow_mask_us[step] += us;
 
-                assert!(pstats.slices_applied <= 1);
+                // assert!(pstats.slices_applied <= 1);
 
                 let is_big = m.num_set() >= 120_000;
                 let sliced = pstats.slices_applied > 0;
@@ -574,7 +574,12 @@ fn main() {
 
     let mut slices = vec![
         r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string(),
-        // r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
+        r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
+
+        // stats counting
+        // r#"[\x00-\x1F\x7F](.|\n)*"#.to_string(), // easy reject
+        // r#"[^"]*(\t|\n)"#.to_string(),
+        // r#"(.|\n)*[\\"](.|\n)*"#.to_string(),
     ];
     if !options.llg_slicer {
         slices.clear();
@@ -592,6 +597,9 @@ fn main() {
     );
     factory.quiet();
     let factory = Arc::new(factory);
+
+    save_text_to_file("tmp/slices.txt", &factory.slicer().stats(false));
+    save_text_to_file("tmp/slices_tokens.txt", &factory.slicer().stats(true));
 
     let t0 = std::time::Instant::now();
     let par = num_threads > 1;
