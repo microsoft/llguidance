@@ -43,6 +43,9 @@ pub struct CliOptions {
     llg_slicer: bool,
 
     #[arg(long)]
+    llg_no_forcing: bool,
+
+    #[arg(long)]
     num_threads: Option<usize>,
 
     #[arg(long)]
@@ -85,6 +88,8 @@ struct LlgResult {
     max_sum_parser_items: usize,
     max_parser_items: usize,
     max_lexer_cost: u64,
+
+    lexer_stats: String,
 
     #[serde(skip)]
     slow_mask_count: [usize; MASK_STEPS],
@@ -212,8 +217,10 @@ impl TestEnv {
 
         stats.num_tests += 1;
 
+        // println!("tokenized: {}", trie.tokens_dbg(&tokens));
+
         for (tidx, &token) in tokens.iter().enumerate() {
-            //println!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
+            // println!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
 
             stats.num_tokens += 1;
 
@@ -311,7 +318,7 @@ impl TestEnv {
         let t0 = std::time::Instant::now();
         let schema = opts.json_to_llg(test_file.schema.clone());
 
-        let schema = match schema {
+        let mut schema = match schema {
             Ok(schema) => schema,
             Err(e) => {
                 res.compile_error = Some(format!("{e}"));
@@ -320,6 +327,10 @@ impl TestEnv {
                 return res;
             }
         };
+
+        if self.cli.llg_no_forcing {
+            schema.grammars[0].no_forcing = true;
+        }
 
         let parser = self.factory.create_parser(schema);
 
@@ -338,6 +349,8 @@ impl TestEnv {
                 return res;
             }
         };
+
+        res.lexer_stats = parser.parser.lexer_stats();
 
         if self.cli.llg_test {
             for (idx, t) in test_file.tests.iter().enumerate() {
