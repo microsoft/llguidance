@@ -78,6 +78,8 @@ struct LlgResult {
     #[serde(skip_serializing_if = "is_zero")]
     ttfm_us: usize,
     #[serde(skip_serializing_if = "is_zero")]
+    max_ttfm_us: usize,
+    #[serde(skip_serializing_if = "is_zero")]
     masks_us: usize,
     #[serde(skip_serializing_if = "is_zero")]
     max_mask_us: usize,
@@ -381,6 +383,7 @@ impl TestEnv {
                 let mut constraint = Constraint::new(parser.clone());
                 constraint.compute_mask().unwrap();
                 res.ttfm_us = t0.elapsed().as_micros() as usize;
+                res.max_ttfm_us = res.ttfm_us;
                 res.one = 1;
                 parser
                 // eprintln!("{} OK", file);

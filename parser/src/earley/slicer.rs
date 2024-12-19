@@ -20,6 +20,7 @@ struct TokenizerSlice {
 pub struct SlicedBiasComputer {
     wildcard_slice: TokTrie,
     slices: Arc<Vec<TokenizerSlice>>,
+    tok_env: TokEnv,
 }
 
 const DEBUG: bool = ITEM_TRACE;
@@ -102,6 +103,7 @@ impl SlicedBiasComputer {
         let r = SlicedBiasComputer {
             slices: Arc::new(slices),
             wildcard_slice: trie.clone(),
+            tok_env: tok_env.clone(),
         };
 
         debug!("slicer:\n{}", r.stats(false));
@@ -155,6 +157,7 @@ impl SlicedBiasComputer {
         SlicedBiasComputer {
             wildcard_slice: compress_trie(&self.wildcard_slice, ai),
             slices: Arc::new(slices),
+            tok_env: self.tok_env.clone(),
         }
     }
 }
@@ -193,7 +196,7 @@ impl BiasComputer for SlicedBiasComputer {
 
             if slice_matches.iter().all(|&x| x == false) {
                 // if nothing matches, just run the full trie
-                self.trie().add_bias(rec, &mut set, start);
+                self.wildcard_slice.add_bias(rec, &mut set, start);
                 debug!("no slice matches; {} tokens", set.num_set());
             } else {
                 // otherwise, apply the matching slices, and compute the rest
@@ -222,7 +225,7 @@ impl BiasComputer for SlicedBiasComputer {
                 }
             }
         } else {
-            self.trie().add_bias(rec, &mut set, start);
+            self.wildcard_slice.add_bias(rec, &mut set, start);
             debug!("slicer disabled; {} tokens", set.num_set());
         }
 
@@ -232,6 +235,6 @@ impl BiasComputer for SlicedBiasComputer {
     }
 
     fn trie(&self) -> &TokTrie {
-        &self.wildcard_slice
+        self.tok_env.tok_trie()
     }
 }

@@ -796,10 +796,13 @@ impl TokTrie {
     }
 
     pub fn apply_duplicates(&self, logits: &mut SimpleVob) {
-        for (tok, dups) in &self.token_duplicates {
-            if logits.is_allowed(*tok) {
-                for &dup in dups {
-                    logits.allow_token(dup);
+        if false {
+            for (tok, dups) in &self.token_duplicates {
+                if logits.is_allowed(*tok) {
+                    for &dup in dups {
+                        assert!(logits.is_allowed(dup), "dup: {} {}", tok, dup);
+                        // logits.allow_token(dup);
+                    }
                 }
             }
         }
@@ -907,12 +910,8 @@ impl TokTrie {
     pub fn add_bias(&self, r: &mut impl Recognizer, toks: &mut SimpleVob, start: &[u8]) {
         // all prefixes of 'start' are also allowed
         if start.len() > 0 {
-            for len in 1..=start.len() {
-                let bytes = &start[0..len];
-                if let Some(tok) = self.token_id(bytes) {
-                    toks.allow_token(tok);
-                }
-            }
+            let mut fixed = FixedRecognizer::new(start);
+            self.add_bias(&mut fixed, toks, &[]);
         }
 
         let n = self.child_at_bytes(self.root(), start);
@@ -1140,19 +1139,23 @@ impl TrieHash {
         if word.len() == 0 {
             // Some tokenizers have duplicate tokens...
             // we just override
-            // assert!(self.token_id == NO_TOKEN);
+            assert!(self.token_id == NO_TOKEN);
             self.token_id = token_id;
         } else {
-            if self.children.len() == 0x100 {
-                // assert!(self.children[word[0] as usize].byte == word[0]);
-                self.children[word[0] as usize].insert(&word[1..], token_id);
-                return;
-            }
+            // if self.children.len() == 0x100 {
+            //     // assert!(self.children[word[0] as usize].byte == word[0]);
+            //     self.children[word[0] as usize].insert(&word[1..], token_id);
+            //     return;
+            // }
 
             for ch in &mut self.children {
                 if ch.byte == word[0] {
-                    ch.insert(&word[1..], token_id);
-                    return;
+                    if word.len() == 1 && ch.token_id != NO_TOKEN {
+                        // this is duplicate token, proceed with adding a duplicate node
+                    } else {
+                        ch.insert(&word[1..], token_id);
+                        return;
+                    }
                 }
             }
 
@@ -1164,25 +1167,61 @@ impl TrieHash {
             // for cl100k threshold 60->15 nodes, 50->22, 40->45 30->94
             // for llama (32k) 50->5, 40->15
             // TODO remove this?
-            if self.children.len() > 250 {
-                let mut v2 = (0..=255).map(TrieHash::new).collect::<Vec<_>>();
-                for ch in self.children.drain(..) {
-                    let idx = ch.byte as usize;
-                    v2[idx] = ch;
-                }
-                self.children = v2;
-            }
+            // if self.children.len() > 250 {
+            //     let mut v2 = (0..=255).map(TrieHash::new).collect::<Vec<_>>();
+            //     for ch in self.children.drain(..) {
+            //         let idx = ch.byte as usize;
+            //         v2[idx] = ch;
+            //     }
+            //     self.children = v2;
+            // }
         }
     }
     fn serialize(&mut self, data: &mut Vec<TrieNode>, num_parents: u8) {
         let idx = data.len();
         let mut num_ch = self.children.len();
         data.push(TrieNode::new(self.byte, self.token_id, num_parents));
+        //self.children.reverse();
         self.children.sort_by_key(|e| e.byte);
         for entry in &mut self.children {
             num_ch -= 1;
             entry.serialize(data, if num_ch == 0 { num_parents + 1 } else { 1 });
         }
         data[idx].bits2 |= ((data.len() - idx) as u32) << 8;
+    }
+}
+
+struct FixedRecognizer {
+    bytes: Vec<u8>,
+    bytes_ptr: usize,
+}
+
+impl FixedRecognizer {
+    fn new(bytes: &[u8]) -> FixedRecognizer {
+        FixedRecognizer {
+            bytes: bytes.to_vec(),
+            bytes_ptr: 0,
+        }
+    }
+}
+
+impl Recognizer for FixedRecognizer {
+    fn collapse(&mut self) {}
+    fn trie_finished(&mut self) {}
+    fn special_allowed(&mut self, _: SpecialToken) -> bool {
+        false
+    }
+
+    fn pop_bytes(&mut self, num: usize) {
+        self.bytes_ptr -= num;
+    }
+
+    fn try_push_byte(&mut self, byte: u8) -> bool {
+        if self.bytes_ptr < self.bytes.len() && self.bytes[self.bytes_ptr] == byte {
+            self.bytes_ptr += 1;
+            true
+        } else {
+            false
+        }
     }
 }
