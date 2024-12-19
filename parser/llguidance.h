@@ -27,7 +27,7 @@ typedef struct LlgParserLimits {
   /**
    * Maximum lexer fuel for computation of the whole token mask.
    * Default: 200_000
-   * Speed: 10k/ms
+   * Speed: 14k/ms
    */
   uint64_t step_lexer_fuel;
   /**
