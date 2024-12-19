@@ -13,7 +13,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{Read, Write},
-    sync::Arc,
+    sync::{atomic::AtomicUsize, Arc},
 };
 
 use rayon::prelude::*;
@@ -45,6 +45,9 @@ pub struct CliOptions {
 
     #[arg(long)]
     llg_no_forcing: bool,
+
+    #[arg(long)]
+    csv: bool,
 
     #[arg(long)]
     num_threads: Option<usize>,
@@ -93,6 +96,7 @@ struct LlgResult {
     max_lexer_cost: u64,
     max_lexer_states: usize,
     lexer_cost: u64,
+    trie_nodes_walked: usize,
 
     lexer_stats: LexerStats,
 
@@ -236,10 +240,14 @@ impl TestEnv {
                 let pstats = parser.last_step_stats();
 
                 // && pstats.lexer_cost < 7 * us as u64
-                if false && us > 100 {
-                    // MASK,us,lexer_cost,slices,items,rows,cached_rows
-                    eprintln!(
-                        "{},{},{},{},{},{},{}",
+                if self.cli.csv && us > 1000 {
+                    static CSV_LINE: AtomicUsize = AtomicUsize::new(0);
+                    let line_no = CSV_LINE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if line_no == 0 {
+                        println!("MASK,us,lexer_cost,slices,items,rows,cached_rows,trie_nodes,allowed_tokens,est_time");
+                    }
+                    println!(
+                        "{},{},{},{},{},{},{},{},{},{}",
                         if us > 1000 { "SLOW" } else { "OK" },
                         us,
                         pstats.lexer_cost,
@@ -247,8 +255,11 @@ impl TestEnv {
                         pstats.all_items,
                         pstats.rows,
                         pstats.cached_rows,
+                        pstats.trie_nodes_walked,
+                        m.num_set(),
+                        (pstats.trie_nodes_walked as u64 * 4 + pstats.lexer_cost * 60) / 1000
                     );
-                    eprintln!("{}", parser.parser.lexer_stats());
+                    // eprintln!("{}", parser.parser.lexer_stats());
 
                     // eprintln!("{:?}", pstats);
                 }
@@ -257,6 +268,7 @@ impl TestEnv {
                 stats.max_parser_items = std::cmp::max(stats.max_parser_items, pstats.all_items);
                 stats.max_lexer_cost = std::cmp::max(stats.max_lexer_cost, pstats.lexer_cost);
                 stats.lexer_cost += pstats.lexer_cost;
+                stats.trie_nodes_walked += pstats.trie_nodes_walked;
 
                 let step = us.next_power_of_two().trailing_zeros() as usize;
                 let step = std::cmp::min(step, MASK_STEPS - 1);
@@ -576,7 +588,6 @@ fn main() {
         r#"[^"\\\x00-\x1F\x7F]{1,10}"#.to_string(),
         r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string(),
         r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
-
         // stats counting
         // r#"[\x00-\x1F\x7F](.|\n)*"#.to_string(), // easy reject
         // r#"[^"]*(\t|\n)"#.to_string(),
@@ -742,13 +753,12 @@ fn main() {
         }
     }
 
-    println!("{}", serde_json::to_string_pretty(&total).unwrap());
-    println!(
+    eprintln!("{}", serde_json::to_string_pretty(&total).unwrap());
+    eprintln!(
         "LLG: {}",
         serde_json::to_string_pretty(&llg_totals).unwrap()
     );
-
-    println!("Total time: {}ms", t0.elapsed().as_millis());
+    eprintln!("Total time: {}ms", t0.elapsed().as_millis());
 
     save_text_to_file("tmp/mask_histogram.csv", &histogram_csv);
     save_json_to_file("tmp/test_total.json", &total);

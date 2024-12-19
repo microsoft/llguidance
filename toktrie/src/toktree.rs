@@ -102,6 +102,7 @@ pub trait Recognizer {
     fn get_error(&mut self) -> Option<String> {
         None
     }
+    fn save_stats(&mut self, _nodes_walked: usize) {}
 }
 
 pub trait TokenizerEnv: Send {
@@ -920,24 +921,32 @@ impl TokTrie {
         }
         let n = n.unwrap();
         r.trie_started("add_bias");
-        let next_pop = self.add_bias_inner(r, toks, n);
+        let (next_pop, nodes_walked) = self.add_bias_inner(r, toks, n);
         if start.len() == 0 {
             // if start was non-empty, trie_finished() is supposed to clean this up
             r.pop_bytes(next_pop);
         }
         r.trie_finished();
+        r.save_stats(nodes_walked);
         // revert the fake token
         let defl_tok = self.vocab_size() as u32;
         toks.disallow_token(defl_tok);
     }
 
     #[inline(never)]
-    fn add_bias_inner(&self, r: &mut impl Recognizer, toks: &mut SimpleVob, n: &TrieNode) -> usize {
+    fn add_bias_inner(
+        &self,
+        r: &mut impl Recognizer,
+        toks: &mut SimpleVob,
+        n: &TrieNode,
+    ) -> (usize, usize) {
         let defl_tok = self.vocab_size() as u32;
         let off = self.node_offset(n);
+        let total_nodes = n.subtree_size();
         let mut p = off + 1;
-        let endp = off + n.subtree_size();
+        let endp = off + total_nodes;
         let mut next_pop = 0;
+        let mut num_skip = 0;
         while p < endp {
             r.pop_bytes(next_pop);
             let n = &self.nodes[p];
@@ -951,11 +960,13 @@ impl TokTrie {
                 };
                 p += 1;
             } else {
-                p += n.subtree_size();
+                let subtree_size = n.subtree_size();
+                p += subtree_size;
+                num_skip += subtree_size - 1;
                 next_pop = n.num_parents() - 1;
             }
         }
-        next_pop
+        (next_pop, total_nodes - num_skip)
     }
 
     pub fn sorted_tokens(&self) -> Vec<(u32, Vec<u8>)> {
