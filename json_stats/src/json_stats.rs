@@ -601,7 +601,7 @@ fn main() {
             fork: false,
         },
         &slices,
-    );
+    ).unwrap();
     factory.quiet();
     let factory = Arc::new(factory);
 

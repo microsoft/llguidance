@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Result;
 use derivre::AlphabetInfo;
 
 use crate::{
@@ -47,7 +48,7 @@ impl SlicedBiasComputer {
         Self::json_slices()
     }
 
-    pub fn new(tok_env: &TokEnv, regexes: &Vec<String>) -> Self {
+    pub fn new(tok_env: &TokEnv, regexes: &Vec<String>) -> Result<Self> {
         let mut slices = vec![];
 
         let trie = tok_env.tok_trie();
@@ -73,7 +74,8 @@ impl SlicedBiasComputer {
                     }
                 }
             } else {
-                let mut rx = Regex::new(&rx_str).unwrap();
+                let mut rx = Regex::new(&rx_str)
+                    .map_err(|e| anyhow::anyhow!("invalid regex: {:?}: {}", rx_str, e))?;
                 for tok_idx in 0..n_vocab {
                     let b = trie.token(tok_idx);
                     if b.is_empty() {
@@ -108,7 +110,7 @@ impl SlicedBiasComputer {
 
         debug!("slicer:\n{}", r.stats(false));
 
-        r
+        Ok(r)
     }
 
     pub fn stats(&self, include_tokens: bool) -> String {
