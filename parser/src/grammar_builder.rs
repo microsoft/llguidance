@@ -155,18 +155,6 @@ impl RegexBuilder {
 }
 
 impl GrammarBuilder {
-    pub fn from_grammar(grammar: TopLevelGrammar) -> (Self, NodeRef) {
-        assert!(grammar.grammars.len() == 1);
-        let mut builder = Self::new();
-        builder.top_grammar = grammar;
-        builder.nodes = std::mem::take(&mut builder.top_grammar.grammars[0].nodes);
-        builder.next_grammar_id();
-        let prev_root = builder.nodes[0].clone();
-        builder.nodes[0] = builder.placeholder.clone();
-        let prev_root = builder.add_node(prev_root);
-        (builder, prev_root)
-    }
-
     pub fn new() -> Self {
         Self {
             top_grammar: TopLevelGrammar {
