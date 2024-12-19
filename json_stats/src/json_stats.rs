@@ -61,6 +61,9 @@ pub struct CliOptions {
     #[arg(long)]
     additional_features: bool,
 
+    #[arg(long, default_value = "meta-llama/Llama-3.1-8B-Instruct")]
+    tokenizer: String,
+
     // .json files or folders with .json files
     #[arg(value_name = "FILES")]
     files: Vec<String>,
@@ -576,13 +579,10 @@ fn main() {
         files.retain(|f| !f.contains("Handwritten") && !f.contains("Synthesized"));
     }
 
-    // "microsoft/Phi-3.5-mini-instruct"
-    let tok_env: TokEnv = toktrie_hf_tokenizers::ByteTokenizerEnv::from_name(
-        "meta-llama/Llama-3.1-8B-Instruct",
-        None,
-    )
-    .unwrap()
-    .to_env();
+    let tok_env: TokEnv =
+        toktrie_hf_tokenizers::ByteTokenizerEnv::from_name(&options.tokenizer, None)
+            .unwrap()
+            .to_env();
 
     let mut slices = vec![
         r#"[^"\\\x00-\x1F\x7F]{1,10}"#.to_string(),
