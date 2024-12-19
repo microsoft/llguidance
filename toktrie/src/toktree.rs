@@ -970,6 +970,12 @@ impl TokTrie {
         (next_pop, total_nodes - num_skip)
     }
 
+    pub fn all_tokens(&self) -> Vec<Vec<u8>> {
+        (0..self.vocab_size())
+            .map(|idx| self.token(idx as u32).to_vec())
+            .collect()
+    }
+
     pub fn sorted_tokens(&self) -> Vec<(u32, Vec<u8>)> {
         let mut res = vec![];
         let n = self.root();
