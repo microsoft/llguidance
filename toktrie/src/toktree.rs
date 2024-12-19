@@ -962,6 +962,7 @@ impl TokTrie {
             } else {
                 let subtree_size = n.subtree_size();
                 p += subtree_size;
+                // it's slightly faster to count skipped nodes, than walked nodes
                 num_skip += subtree_size - 1;
                 next_pop = n.num_parents() - 1;
             }

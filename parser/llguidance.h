@@ -38,7 +38,7 @@ typedef struct LlgParserLimits {
   size_t step_max_items;
   /**
    * Maximum number of lexer states.
-   * Default: 10_000
+   * Default: 50_000
    */
   size_t max_lexer_states;
   /**
