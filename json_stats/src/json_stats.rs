@@ -584,15 +584,7 @@ fn main() {
             .unwrap()
             .to_env();
 
-    let mut slices = vec![
-        r#"[^"\\\x00-\x1F\x7F]{1,10}"#.to_string(),
-        r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string(),
-        r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
-        // stats counting
-        // r#"[\x00-\x1F\x7F](.|\n)*"#.to_string(), // easy reject
-        // r#"[^"]*(\t|\n)"#.to_string(),
-        // r#"(.|\n)*[\\"](.|\n)*"#.to_string(),
-    ];
+    let mut slices = llguidance::earley::SlicedBiasComputer::json_slices();
     if !options.llg_slicer {
         slices.clear();
     }

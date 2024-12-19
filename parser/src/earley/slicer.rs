@@ -31,6 +31,19 @@ macro_rules! debug {
 }
 
 impl SlicedBiasComputer {
+    pub fn json_slices() -> Vec<String> {
+        vec![
+            r#"[^"\\\x00-\x1F\x7F]{1,10}"#.to_string(),
+            r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string(),
+            r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
+        ]
+    }
+
+    pub fn general_slices() -> Vec<String> {
+        // to be improved in future
+        Self::json_slices()
+    }
+
     pub fn new(tok_env: &TokEnv, regexes: &Vec<String>) -> Self {
         let mut slices = vec![];
 
