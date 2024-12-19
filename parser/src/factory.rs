@@ -60,7 +60,7 @@ impl ParserFactory {
         self.stderr_log_level = level;
         self
     }
-    
+
     pub fn extra_lexemes(&self) -> Vec<String> {
         self.slicer.extra_lexemes()
     }
@@ -70,7 +70,16 @@ impl ParserFactory {
     }
 
     pub fn post_process_parser(&self, parser: &mut TokenParser) {
-        parser.bias_computer = self.slicer.clone();
+        if false {
+            // this only reduces the nodes walked by about 20%, but is quite
+            // expensive to compute
+            let slicer = parser
+                .parser
+                .with_alphabet_info(|a| self.slicer.compress(a));
+            parser.bias_computer = Arc::new(slicer);
+        } else {
+            parser.bias_computer = self.slicer.clone();
+        }
         let mut rng = self.seed.lock().unwrap();
         rng.next_alt();
         parser.parser.metrics_mut().rand = rng.clone();

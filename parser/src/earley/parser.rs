@@ -12,7 +12,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Result};
-use derivre::{RegexAst, StateID};
+use derivre::{AlphabetInfo, RegexAst, StateID};
 use hashbrown::HashSet;
 use instant::Instant;
 use serde::{Deserialize, Serialize};
@@ -2180,6 +2180,12 @@ impl Parser {
 
     pub fn lexer_stats(&self) -> LexerStats {
         self.shared.lock().unwrap().lexer().dfa.stats()
+    }
+
+    pub fn with_alphabet_info<T>(&self, f: impl FnOnce(&AlphabetInfo) -> T) -> T {
+        let a = self.shared.lock().unwrap();
+        let a = a.lexer().dfa.alpha();
+        f(a)
     }
 
     pub fn get_error(&self) -> Option<ParserError> {

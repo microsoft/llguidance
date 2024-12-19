@@ -164,9 +164,18 @@ impl SlicedBiasComputer {
 
 fn compress_trie(trie: &TokTrie, ai: &AlphabetInfo) -> TokTrie {
     let mut tokens = trie.all_tokens();
+    let mut repr = vec![None; 256];
+    let repr2 = (0..=255)
+        .map(|b| {
+            if repr[ai.map(b)].is_none() {
+                repr[ai.map(b)] = Some(b);
+            }
+            repr[ai.map(b)].unwrap()
+        })
+        .collect::<Vec<u8>>();
     for t in tokens.iter_mut() {
         for i in 0..t.len() {
-            t[i] = ai.map(t[i]) as u8;
+            t[i] = repr2[t[i] as usize];
         }
     }
     TokTrie::from(trie.info(), &tokens)
