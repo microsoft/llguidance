@@ -16,7 +16,7 @@ struct TokenizerSlice {
 }
 
 pub struct SlicedBiasComputer {
-    tok_env: TokEnv,
+    wildcard_slice: TokTrie,
     slices: Arc<Vec<TokenizerSlice>>,
 }
 
@@ -51,7 +51,6 @@ impl SlicedBiasComputer {
         let n_vocab = trie.vocab_size() as TokenId;
         let mut covered = trie.alloc_token_set();
         let mut idx = 0;
-        let mut total_nodes = 0;
         let mut regexes = regexes.clone();
         if regexes.len() > 0 {
             regexes.push("".to_string()); // catch-all
@@ -92,33 +91,20 @@ impl SlicedBiasComputer {
                 trie: TokTrie::from(trie.info(), &tokens),
                 mask,
             };
-            debug!(
-                "slice{}: /{}/ -> {}",
-                idx,
-                entry.regex,
-                entry.trie.trie_stats()
-            );
-            if false && DEBUG && entry.regex == "" {
-                for (tok_idx, b) in entry.trie.sorted_tokens() {
-                    if b.len() > 0 {
-                        debug!("  tok{}-> {}", tok_idx, entry.trie.token_dbg(tok_idx));
-                    }
-                }
-            }
-            total_nodes += entry.trie.root().subtree_size();
 
             slices.push(entry);
 
             idx += 1;
         }
-        if total_nodes > 0 {
-            debug!("total_nodes: {}", total_nodes);
-        }
 
-        SlicedBiasComputer {
-            tok_env: tok_env.clone(),
+        let r = SlicedBiasComputer {
             slices: Arc::new(slices),
-        }
+            wildcard_slice: trie.clone(),
+        };
+
+        debug!("slicer:\n{}", r.stats(false));
+
+        r
     }
 
     pub fn stats(&self, include_tokens: bool) -> String {
@@ -145,10 +131,7 @@ impl SlicedBiasComputer {
             }
         }
         s.push_str(&format!("total_nodes: {}\n", total_nodes));
-        s.push_str(&format!(
-            "GLOBAL: {}\n",
-            self.tok_env.tok_trie().trie_stats()
-        ));
+        s.push_str(&format!("WILDCARD: {}\n", self.wildcard_slice.trie_stats()));
         s
     }
 
@@ -165,9 +148,8 @@ impl BiasComputer for SlicedBiasComputer {
             && start.is_empty()
             && rec.lexer_mut().subsume_possible(lexer_state)
         {
-            // for JSON string lexer and /[a-zA-Z\u{0080}-\u{10FFFF}]+/ kind of slices
-            // we use about 200 of the budget and it takes around 20us
-            let budget = 5500;
+            // set to at least 500
+            let budget = 1000;
             let slice_matches = self
                 .slices
                 .iter()
@@ -221,6 +203,6 @@ impl BiasComputer for SlicedBiasComputer {
     }
 
     fn trie(&self) -> &TokTrie {
-        self.tok_env.tok_trie()
+        &self.wildcard_slice
     }
 }
