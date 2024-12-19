@@ -51,6 +51,16 @@ impl ParserFactory {
         self
     }
 
+    pub fn set_buffer_log_level(&mut self, level: u32) -> &mut Self {
+        self.buffer_log_level = level;
+        self
+    }
+
+    pub fn set_stderr_log_level(&mut self, level: u32) -> &mut Self {
+        self.stderr_log_level = level;
+        self
+    }
+    
     pub fn extra_lexemes(&self) -> Vec<String> {
         self.slicer.extra_lexemes()
     }
@@ -67,10 +77,18 @@ impl ParserFactory {
     }
 
     pub fn create_parser(&self, grammar: TopLevelGrammar) -> Result<TokenParser> {
+        self.create_parser_ext(grammar, self.buffer_log_level)
+    }
+
+    pub fn create_parser_ext(
+        &self,
+        grammar: TopLevelGrammar,
+        buffer_log_level: u32,
+    ) -> Result<TokenParser> {
         let mut parser = TokenParser::from_llguidance_json(
             self.tok_env.clone(),
             grammar,
-            Logger::new(self.buffer_log_level, self.stderr_log_level),
+            Logger::new(buffer_log_level, self.stderr_log_level),
             self.inference_caps.clone(),
             self.limits.clone(),
             self.extra_lexemes(),
