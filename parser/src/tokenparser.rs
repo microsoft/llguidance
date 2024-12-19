@@ -363,14 +363,10 @@ impl TokenParser {
 
         infoln!(self, "compute_mask");
 
-        let mut prefix = vec![]; 
+        let mut prefix = self.compute_ff_bytes();
 
         // if ff_tokens is enabled, we assume the user has already called compute_ff_tokens()
-        if !self.inference_caps.ff_tokens
-            && !self.parser.grammar().lexer_spec().no_forcing
-            && self.token_env.tokenize_is_canonical()
-        {
-            prefix = self.compute_ff_bytes();
+        if !self.inference_caps.ff_tokens && self.can_force_bytes() {
             let (ff_tokens, token_prefix) = self.ff_bytes_to_tokens(prefix);
             if ff_tokens.len() > 0 {
                 let t = ff_tokens[0];
@@ -514,9 +510,17 @@ impl TokenParser {
         self.pending_grm_prefix().len() > 0 || self.parser.currently_forced_bytes().len() > 0
     }
 
+    fn can_force_bytes(&self) -> bool {
+        !self.parser.grammar().lexer_spec().no_forcing && self.token_env.tokenize_is_canonical()
+    }
+
     fn compute_ff_bytes(&mut self) -> Vec<u8> {
         // PERF: in some cases, this may be long
-        let mut new_forced = self.parser.force_bytes().to_vec();
+        if self.can_force_bytes() {
+            self.parser.force_bytes();
+        }
+
+        let mut new_forced = self.parser.currently_forced_bytes().to_vec();
 
         // handle grm_prefix we might have injected
         if self.llm_bytes.len() < self.grm_prefix.len() {
