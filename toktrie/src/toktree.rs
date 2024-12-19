@@ -5,12 +5,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bytemuck_derive::{Pod, Zeroable};
-use hashbrown::HashMap;
 
-use crate::{
-    bytes::{to_hex_string, vec_from_bytes},
-    SimpleVob,
-};
+use crate::{bytes::to_hex_string, SimpleVob};
 
 pub type TokenId = u32;
 
@@ -102,6 +98,7 @@ pub trait Recognizer {
     fn get_error(&mut self) -> Option<String> {
         None
     }
+    fn save_stats(&mut self, _nodes_walked: usize) {}
 }
 
 pub trait TokenizerEnv: Send {
@@ -200,23 +197,6 @@ pub struct TokTrie {
     token_data: Vec<u8>,
     nodes: Vec<TrieNode>,
     max_token_len: usize,
-    token_duplicates: HashMap<TokenId, Vec<TokenId>>,
-}
-
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-pub struct TokTrieHeader {
-    magic: u32,
-    hd_size: u32,
-    trie_bytes: u32,
-    token_offset_bytes: u32,
-    token_data_bytes: u32,
-    info: BinTokRxInfo,
-    align: [u32; 0],
-}
-
-impl TokTrieHeader {
-    const MAGIC: u32 = 0x558b6fd3;
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
@@ -275,9 +255,11 @@ impl TokTrie {
         let mut token_offsets = Vec::new();
         let mut token_data = Vec::new();
         assert!(info.vocab_size == words.len() as u32);
+        let mut max_token_len = 0;
         for (idx, word) in words.iter().enumerate() {
             if word.len() > 0 {
                 trie.insert(word, idx as u32);
+                max_token_len = std::cmp::max(max_token_len, word.len());
             }
             assert!(word.len() < (1 << LEN_BITS));
             assert!(token_data.len() < (1 << (32 - LEN_BITS)));
@@ -287,15 +269,14 @@ impl TokTrie {
         }
         let mut nodes = Vec::new();
         trie.serialize(&mut nodes, 0);
-        let mut r = TokTrie {
+        let r = TokTrie {
             info: info.clone(),
             token_offsets,
             token_data,
             nodes,
-            max_token_len: 0,
-            token_duplicates: HashMap::default(),
+            max_token_len,
         };
-        r.finalize_ctor();
+        r.validate();
         r
     }
 
@@ -314,21 +295,6 @@ impl TokTrie {
 
     pub fn build_chat_mode_trie(&self) -> Self {
         self.with_eos_token(self.info.tok_end_of_turn.unwrap_or(self.info.tok_eos))
-    }
-
-    fn finalize_ctor(&mut self) {
-        for tok_id in 0..self.info.vocab_size {
-            let bytes = self.token(tok_id);
-            let tok_ids = self.greedy_tokenize(bytes);
-            self.max_token_len = std::cmp::max(self.max_token_len, bytes.len());
-            if tok_ids.len() == 1 && tok_ids[0] != tok_id {
-                self.token_duplicates
-                    .entry(tok_ids[0])
-                    .or_insert_with(Vec::new)
-                    .push(tok_id);
-            }
-        }
-        self.validate();
     }
 
     fn node_offset(&self, n: &TrieNode) -> usize {
@@ -627,31 +593,6 @@ impl TokTrie {
         return last;
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        let pref = std::mem::size_of::<TokTrieHeader>();
-        let hd: &TokTrieHeader = bytemuck::from_bytes(&bytes[0..pref]);
-
-        assert!(hd.magic == TokTrieHeader::MAGIC);
-        assert!(hd.hd_size as usize == pref);
-
-        let trie_end = pref + hd.trie_bytes as usize;
-        let nodes = vec_from_bytes(&bytes[pref..trie_end]);
-        let offsets_end = trie_end + hd.token_offset_bytes as usize;
-        let token_offsets = vec_from_bytes(&bytes[trie_end..offsets_end]);
-        let token_data = vec_from_bytes(&bytes[offsets_end..]);
-
-        let mut r = TokTrie {
-            info: TokRxInfo::from_bin(&hd.info),
-            token_offsets,
-            token_data,
-            nodes,
-            max_token_len: 0,
-            token_duplicates: HashMap::default(),
-        };
-        r.finalize_ctor();
-        r
-    }
-
     pub fn max_token_len(&self) -> usize {
         self.max_token_len
     }
@@ -680,28 +621,6 @@ impl TokTrie {
         }
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        let trie_data: &[u8] = bytemuck::cast_slice(&self.nodes);
-        let token_offsets: &[u8] = bytemuck::cast_slice(&self.token_offsets);
-        let token_data: &[u8] = bytemuck::cast_slice(&self.token_data);
-
-        let hd = TokTrieHeader {
-            magic: TokTrieHeader::MAGIC,
-            hd_size: std::mem::size_of::<TokTrieHeader>() as u32,
-            trie_bytes: trie_data.len() as u32,
-            token_offset_bytes: token_offsets.len() as u32,
-            token_data_bytes: trie_data.len() as u32,
-            info: self.info.to_bin(),
-            align: [],
-        };
-
-        let mut bytes = bytemuck::bytes_of(&hd).to_vec();
-        bytes.extend_from_slice(trie_data);
-        bytes.extend_from_slice(token_offsets);
-        bytes.extend_from_slice(token_data);
-        bytes
-    }
-
     pub fn root(&self) -> &TrieNode {
         &self.nodes[0]
     }
@@ -720,7 +639,15 @@ impl TokTrie {
                     .token_id()
                     .unwrap();
                 if tid != tid2 {
-                    assert!(self.token_duplicates[&tid2].contains(&tid));
+                    let par = self
+                        .child_at_bytes(root, &bytes[0..bytes.len() - 1])
+                        .unwrap();
+                    let has_it = self.node_children(par).any(|n| {
+                        n.subtree_size() == 1
+                            && n.byte() == bytes[bytes.len() - 1]
+                            && n.token_id() == Some(tid)
+                    });
+                    assert!(has_it);
                 }
             }
         }
@@ -791,17 +718,6 @@ impl TokTrie {
             }
         }
         self.add_bias(r, logits, start);
-        self.apply_duplicates(logits);
-    }
-
-    pub fn apply_duplicates(&self, logits: &mut SimpleVob) {
-        for (tok, dups) in &self.token_duplicates {
-            if logits.is_allowed(*tok) {
-                for &dup in dups {
-                    logits.allow_token(dup);
-                }
-            }
-        }
     }
 
     pub fn append_tokens(&self, r: &mut impl Recognizer, ts: &[TokenId]) -> Result<()> {
@@ -906,12 +822,8 @@ impl TokTrie {
     pub fn add_bias(&self, r: &mut impl Recognizer, toks: &mut SimpleVob, start: &[u8]) {
         // all prefixes of 'start' are also allowed
         if start.len() > 0 {
-            for len in 1..=start.len() {
-                let bytes = &start[0..len];
-                if let Some(tok) = self.token_id(bytes) {
-                    toks.allow_token(tok);
-                }
-            }
+            let mut fixed = FixedRecognizer::new(start);
+            self.add_bias(&mut fixed, toks, &[]);
         }
 
         let n = self.child_at_bytes(self.root(), start);
@@ -920,24 +832,32 @@ impl TokTrie {
         }
         let n = n.unwrap();
         r.trie_started("add_bias");
-        let next_pop = self.add_bias_inner(r, toks, n);
+        let (next_pop, nodes_walked) = self.add_bias_inner(r, toks, n);
         if start.len() == 0 {
             // if start was non-empty, trie_finished() is supposed to clean this up
             r.pop_bytes(next_pop);
         }
         r.trie_finished();
+        r.save_stats(nodes_walked);
         // revert the fake token
         let defl_tok = self.vocab_size() as u32;
         toks.disallow_token(defl_tok);
     }
 
     #[inline(never)]
-    fn add_bias_inner(&self, r: &mut impl Recognizer, toks: &mut SimpleVob, n: &TrieNode) -> usize {
+    fn add_bias_inner(
+        &self,
+        r: &mut impl Recognizer,
+        toks: &mut SimpleVob,
+        n: &TrieNode,
+    ) -> (usize, usize) {
         let defl_tok = self.vocab_size() as u32;
         let off = self.node_offset(n);
+        let total_nodes = n.subtree_size();
         let mut p = off + 1;
-        let endp = off + n.subtree_size();
+        let endp = off + total_nodes;
         let mut next_pop = 0;
+        let mut num_skip = 0;
         while p < endp {
             r.pop_bytes(next_pop);
             let n = &self.nodes[p];
@@ -951,11 +871,20 @@ impl TokTrie {
                 };
                 p += 1;
             } else {
-                p += n.subtree_size();
+                let subtree_size = n.subtree_size();
+                p += subtree_size;
+                // it's slightly faster to count skipped nodes, than walked nodes
+                num_skip += subtree_size - 1;
                 next_pop = n.num_parents() - 1;
             }
         }
-        next_pop
+        (next_pop, total_nodes - num_skip)
+    }
+
+    pub fn all_tokens(&self) -> Vec<Vec<u8>> {
+        (0..self.vocab_size())
+            .map(|idx| self.token(idx as u32).to_vec())
+            .collect()
     }
 
     pub fn sorted_tokens(&self) -> Vec<(u32, Vec<u8>)> {
@@ -1122,19 +1051,23 @@ impl TrieHash {
         if word.len() == 0 {
             // Some tokenizers have duplicate tokens...
             // we just override
-            // assert!(self.token_id == NO_TOKEN);
+            assert!(self.token_id == NO_TOKEN);
             self.token_id = token_id;
         } else {
-            if self.children.len() == 0x100 {
-                // assert!(self.children[word[0] as usize].byte == word[0]);
-                self.children[word[0] as usize].insert(&word[1..], token_id);
-                return;
-            }
+            // if self.children.len() == 0x100 {
+            //     // assert!(self.children[word[0] as usize].byte == word[0]);
+            //     self.children[word[0] as usize].insert(&word[1..], token_id);
+            //     return;
+            // }
 
             for ch in &mut self.children {
                 if ch.byte == word[0] {
-                    ch.insert(&word[1..], token_id);
-                    return;
+                    if word.len() == 1 && ch.token_id != NO_TOKEN {
+                        // this is duplicate token, proceed with adding a duplicate node
+                    } else {
+                        ch.insert(&word[1..], token_id);
+                        return;
+                    }
                 }
             }
 
@@ -1146,25 +1079,61 @@ impl TrieHash {
             // for cl100k threshold 60->15 nodes, 50->22, 40->45 30->94
             // for llama (32k) 50->5, 40->15
             // TODO remove this?
-            if self.children.len() > 250 {
-                let mut v2 = (0..=255).map(TrieHash::new).collect::<Vec<_>>();
-                for ch in self.children.drain(..) {
-                    let idx = ch.byte as usize;
-                    v2[idx] = ch;
-                }
-                self.children = v2;
-            }
+            // if self.children.len() > 250 {
+            //     let mut v2 = (0..=255).map(TrieHash::new).collect::<Vec<_>>();
+            //     for ch in self.children.drain(..) {
+            //         let idx = ch.byte as usize;
+            //         v2[idx] = ch;
+            //     }
+            //     self.children = v2;
+            // }
         }
     }
     fn serialize(&mut self, data: &mut Vec<TrieNode>, num_parents: u8) {
         let idx = data.len();
         let mut num_ch = self.children.len();
         data.push(TrieNode::new(self.byte, self.token_id, num_parents));
+        //self.children.reverse();
         self.children.sort_by_key(|e| e.byte);
         for entry in &mut self.children {
             num_ch -= 1;
             entry.serialize(data, if num_ch == 0 { num_parents + 1 } else { 1 });
         }
         data[idx].bits2 |= ((data.len() - idx) as u32) << 8;
+    }
+}
+
+struct FixedRecognizer {
+    bytes: Vec<u8>,
+    bytes_ptr: usize,
+}
+
+impl FixedRecognizer {
+    fn new(bytes: &[u8]) -> FixedRecognizer {
+        FixedRecognizer {
+            bytes: bytes.to_vec(),
+            bytes_ptr: 0,
+        }
+    }
+}
+
+impl Recognizer for FixedRecognizer {
+    fn collapse(&mut self) {}
+    fn trie_finished(&mut self) {}
+    fn special_allowed(&mut self, _: SpecialToken) -> bool {
+        false
+    }
+
+    fn pop_bytes(&mut self, num: usize) {
+        self.bytes_ptr -= num;
+    }
+
+    fn try_push_byte(&mut self, byte: u8) -> bool {
+        if self.bytes_ptr < self.bytes.len() && self.bytes[self.bytes_ptr] == byte {
+            self.bytes_ptr += 1;
+            true
+        } else {
+            false
+        }
     }
 }

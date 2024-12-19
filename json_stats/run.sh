@@ -7,7 +7,7 @@ else
 fi
 
 if [ -z "$PERF" ]; then
-    cargo run --release $DEFAULT_ARGS "$@"
+    cargo run --release -- $DEFAULT_ARGS "$@"
 else
     PERF='perf record -F 999 -g'
     RUSTFLAGS='-C force-frame-pointers=y' cargo build --profile perf

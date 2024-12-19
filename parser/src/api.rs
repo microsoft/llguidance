@@ -382,7 +382,7 @@ pub struct ParserLimits {
     pub step_max_items: usize,
 
     /// Maximum number of lexer states.
-    /// Default: 10_000
+    /// Default: 50_000
     pub max_lexer_states: usize,
 
     /// Maximum size of the grammar (symbols in productions)
@@ -396,7 +396,7 @@ impl Default for ParserLimits {
             max_items_in_row: 2000,
             initial_lexer_fuel: 1_000_000, // fhir schema => 500k
             step_lexer_fuel: 200_000,      //
-            max_lexer_states: 10_000,      // ?
+            max_lexer_states: 50_000,      // ?
             max_grammar_size: 500_000,     // fhir schema => 200k
             step_max_items: 50_000,        //
         }

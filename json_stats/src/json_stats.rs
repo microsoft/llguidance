@@ -3,6 +3,7 @@ use clap::Parser;
 use json_stats::SchemaStats;
 use jsonschema::Validator;
 use llguidance::{
+    earley::regexvec::LexerStats,
     toktrie::{InferenceCapabilities, TokEnv},
     Constraint, JsonCompileOptions, ParserFactory, TokenParser,
 };
@@ -12,7 +13,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{Read, Write},
-    sync::Arc,
+    sync::{atomic::AtomicUsize, Arc},
 };
 
 use rayon::prelude::*;
@@ -43,6 +44,12 @@ pub struct CliOptions {
     llg_slicer: bool,
 
     #[arg(long)]
+    llg_no_forcing: bool,
+
+    #[arg(long)]
+    csv: bool,
+
+    #[arg(long)]
     num_threads: Option<usize>,
 
     #[arg(long)]
@@ -53,6 +60,9 @@ pub struct CliOptions {
 
     #[arg(long)]
     additional_features: bool,
+
+    #[arg(long, default_value = "meta-llama/Llama-3.1-8B-Instruct")]
+    tokenizer: String,
 
     // .json files or folders with .json files
     #[arg(value_name = "FILES")]
@@ -68,11 +78,15 @@ struct LlgResult {
     #[serde(skip_serializing_if = "is_zero")]
     ttfm_us: usize,
     #[serde(skip_serializing_if = "is_zero")]
+    max_ttfm_us: usize,
+    #[serde(skip_serializing_if = "is_zero")]
     masks_us: usize,
     #[serde(skip_serializing_if = "is_zero")]
     max_mask_us: usize,
     #[serde(skip_serializing_if = "is_zero")]
     slicer_leftover_us: usize,
+
+    one: usize,
 
     num_tokens: usize,
     num_tests: usize,
@@ -85,6 +99,11 @@ struct LlgResult {
     max_sum_parser_items: usize,
     max_parser_items: usize,
     max_lexer_cost: u64,
+    max_lexer_states: usize,
+    lexer_cost: u64,
+    trie_nodes_walked: usize,
+
+    lexer_stats: LexerStats,
 
     #[serde(skip)]
     slow_mask_count: [usize; MASK_STEPS],
@@ -212,8 +231,10 @@ impl TestEnv {
 
         stats.num_tests += 1;
 
+        // println!("tokenized: {}", trie.tokens_dbg(&tokens));
+
         for (tidx, &token) in tokens.iter().enumerate() {
-            //println!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
+            // eprintln!("WILL TEST {}: {}", tidx, trie.token_dbg(token));
 
             stats.num_tokens += 1;
 
@@ -223,9 +244,36 @@ impl TestEnv {
                 let us = t0.elapsed().as_micros() as usize;
                 let pstats = parser.last_step_stats();
 
+                // && pstats.lexer_cost < 7 * us as u64
+                if self.cli.csv && us > 1000 {
+                    static CSV_LINE: AtomicUsize = AtomicUsize::new(0);
+                    let line_no = CSV_LINE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if line_no == 0 {
+                        println!("MASK,us,lexer_cost,slices,items,rows,cached_rows,trie_nodes,allowed_tokens,est_time");
+                    }
+                    println!(
+                        "{},{},{},{},{},{},{},{},{},{}",
+                        if us > 1000 { "SLOW" } else { "OK" },
+                        us,
+                        pstats.lexer_cost,
+                        pstats.slices_applied,
+                        pstats.all_items,
+                        pstats.rows,
+                        pstats.cached_rows,
+                        pstats.trie_nodes_walked,
+                        m.num_set(),
+                        (pstats.trie_nodes_walked as u64 * 4 + pstats.lexer_cost * 60) / 1000
+                    );
+                    // eprintln!("{}", parser.parser.lexer_stats());
+
+                    // eprintln!("{:?}", pstats);
+                }
+
                 stats.sum_parser_items += pstats.all_items;
                 stats.max_parser_items = std::cmp::max(stats.max_parser_items, pstats.all_items);
                 stats.max_lexer_cost = std::cmp::max(stats.max_lexer_cost, pstats.lexer_cost);
+                stats.lexer_cost += pstats.lexer_cost;
+                stats.trie_nodes_walked += pstats.trie_nodes_walked;
 
                 let step = us.next_power_of_two().trailing_zeros() as usize;
                 let step = std::cmp::min(step, MASK_STEPS - 1);
@@ -233,7 +281,7 @@ impl TestEnv {
                 stats.slow_mask_count[step] += 1;
                 stats.slow_mask_us[step] += us;
 
-                assert!(pstats.slices_applied <= 1);
+                // assert!(pstats.slices_applied <= 1);
 
                 let is_big = m.num_set() >= 120_000;
                 let sliced = pstats.slices_applied > 0;
@@ -301,6 +349,9 @@ impl TestEnv {
         let m = parser.parser.metrics_mut();
         stats.slicer_leftover_us += m.slicer_leftover_us;
 
+        let lx = parser.parser.lexer_stats();
+        stats.max_lexer_states = std::cmp::max(stats.max_lexer_states, lx.num_states);
+
         r
     }
 
@@ -311,7 +362,7 @@ impl TestEnv {
         let t0 = std::time::Instant::now();
         let schema = opts.json_to_llg(test_file.schema.clone());
 
-        let schema = match schema {
+        let mut schema = match schema {
             Ok(schema) => schema,
             Err(e) => {
                 res.compile_error = Some(format!("{e}"));
@@ -321,6 +372,10 @@ impl TestEnv {
             }
         };
 
+        if self.cli.llg_no_forcing {
+            schema.grammars[0].no_forcing = true;
+        }
+
         let parser = self.factory.create_parser(schema);
 
         let parser = match parser {
@@ -328,6 +383,8 @@ impl TestEnv {
                 let mut constraint = Constraint::new(parser.clone());
                 constraint.compute_mask().unwrap();
                 res.ttfm_us = t0.elapsed().as_micros() as usize;
+                res.max_ttfm_us = res.ttfm_us;
+                res.one = 1;
                 parser
                 // eprintln!("{} OK", file);
             }
@@ -338,6 +395,8 @@ impl TestEnv {
                 return res;
             }
         };
+
+        res.lexer_stats = parser.parser.lexer_stats();
 
         if self.cli.llg_test {
             for (idx, t) in test_file.tests.iter().enumerate() {
@@ -523,18 +582,12 @@ fn main() {
         files.retain(|f| !f.contains("Handwritten") && !f.contains("Synthesized"));
     }
 
-    // "microsoft/Phi-3.5-mini-instruct"
-    let tok_env: TokEnv = toktrie_hf_tokenizers::ByteTokenizerEnv::from_name(
-        "meta-llama/Llama-3.1-8B-Instruct",
-        None,
-    )
-    .unwrap()
-    .to_env();
+    let tok_env: TokEnv =
+        toktrie_hf_tokenizers::ByteTokenizerEnv::from_name(&options.tokenizer, None)
+            .unwrap()
+            .to_env();
 
-    let mut slices = vec![
-        r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string(),
-        // r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
-    ];
+    let mut slices = llguidance::earley::SlicedBiasComputer::json_slices();
     if !options.llg_slicer {
         slices.clear();
     }
@@ -551,6 +604,9 @@ fn main() {
     );
     factory.quiet();
     let factory = Arc::new(factory);
+
+    save_text_to_file("tmp/slices.txt", &factory.slicer().stats(false));
+    save_text_to_file("tmp/slices_tokens.txt", &factory.slicer().stats(true));
 
     let t0 = std::time::Instant::now();
     let par = num_threads > 1;
@@ -692,13 +748,12 @@ fn main() {
         }
     }
 
-    println!("{}", serde_json::to_string_pretty(&total).unwrap());
-    println!(
+    eprintln!("{}", serde_json::to_string_pretty(&total).unwrap());
+    eprintln!(
         "LLG: {}",
         serde_json::to_string_pretty(&llg_totals).unwrap()
     );
-
-    println!("Total time: {}ms", t0.elapsed().as_millis());
+    eprintln!("Total time: {}ms", t0.elapsed().as_millis());
 
     save_text_to_file("tmp/mask_histogram.csv", &histogram_csv);
     save_json_to_file("tmp/test_total.json", &total);

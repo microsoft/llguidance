@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use derivre::AlphabetInfo;
+
 use crate::{
     derivre::Regex,
     earley::{BiasComputer, ParserRecognizer},
@@ -16,8 +18,9 @@ struct TokenizerSlice {
 }
 
 pub struct SlicedBiasComputer {
-    tok_env: TokEnv,
+    wildcard_slice: TokTrie,
     slices: Arc<Vec<TokenizerSlice>>,
+    tok_env: TokEnv,
 }
 
 const DEBUG: bool = ITEM_TRACE;
@@ -31,6 +34,19 @@ macro_rules! debug {
 }
 
 impl SlicedBiasComputer {
+    pub fn json_slices() -> Vec<String> {
+        vec![
+            r#"[^"\\\x00-\x1F\x7F]{1,10}"#.to_string(),
+            r#"[^"\\\x00-\x1F\x7F]{1,30}"#.to_string(),
+            r#"[^"\\\x00-\x1F\x7F]+"#.to_string(),
+        ]
+    }
+
+    pub fn general_slices() -> Vec<String> {
+        // to be improved in future
+        Self::json_slices()
+    }
+
     pub fn new(tok_env: &TokEnv, regexes: &Vec<String>) -> Self {
         let mut slices = vec![];
 
@@ -38,7 +54,6 @@ impl SlicedBiasComputer {
         let n_vocab = trie.vocab_size() as TokenId;
         let mut covered = trie.alloc_token_set();
         let mut idx = 0;
-        let mut total_nodes = 0;
         let mut regexes = regexes.clone();
         if regexes.len() > 0 {
             regexes.push("".to_string()); // catch-all
@@ -79,38 +94,91 @@ impl SlicedBiasComputer {
                 trie: TokTrie::from(trie.info(), &tokens),
                 mask,
             };
-            debug!(
-                "slice{}: /{}/ -> {}",
-                idx,
-                entry.regex,
-                entry.trie.trie_stats()
-            );
-            if false && DEBUG && entry.regex == "" {
-                for (tok_idx, b) in entry.trie.sorted_tokens() {
-                    if b.len() > 0 {
-                        debug!("  tok{}-> {}", tok_idx, entry.trie.token_dbg(tok_idx));
-                    }
-                }
-            }
-            total_nodes += entry.trie.root().subtree_size();
 
             slices.push(entry);
 
             idx += 1;
         }
-        if total_nodes > 0 {
-            debug!("total_nodes: {}", total_nodes);
-        }
 
-        SlicedBiasComputer {
-            tok_env: tok_env.clone(),
+        let r = SlicedBiasComputer {
             slices: Arc::new(slices),
+            wildcard_slice: trie.clone(),
+            tok_env: tok_env.clone(),
+        };
+
+        debug!("slicer:\n{}", r.stats(false));
+
+        r
+    }
+
+    pub fn stats(&self, include_tokens: bool) -> String {
+        let mut total_nodes = 0;
+        let mut s = String::new();
+        for (i, slice) in self.slices.iter().enumerate() {
+            total_nodes += slice.trie.root().subtree_size();
+            s.push_str(&format!(
+                "slice{}: /{}/ -> {}\n",
+                i,
+                slice.regex,
+                slice.trie.trie_stats()
+            ));
+            if include_tokens {
+                for (tok_idx, b) in slice.trie.sorted_tokens() {
+                    if b.len() > 0 {
+                        s.push_str(&format!(
+                            "  tok{}-> {}\n",
+                            tok_idx,
+                            slice.trie.token_dbg(tok_idx)
+                        ));
+                    }
+                }
+            }
         }
+        s.push_str(&format!("total_nodes: {}\n", total_nodes));
+        s.push_str(&format!("WILDCARD: {}\n", self.wildcard_slice.trie_stats()));
+        s
     }
 
     pub fn extra_lexemes(&self) -> Vec<String> {
         self.slices.iter().map(|s| s.regex.clone()).collect()
     }
+
+    pub fn compress(&self, ai: &AlphabetInfo) -> Self {
+        let slices = self
+            .slices
+            .iter()
+            .map(|s| TokenizerSlice {
+                idx: s.idx,
+                regex: s.regex.clone(),
+                trie: compress_trie(&s.trie, ai),
+                mask: s.mask.clone(),
+            })
+            .collect();
+        SlicedBiasComputer {
+            wildcard_slice: compress_trie(&self.wildcard_slice, ai),
+            slices: Arc::new(slices),
+            tok_env: self.tok_env.clone(),
+        }
+    }
+}
+
+fn compress_trie(trie: &TokTrie, ai: &AlphabetInfo) -> TokTrie {
+    let mut tokens = trie.all_tokens();
+    let mut repr = vec![None; 256];
+    let repr2 = (0..=255)
+        .map(|b| {
+            if repr[ai.map(b)].is_none() {
+                repr[ai.map(b)] = Some(b);
+            }
+            repr[ai.map(b)].unwrap()
+        })
+        .collect::<Vec<u8>>();
+    for t in tokens.iter_mut() {
+        for i in 0..t.len() {
+            t[i] = repr2[t[i] as usize];
+        }
+    }
+    TokTrie::from(trie.info(), &tokens)
 }
 
 impl BiasComputer for SlicedBiasComputer {
@@ -121,9 +189,8 @@ impl BiasComputer for SlicedBiasComputer {
             && start.is_empty()
             && rec.lexer_mut().subsume_possible(lexer_state)
         {
-            // for JSON string lexer and /[a-zA-Z\u{0080}-\u{10FFFF}]+/ kind of slices
-            // we use about 200 of the budget and it takes around 20us
-            let budget = 5500;
+            // set to at least 500
+            let budget = 1000;
             let slice_matches = self
                 .slices
                 .iter()
@@ -138,7 +205,7 @@ impl BiasComputer for SlicedBiasComputer {
 
             if slice_matches.iter().all(|&x| x == false) {
                 // if nothing matches, just run the full trie
-                self.trie().add_bias(rec, &mut set, start);
+                self.wildcard_slice.add_bias(rec, &mut set, start);
                 debug!("no slice matches; {} tokens", set.num_set());
             } else {
                 // otherwise, apply the matching slices, and compute the rest
@@ -167,7 +234,7 @@ impl BiasComputer for SlicedBiasComputer {
                 }
             }
         } else {
-            self.trie().add_bias(rec, &mut set, start);
+            self.wildcard_slice.add_bias(rec, &mut set, start);
             debug!("slicer disabled; {} tokens", set.num_set());
         }
 

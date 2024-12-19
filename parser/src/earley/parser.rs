@@ -12,7 +12,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Result};
-use derivre::{RegexAst, StateID};
+use derivre::{AlphabetInfo, RegexAst, StateID};
 use hashbrown::HashSet;
 use instant::Instant;
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,7 @@ use super::{
     grammar::{CGrammar, CSymIdx, CSymbol, RhsPtr},
     lexer::{LexerResult, PreLexeme},
     lexerspec::{Lexeme, LexemeIdx, LexerSpec},
+    regexvec::LexerStats,
 };
 
 const TRACE: bool = false;
@@ -72,6 +73,7 @@ pub struct ParserStats {
     pub all_items: usize,
     pub lexer_cost: u64,
     pub slices_applied: usize,
+    pub trie_nodes_walked: usize,
 
     pub definitive_bytes: usize,
     pub lexer_ops: usize,
@@ -142,6 +144,9 @@ impl ParserStats {
                 .compute_time_us
                 .saturating_sub(previous.compute_time_us),
             slices_applied: self.slices_applied.saturating_sub(previous.slices_applied),
+            trie_nodes_walked: self
+                .trie_nodes_walked
+                .saturating_sub(previous.trie_nodes_walked),
         }
     }
 
@@ -157,6 +162,7 @@ impl ParserStats {
             lexer_cost: self.lexer_cost.max(other.lexer_cost),
             compute_time_us: self.compute_time_us.max(other.compute_time_us),
             slices_applied: self.slices_applied.max(other.slices_applied),
+            trie_nodes_walked: self.trie_nodes_walked.max(other.trie_nodes_walked),
         }
     }
 }
@@ -635,8 +641,6 @@ impl ParserState {
             .greedy_tokenize(&[TokTrie::SPECIAL_TOKEN_MARKER]);
         assert!(toks.len() == 1);
         set.disallow_token(toks[0]);
-
-        computer.trie().apply_duplicates(&mut set);
 
         if set.is_zero() {
             // nothing allowed
@@ -2106,6 +2110,10 @@ impl<'a> Recognizer for ParserRecognizer<'a> {
 
         r
     }
+
+    fn save_stats(&mut self, nodes_walked: usize) {
+        self.state.stats.trie_nodes_walked += nodes_walked;
+    }
 }
 
 fn item_to_string(g: &CGrammar, item: &Item) -> String {
@@ -2170,8 +2178,14 @@ impl Parser {
         self.state.hidden_start(shared.lexer_mut())
     }
 
-    pub fn lexer_stats(&self) -> String {
+    pub fn lexer_stats(&self) -> LexerStats {
         self.shared.lock().unwrap().lexer().dfa.stats()
+    }
+
+    pub fn with_alphabet_info<T>(&self, f: impl FnOnce(&AlphabetInfo) -> T) -> T {
+        let a = self.shared.lock().unwrap();
+        let a = a.lexer().dfa.alpha();
+        f(a)
     }
 
     pub fn get_error(&self) -> Option<ParserError> {

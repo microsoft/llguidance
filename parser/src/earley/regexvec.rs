@@ -6,12 +6,55 @@
 /// https://www.khoury.northeastern.edu/home/turon/re-deriv.pdf (retrieved 15 Nov 2024)
 use anyhow::{bail, Result};
 use derivre::raw::{DerivCache, ExprSet, NextByteCache, RelevanceCache, VecHashCons};
-use std::{fmt::Debug, u64};
+use serde::{Deserialize, Serialize};
+use std::{
+    fmt::{Debug, Display},
+    u64,
+};
 use toktrie::SimpleVob;
 
 pub use derivre::{AlphabetInfo, ExprRef, NextByte, StateID};
 
 use crate::api::ParserLimits;
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct LexerStats {
+    pub num_regexps: usize,
+    pub num_ast_nodes: usize,
+    pub num_derived: usize,
+    pub num_derivatives: usize,
+    pub total_fuel_spent: usize,
+    pub num_states: usize,
+    pub num_transitions: usize,
+    pub num_bytes: usize,
+    pub alphabet_size: usize,
+    pub error: bool,
+}
+
+impl Display for LexerStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "regexps: {} with {} nodes (+ {} derived via {} derivatives with total fuel {}), states: {}; transitions: {}; bytes: {}; alphabet size: {} {}",
+            self.num_regexps,
+            self.num_ast_nodes,
+            self.num_derived,
+            self.num_derivatives,
+            self.total_fuel_spent,
+            self.num_states,
+            self.num_transitions,
+            self.num_bytes,
+            self.alphabet_size,
+            if self.error { "ERROR" } else { "" }
+        )
+    }
+}
+
+impl Debug for LexerStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
 
 #[derive(Clone)]
 pub struct RegexVec {
@@ -158,7 +201,6 @@ impl RegexVec {
         let t0 = instant::Instant::now();
         assert!(self.subsume_possible(state));
         let small = self.rx_list[lexeme_idx];
-        self.set_fuel(u64::MAX);
         let mut res = false;
         for (idx, e) in iter_state(&self.rx_sets, state) {
             assert!(!self.lazy[idx]);
@@ -351,22 +393,19 @@ impl RegexVec {
         }
     }
 
-    pub fn stats(&self) -> String {
-        format!(
-            "regexps: {} with {} nodes (+ {} derived via {} derivatives with total fuel {}), states: {}; transitions: {}; bytes: {}; alphabet size: {} {}",
-            self.rx_list.len(),
-            self.num_ast_nodes,
-            self.exprs.len() - self.num_ast_nodes,
-            self.deriv.num_deriv,
-            self.total_fuel_spent(),
-            self.state_descs.len(),
-            self.num_transitions,
-            self.num_bytes(),
-            self.alpha.len(),
-            if self.has_error() {
-                "ERROR"
-            } else { "" }
-        )
+    pub fn stats(&self) -> LexerStats {
+        LexerStats {
+            num_regexps: self.rx_list.len(),
+            num_ast_nodes: self.num_ast_nodes,
+            num_derived: self.exprs.len() - self.num_ast_nodes,
+            num_derivatives: self.deriv.num_deriv,
+            total_fuel_spent: self.total_fuel_spent() as usize,
+            num_states: self.state_descs.len(),
+            num_transitions: self.num_transitions,
+            num_bytes: self.num_bytes(),
+            alphabet_size: self.alpha.len(),
+            error: self.has_error(),
+        }
     }
 
     pub fn print_state_table(&self) {
