@@ -642,8 +642,6 @@ impl ParserState {
         assert!(toks.len() == 1);
         set.disallow_token(toks[0]);
 
-        computer.trie().apply_duplicates(&mut set);
-
         if set.is_zero() {
             // nothing allowed
             // we're going to be stopped outside - we better flush the lexer

@@ -5,12 +5,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use bytemuck_derive::{Pod, Zeroable};
-use hashbrown::HashMap;
 
-use crate::{
-    bytes::{to_hex_string, vec_from_bytes},
-    SimpleVob,
-};
+use crate::{bytes::to_hex_string, SimpleVob};
 
 pub type TokenId = u32;
 
@@ -201,23 +197,6 @@ pub struct TokTrie {
     token_data: Vec<u8>,
     nodes: Vec<TrieNode>,
     max_token_len: usize,
-    token_duplicates: HashMap<TokenId, Vec<TokenId>>,
-}
-
-#[derive(Clone, Copy, Zeroable, Pod)]
-#[repr(C)]
-pub struct TokTrieHeader {
-    magic: u32,
-    hd_size: u32,
-    trie_bytes: u32,
-    token_offset_bytes: u32,
-    token_data_bytes: u32,
-    info: BinTokRxInfo,
-    align: [u32; 0],
-}
-
-impl TokTrieHeader {
-    const MAGIC: u32 = 0x558b6fd3;
 }
 
 #[derive(Clone, Copy, Zeroable, Pod)]
@@ -276,9 +255,11 @@ impl TokTrie {
         let mut token_offsets = Vec::new();
         let mut token_data = Vec::new();
         assert!(info.vocab_size == words.len() as u32);
+        let mut max_token_len = 0;
         for (idx, word) in words.iter().enumerate() {
             if word.len() > 0 {
                 trie.insert(word, idx as u32);
+                max_token_len = std::cmp::max(max_token_len, word.len());
             }
             assert!(word.len() < (1 << LEN_BITS));
             assert!(token_data.len() < (1 << (32 - LEN_BITS)));
@@ -288,15 +269,14 @@ impl TokTrie {
         }
         let mut nodes = Vec::new();
         trie.serialize(&mut nodes, 0);
-        let mut r = TokTrie {
+        let r = TokTrie {
             info: info.clone(),
             token_offsets,
             token_data,
             nodes,
-            max_token_len: 0,
-            token_duplicates: HashMap::default(),
+            max_token_len,
         };
-        r.finalize_ctor();
+        r.validate();
         r
     }
 
@@ -315,21 +295,6 @@ impl TokTrie {
 
     pub fn build_chat_mode_trie(&self) -> Self {
         self.with_eos_token(self.info.tok_end_of_turn.unwrap_or(self.info.tok_eos))
-    }
-
-    fn finalize_ctor(&mut self) {
-        for tok_id in 0..self.info.vocab_size {
-            let bytes = self.token(tok_id);
-            let tok_ids = self.greedy_tokenize(bytes);
-            self.max_token_len = std::cmp::max(self.max_token_len, bytes.len());
-            if tok_ids.len() == 1 && tok_ids[0] != tok_id {
-                self.token_duplicates
-                    .entry(tok_ids[0])
-                    .or_insert_with(Vec::new)
-                    .push(tok_id);
-            }
-        }
-        self.validate();
     }
 
     fn node_offset(&self, n: &TrieNode) -> usize {
@@ -628,31 +593,6 @@ impl TokTrie {
         return last;
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        let pref = std::mem::size_of::<TokTrieHeader>();
-        let hd: &TokTrieHeader = bytemuck::from_bytes(&bytes[0..pref]);
-
-        assert!(hd.magic == TokTrieHeader::MAGIC);
-        assert!(hd.hd_size as usize == pref);
-
-        let trie_end = pref + hd.trie_bytes as usize;
-        let nodes = vec_from_bytes(&bytes[pref..trie_end]);
-        let offsets_end = trie_end + hd.token_offset_bytes as usize;
-        let token_offsets = vec_from_bytes(&bytes[trie_end..offsets_end]);
-        let token_data = vec_from_bytes(&bytes[offsets_end..]);
-
-        let mut r = TokTrie {
-            info: TokRxInfo::from_bin(&hd.info),
-            token_offsets,
-            token_data,
-            nodes,
-            max_token_len: 0,
-            token_duplicates: HashMap::default(),
-        };
-        r.finalize_ctor();
-        r
-    }
-
     pub fn max_token_len(&self) -> usize {
         self.max_token_len
     }
@@ -681,28 +621,6 @@ impl TokTrie {
         }
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
-        let trie_data: &[u8] = bytemuck::cast_slice(&self.nodes);
-        let token_offsets: &[u8] = bytemuck::cast_slice(&self.token_offsets);
-        let token_data: &[u8] = bytemuck::cast_slice(&self.token_data);
-
-        let hd = TokTrieHeader {
-            magic: TokTrieHeader::MAGIC,
-            hd_size: std::mem::size_of::<TokTrieHeader>() as u32,
-            trie_bytes: trie_data.len() as u32,
-            token_offset_bytes: token_offsets.len() as u32,
-            token_data_bytes: trie_data.len() as u32,
-            info: self.info.to_bin(),
-            align: [],
-        };
-
-        let mut bytes = bytemuck::bytes_of(&hd).to_vec();
-        bytes.extend_from_slice(trie_data);
-        bytes.extend_from_slice(token_offsets);
-        bytes.extend_from_slice(token_data);
-        bytes
-    }
-
     pub fn root(&self) -> &TrieNode {
         &self.nodes[0]
     }
@@ -721,7 +639,15 @@ impl TokTrie {
                     .token_id()
                     .unwrap();
                 if tid != tid2 {
-                    assert!(self.token_duplicates[&tid2].contains(&tid));
+                    let par = self
+                        .child_at_bytes(root, &bytes[0..bytes.len() - 1])
+                        .unwrap();
+                    let has_it = self.node_children(par).any(|n| {
+                        n.subtree_size() == 1
+                            && n.byte() == bytes[bytes.len() - 1]
+                            && n.token_id() == Some(tid)
+                    });
+                    assert!(has_it);
                 }
             }
         }
@@ -792,20 +718,6 @@ impl TokTrie {
             }
         }
         self.add_bias(r, logits, start);
-        self.apply_duplicates(logits);
-    }
-
-    pub fn apply_duplicates(&self, logits: &mut SimpleVob) {
-        if false {
-            for (tok, dups) in &self.token_duplicates {
-                if logits.is_allowed(*tok) {
-                    for &dup in dups {
-                        assert!(logits.is_allowed(dup), "dup: {} {}", tok, dup);
-                        // logits.allow_token(dup);
-                    }
-                }
-            }
-        }
     }
 
     pub fn append_tokens(&self, r: &mut impl Recognizer, ts: &[TokenId]) -> Result<()> {
